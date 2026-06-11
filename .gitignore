@@ -91,6 +91,7 @@ dashboard/public/backtest/survival_journey_run*.json
 dashboard/public/backtest/survival_journey_ai_run*.json
 # Provider-comparison leg (Gemini-only full run; same rationale).
 dashboard/public/backtest/survival_journey_ai_gemini.json
+dashboard/public/backtest/survival_journey_ai_gemini_run*.json
 
 # Build / temp
 tmp/

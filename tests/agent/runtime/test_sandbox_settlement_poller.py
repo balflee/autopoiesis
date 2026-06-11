@@ -265,6 +265,7 @@ def _build_poller(
     sleeper: Any | None = None,
     clock_now: datetime | None = None,
     max_bet_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
 ) -> tuple[SandboxSettlementPoller, FakeWeightUpdater, FakeChainAdapter, FakeStateHook, FakeSleeper]:
     wu = weight_updater or FakeWeightUpdater()
     ca = chain_adapter or FakeChainAdapter()
@@ -279,6 +280,7 @@ def _build_poller(
         clock=FixedClock(clock_now or datetime(2026, 5, 26, 20, 0, 0, tzinfo=UTC)),
         sleeper=sl,
         max_bet_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
     )
     return poller, wu, ca, sh, sl
 
@@ -459,6 +461,87 @@ def test_poller_cap_threads_to_settled_record_and_breath(
     assert settled[0]["pnl_usd"] == pytest.approx(100.0)
     # Breath update saw the SAME clamped value (not the $9,995 lottery).
     assert ca.calls == [pytest.approx(100.0)]
+
+
+# --------------------------------------------------------------------------- #
+# 2c. Optional side-correct pricing (realism rule #3).
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_pnl_side_correct_no_winner_paid_at_complement() -> None:
+    """NO win at yes-mid 0.10: legacy pays $45 (YES odds); corrected pays the
+    NO leg's odds — 5*(1/0.9-1) ≈ $0.556."""
+    bet = BetRecord(
+        bet_id="b", ts="t", market_id="m", side="NO", price=0.10, size_usd=5.0,
+        expected_settle_ts="t", status="open",
+    )
+    out = _resolved_result(outcome="no", winning_price=1.0)
+    assert _compute_pnl(
+        bet=bet, outcome=out, side_correct_pricing=True
+    ) == pytest.approx(5.0 * (1.0 / 0.90 - 1.0))
+
+
+def test_compute_pnl_side_correct_default_off_is_legacy() -> None:
+    bet = BetRecord(
+        bet_id="b", ts="t", market_id="m", side="NO", price=0.10, size_usd=5.0,
+        expected_settle_ts="t", status="open",
+    )
+    out = _resolved_result(outcome="no", winning_price=1.0)
+    assert _compute_pnl(bet=bet, outcome=out) == pytest.approx(45.0)
+
+
+def test_compute_pnl_side_correct_loser_unchanged() -> None:
+    bet = BetRecord(
+        bet_id="b", ts="t", market_id="m", side="NO", price=0.10, size_usd=5.0,
+        expected_settle_ts="t", status="open",
+    )
+    out = _resolved_result(outcome="yes", winning_price=1.0)
+    assert _compute_pnl(
+        bet=bet, outcome=out, side_correct_pricing=True
+    ) == pytest.approx(-5.0)
+
+
+def test_compute_pnl_side_correct_yes_winner_unchanged() -> None:
+    bet = BetRecord(
+        bet_id="b", ts="t", market_id="m", side="YES", price=0.4, size_usd=10.0,
+        expected_settle_ts="t", status="open",
+    )
+    out = _resolved_result(outcome="yes", winning_price=1.0)
+    assert _compute_pnl(
+        bet=bet, outcome=out, side_correct_pricing=True
+    ) == pytest.approx(15.0)
+
+
+def test_poller_side_correct_threads_to_settled_record_and_breath(
+    writer: SandboxStateWriter, now: datetime,
+) -> None:
+    """A poller built with ``side_correct_pricing=True`` writes the CORRECTED
+    ``SettledBetRecord.pnl_usd`` AND the chain breath update receives the SAME
+    corrected value (clone of the max_bet_pnl_usd threading test)."""
+    _seed_bet(
+        writer,
+        market_id="m-001",
+        side="NO",
+        price=0.10,
+        size_usd=5.0,
+        expected_settle_ts="2026-05-26T18:00:00+00:00",
+    )
+    script: dict[str, list[Any]] = {
+        "m-001": [_resolved_result(market_id="m-001", outcome="no", winning_price=1.0)]
+    }
+    poller, _, ca, _, _ = _build_poller(
+        writer,
+        settlement_client=FakeSettlementClient(script),
+        clock_now=now,
+        side_correct_pricing=True,
+    )
+    _run(poller.tick())
+
+    settled = iter_jsonl(writer.settled_bets_path)
+    assert len(settled) == 1
+    expected = 5.0 * (1.0 / 0.90 - 1.0)
+    assert settled[0]["pnl_usd"] == pytest.approx(expected)
+    assert ca.calls == [pytest.approx(expected)]
 
 
 # --------------------------------------------------------------------------- #

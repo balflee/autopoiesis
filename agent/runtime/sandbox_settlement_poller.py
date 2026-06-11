@@ -384,6 +384,12 @@ class SandboxSettlementPoller:
     # LIVE-runtime contract: locked formulas, byte-unchanged. See _compute_pnl.
     max_bet_pnl_usd: float | None = None
 
+    # Optional side-correct pricing (realism rule #3) forwarded to
+    # ``_compute_pnl`` — winners pay the taken leg's effective cost (NO pays
+    # ``1 - price``). ``False`` (default) is the LIVE-runtime contract:
+    # locked legacy formulas, byte-unchanged. See _compute_pnl.
+    side_correct_pricing: bool = False
+
     # --------------------------------------------------------------------- #
     # Public entry point.
     # --------------------------------------------------------------------- #
@@ -521,7 +527,10 @@ class SandboxSettlementPoller:
         # value feeds BOTH the SettledBetRecord and the chain breath update,
         # so the cap holds everywhere downstream.
         pnl_usd = _compute_pnl(
-            bet=bet, outcome=result, max_pnl_usd=self.max_bet_pnl_usd
+            bet=bet,
+            outcome=result,
+            max_pnl_usd=self.max_bet_pnl_usd,
+            side_correct_pricing=self.side_correct_pricing,
         )
 
         settled_ts = _iso_utc(result.resolution_ts)
@@ -751,6 +760,7 @@ def _compute_pnl(
     bet: BetRecord,
     outcome: SettlementResult,
     max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
 ) -> float:
     """P&L per the three locked formulas (PRD §6.5 + brief acceptance criteria).
 
@@ -780,6 +790,14 @@ def _compute_pnl(
     the headline AND make a life undieable. Losses and voids are NEVER
     clamped: the cap is on profit only. The LIVE runtime never sets this
     (the poller field defaults ``None``).
+
+    ``side_correct_pricing`` (optional, default ``False`` = the locked legacy
+    formulas, byte-unchanged): price the taken leg at its effective cost —
+    ``bet.price`` for YES, ``1 - bet.price`` for NO (realism rule #3,
+    2026-06-11). ``bet.price`` is the market YES-mid for BOTH sides at order
+    time, so the legacy formula paid a winning NO bet at the YES leg's odds
+    (81x overpaid at yes-mid 0.10). The LIVE runtime never sets this (the
+    poller field defaults ``False``).
     """
     if outcome.outcome == "void":
         return 0.0
@@ -791,15 +809,16 @@ def _compute_pnl(
     # Winner — symmetric formula. bet.price is in [0, 1] from Pydantic.
     # Defensive: a bet entered at price 0 is degenerate; the executor's
     # Pydantic guard allows it but we still don't want a ZeroDivisionError.
-    if bet.price <= 0.0:
-        # If we entered at price 0 and won, payout is unbounded — clip
-        # to size_usd * winning_price as the sensible "we got full
+    eff = bet.price if (side_is_yes or not side_correct_pricing) else 1.0 - bet.price
+    if eff <= 0.0:
+        # If we entered at effective price 0 and won, payout is unbounded —
+        # clip to size_usd * winning_price as the sensible "we got full
         # contract value" floor. This branch is operationally unreachable
         # in production (the sizer would NO_BET) but the chokepoint
         # belongs here.
         pnl = bet.size_usd * outcome.winning_price
     else:
-        pnl = bet.size_usd * (outcome.winning_price / bet.price - 1.0)
+        pnl = bet.size_usd * (outcome.winning_price / eff - 1.0)
     if max_pnl_usd is not None and pnl > max_pnl_usd:
         return max_pnl_usd
     return pnl

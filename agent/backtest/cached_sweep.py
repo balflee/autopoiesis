@@ -43,6 +43,20 @@ from agent.engines.decision import DecisionEngine
 _MIN_BET_SWEEP_CEILING_USD = 4.0
 
 
+def effective_entry_price(*, side: str, yes_price: float) -> float:
+    """The price the bettor actually pays for the leg they took.
+
+    ``yes_price`` is the YES-token mid (the only price the cassette pipeline
+    carries). A YES bet costs ``yes_price``; a NO bet costs the complement
+    ``1 - yes_price``. Realism rule #3 (2026-06-11): the legacy formula paid
+    BOTH sides at the YES price, overpaying winning NO bets on YES-longshots
+    by up to 81x (and underpaying NO bets on YES-favorites symmetrically) —
+    always-favorite's +$8,451 "profit" was 103.7% this artifact and becomes
+    −$661 under this correction.
+    """
+    return yes_price if side == "YES" else 1.0 - yes_price
+
+
 def compute_bet_pnl(
     *,
     side: str,
@@ -51,6 +65,7 @@ def compute_bet_pnl(
     outcome: str,
     winning_price: float,
     max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
 ) -> float:
     """Per-bet realised P&L — a faithful mirror of the production formula.
 
@@ -70,6 +85,11 @@ def compute_bet_pnl(
     pay). Losses (``-size_usd``) and voids are NEVER clamped: the cap is on
     profit only. Mirrors the same optional cap on the production
     ``_compute_pnl``.
+
+    ``side_correct_pricing`` (optional, default ``False`` = legacy YES-price
+    payouts, byte-unchanged): price the taken leg at its effective cost via
+    :func:`effective_entry_price` (realism rule #3) — a winning NO bet pays
+    NO-leg odds instead of the YES leg's.
     """
     if outcome == "void":
         return 0.0
@@ -80,10 +100,15 @@ def compute_bet_pnl(
         return -size_usd
     # Winner — symmetric formula. Defensive: a bet entered at price 0 is
     # degenerate; clip to ``size_usd * winning_price`` to avoid ZeroDivision.
-    if entry_price <= 0.0:
+    eff = (
+        effective_entry_price(side=side, yes_price=entry_price)
+        if side_correct_pricing
+        else entry_price
+    )
+    if eff <= 0.0:
         pnl = size_usd * winning_price
     else:
-        pnl = size_usd * (winning_price / entry_price - 1.0)
+        pnl = size_usd * (winning_price / eff - 1.0)
     if max_pnl_usd is not None and pnl > max_pnl_usd:
         return max_pnl_usd
     return pnl

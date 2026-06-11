@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# pre-commit: block any commit whose STAGED changes contain a secret or PII.
+#
+# Enabled via:  git config core.hooksPath .githooks   (see .githooks/README.md)
+# Config:       .gitleaks.toml
+#
+# Self-locating: works whether or not gitleaks is on PATH, so a fresh terminal
+# (which hasn't picked up the user-PATH entry yet) still scans.
+set -euo pipefail
+
+find_gitleaks() {
+  if command -v gitleaks >/dev/null 2>&1; then command -v gitleaks; return; fi
+  local candidates=(
+    "${LOCALAPPDATA:-}/Programs/gitleaks/gitleaks.exe"
+    "${HOME:-}/AppData/Local/Programs/gitleaks/gitleaks.exe"
+    "/c/Users/${USERNAME:-${USER:-_}}/AppData/Local/Programs/gitleaks/gitleaks.exe"
+    "/usr/local/bin/gitleaks"
+    "/opt/homebrew/bin/gitleaks"
+  )
+  local c
+  for c in "${candidates[@]}"; do
+    [ -n "$c" ] && [ -x "$c" ] && { echo "$c"; return; }
+  done
+  return 1
+}
+
+GITLEAKS="$(find_gitleaks || true)"
+if [ -z "${GITLEAKS:-}" ]; then
+  echo "pre-commit: gitleaks not found on PATH or in the known install dir." >&2
+  echo "  Install it: https://github.com/gitleaks/gitleaks/releases (or 'winget install gitleaks')" >&2
+  echo "  Then retry the commit. To bypass once (NOT recommended): git commit --no-verify" >&2
+  exit 1
+fi
+
+echo "pre-commit: gitleaks scanning staged changes..."
+if ! "$GITLEAKS" git --pre-commit --staged --redact --no-banner; then
+  echo "" >&2
+  echo "  gitleaks found a potential secret/PII in your STAGED changes (shown above, redacted)." >&2
+  echo "  -> Remove it from the staged files, OR if it is a genuine false positive add it to" >&2
+  echo "     the allowlist in .gitleaks.toml. Bypass once (discouraged): git commit --no-verify" >&2
+  exit 1
+fi
+echo "pre-commit: gitleaks clean."

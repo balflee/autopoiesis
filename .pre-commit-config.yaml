@@ -1,0 +1,16 @@
+# Optional: the pre-commit framework (https://pre-commit.com).
+#   pip install pre-commit && pre-commit install
+#
+# This calls the LOCALLY-installed gitleaks (language: system) instead of the
+# upstream golang hook, so it does NOT require a Go toolchain. If you prefer no
+# framework at all, the same scan runs via the plain git hook — just set:
+#   git config core.hooksPath .githooks
+repos:
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (staged secret/PII scan)
+        entry: gitleaks git --pre-commit --staged --redact --no-banner
+        language: system
+        pass_filenames: false
+        always_run: true

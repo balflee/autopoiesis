@@ -1,0 +1,44 @@
+# gitleaks configuration — keeps this public repo permanently free of secrets/PII.
+#
+# Used by BOTH entry points:
+#   - .githooks/pre-commit            (zero-dependency git hook; see that file)
+#   - .pre-commit-config.yaml         (the pre-commit framework, optional)
+#
+# Extends gitleaks' built-in ruleset (AWS / GCP / GitHub / Slack / Stripe / JWT /
+# generic private keys / high-entropy strings) and adds project-specific rules
+# plus an allowlist to suppress known-safe placeholders. Syntax: https://gitleaks.io
+title = "Autopoiesis gitleaks config"
+
+[extend]
+useDefault = true
+
+# --- Project-specific rules ------------------------------------------------ #
+
+# A personal email leaked once via committed agent session transcripts. Catch
+# any consumer-domain email so it can never re-enter the repo. The git noreply
+# identity (users.noreply.github.com) is a different domain and is NOT matched.
+[[rules]]
+id = "personal-email-pii"
+description = "Personal email address (PII) must never be committed"
+regex = '''[a-zA-Z0-9._%+\-]+@(?:gmail|outlook|yahoo|hotmail|qq|163|protonmail|icloud)\.[a-zA-Z]{2,}'''
+tags = ["pii", "email"]
+
+# --- Global allowlist (suppress false positives) --------------------------- #
+[allowlist]
+description = "Allowlisted paths + known-safe placeholder values"
+paths = [
+  '''\.env\.example$''',
+  '''.*\.example$''',
+  '''^lib/''',                 # vendored third-party deps (forge-std, openzeppelin)
+  '''package-lock\.json$''',
+  '''pnpm-lock\.yaml$''',
+  '''\.gitleaks\.toml$''',     # this file's own example/placeholder regexes
+]
+regexes = [
+  '''test[_-]?key[_-]?not[_-]?real''',
+  '''0x0{40}''',               # all-zero placeholder address
+  '''0x0{64}''',               # all-zero placeholder private key
+  '''(?i)your[_-][a-z_]+[_-]here''',
+  '''<[a-z][a-z0-9\-]{2,}>''', # <your-key> style placeholders
+  '''example\.com''',
+]

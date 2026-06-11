@@ -844,6 +844,11 @@ class SandboxPhase2Loop:
         # ``None`` (default) = locked formulas, byte-unchanged — the LIVE
         # runtime never sets this; only the survival export turns it on.
         max_bet_pnl_usd: float | None = None,
+        # Realism rule #3: side-correct pricing forwarded to the poller —
+        # winners pay the taken leg's effective cost (NO pays 1 - price).
+        # ``False`` (default) = locked legacy formulas, byte-unchanged; only
+        # the survival export turns it on.
+        side_correct_pricing: bool = False,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -898,6 +903,7 @@ class SandboxPhase2Loop:
             sleeper=self._sleeper,
             sandbox_phase=self.weight_updater_phase.value,
             max_bet_pnl_usd=max_bet_pnl_usd,
+            side_correct_pricing=side_correct_pricing,
         )
 
         # Mutable in-memory state — populated by `_reconstruct_from_disk`.

@@ -294,6 +294,7 @@ def _build_loop(
     populate_reflection_window: bool | None = None,
     env: dict[str, str] | None = None,
     max_bet_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
 ) -> tuple[
     SandboxPhase2Loop,
     _FakeStateHook,
@@ -350,6 +351,7 @@ def _build_loop(
         populate_reflection_window=populate_reflection_window,
         env=env,
         max_bet_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
     )
     return loop, state_hook, writer, clock
 
@@ -366,6 +368,20 @@ def test_max_bet_pnl_usd_threads_to_poller_and_defaults_none(
         tmp_path=tmp_path / "b", max_bet_pnl_usd=100.0
     )
     assert loop_capped._poller.max_bet_pnl_usd == 100.0
+
+
+def test_side_correct_pricing_threads_to_poller_and_defaults_false(
+    tmp_path: Path,
+) -> None:
+    """Loop ctor ``side_correct_pricing`` lands on the poller; default stays
+    False (live-runtime contract: locked legacy formulas byte-unchanged)."""
+    loop_default, _, _, _ = _build_loop(tmp_path=tmp_path / "a")
+    assert loop_default._poller.side_correct_pricing is False
+
+    loop_corrected, _, _, _ = _build_loop(
+        tmp_path=tmp_path / "b", side_correct_pricing=True
+    )
+    assert loop_corrected._poller.side_correct_pricing is True
 
 
 def _drive(loop: SandboxPhase2Loop, *, n: int, clock: _FixedClock) -> None:

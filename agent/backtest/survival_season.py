@@ -1206,12 +1206,22 @@ class AISeasonContext:
         Optional cadence overrides. ``None`` ⇒ the loop's defaults (M=100 /
         N=10). A tiny override (e.g. ``1``) lets a test force a fire inside a
         short fixture so the closure is genuinely exercised.
+    model
+        Model id threaded into EVERY LLM-consuming construction (the advisor
+        in :func:`_build_life_loop`, the ReflectionEngine's sonnet/opus pair,
+        AND the :func:`preflight_ai_advisor_applicable` probe — review r6/r7).
+        Default ``""`` = each client self-resolves its OWN default model (the
+        shared empty-string convention of GeminiClient + MiniMaxClient), so a
+        provider-pure leg can never be sent a foreign model id. ``kw_only``
+        (r8 M-1): existing callers construct this dataclass POSITIONALLY, so
+        a plain appended field would invite a silent positional shift.
     """
 
     llm_client: _LLMClient
     l3_guard: L3CostGuard
     strategy_advisor_tick_interval: int | None = None
     reflection_tick_interval: int | None = None
+    model: str = field(default="", kw_only=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -1317,7 +1327,7 @@ _GATE_PROBE_WINDOW: Final[PerformanceWindow] = PerformanceWindow(
 )
 
 
-def preflight_ai_advisor_applicable(client: _LLMClient) -> None:
+def preflight_ai_advisor_applicable(client: _LLMClient, *, model: str = "") -> None:
     """Probe the STRICT advisor once; raise :class:`AIPreflightError` if it can't
     produce a single APPLICABLE weight delta (T-D-018 fail-FAST gate).
 
@@ -1342,6 +1352,10 @@ def preflight_ai_advisor_applicable(client: _LLMClient) -> None:
         llm_client=client,
         cost_guard=L3CostGuard.from_env(),  # OWN guard — never the season's
         weight_delta_only=True,
+        # r7 H-1: the probe runs BEFORE _build_life_loop — without the model
+        # override a provider-pure MiniMax leg's preflight would still send
+        # DEFAULT_GEMINI_MODEL. "" ⇒ the client self-resolves its default.
+        model=model,
     )
     try:
         proposals = advisor.review_window(_GATE_PROBE_WINDOW)
@@ -1547,11 +1561,18 @@ def _build_life_loop(
         reflection_engine = ReflectionEngine(
             llm_client=ai.llm_client,
             reflections_dir=mb_root / "reflections",
+            # Provider-correct model routing (r6 H-1 / r7 H-2): the engine's
+            # ctor has NO single `model` param — only the tiered pair. With
+            # ctx.model="" each client self-resolves its own default, so a
+            # provider-pure leg is never sent a foreign model id.
+            sonnet_model=ai.model,
+            opus_model=ai.model,
         )
         strategy_advisor = _AutoApprovingAdvisor(
             inner=StrategyAdvisorImpl(
                 llm_client=ai.llm_client,
                 cost_guard=ai.l3_guard,
+                model=ai.model,
                 # STRICT mode: in the auto-approve sim the LLM must always emit a
                 # filled, applicable {"key","delta"} or the run isn't AI-driven.
                 # _build_proposal enforces this locally (provider schema is only a
@@ -2678,7 +2699,9 @@ def run_survival_export(
         # the model emits FILLED, applicable weight deltas. Probe the strict
         # advisor once (its OWN isolated budget — never the season's) and abort
         # BEFORE a long run if it can't produce a single applicable delta.
-        preflight_ai_advisor_applicable(season_ai.llm_client)
+        # ctx.model threads in (r7 H-1) so a provider-pure leg's probe never
+        # sends a foreign model id.
+        preflight_ai_advisor_applicable(season_ai.llm_client, model=season_ai.model)
 
     import tempfile
 

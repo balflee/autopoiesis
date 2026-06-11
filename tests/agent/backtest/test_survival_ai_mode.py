@@ -1251,3 +1251,64 @@ def test_fragile_seed_preserves_value_knobs() -> None:
     assert fragile.min_edge == 0.07
     assert fragile.kappa == 0.40
     assert fragile.weights == custom.weights
+
+
+def test_ai_context_model_threads_into_all_three_constructions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """r6 H-1 + r7 H-1/H-2: AISeasonContext.model reaches (i) the advisor in
+    _build_life_loop, (ii) the ReflectionEngine sonnet/opus pair, and (iii)
+    the preflight probe -- with "" each client self-resolves its own default,
+    so a provider-pure leg can never be sent a foreign model id."""
+    import agent.backtest.survival_season as ss
+
+    captured: dict[str, object] = {}
+
+    real_advisor = ss.StrategyAdvisorImpl
+    real_reflection = ss.ReflectionEngine
+
+    class _SpyAdvisor(real_advisor):  # type: ignore[misc,valid-type]
+        def __init__(self, **kwargs: Any) -> None:
+            captured.setdefault("advisor_models", []).append(  # type: ignore[union-attr]
+                kwargs.get("model", "<DEFAULT>")
+            )
+            super().__init__(**kwargs)
+
+    class _SpyReflection(real_reflection):  # type: ignore[misc,valid-type]
+        def __init__(self, **kwargs: Any) -> None:
+            captured["reflection_models"] = (
+                kwargs.get("sonnet_model", "<DEFAULT>"),
+                kwargs.get("opus_model", "<DEFAULT>"),
+            )
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(ss, "StrategyAdvisorImpl", _SpyAdvisor)
+    monkeypatch.setattr(ss, "ReflectionEngine", _SpyReflection)
+
+    rows, snaps = _dying_fixture()
+    ctx = AISeasonContext(
+        _FakeAdvisorLLM(),
+        L3CostGuard(hard_cap_usd=10.0),
+        1,
+        1,
+        model="",
+    )
+    recorder = SurvivalRecorder(rows=rows)
+    run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "season",
+        initial_breath=3.0,
+        max_lives=1,
+        recorder=recorder,
+        ai=ctx,
+    )
+    # (i)+(ii): the in-loop constructions saw the ctx model verbatim.
+    assert "" in captured["advisor_models"]  # type: ignore[operator]
+    assert captured["reflection_models"] == ("", "")
+
+    # (iii): the preflight probe also receives it.
+    probe_client = _FakeAdvisorLLM()
+    ss.preflight_ai_advisor_applicable(probe_client, model="")
+    assert "<DEFAULT>" not in captured["advisor_models"]  # type: ignore[operator]

@@ -150,6 +150,24 @@ export interface SurvivalSummary {
   readonly max_bet_pnl_usd?: number | null;
   /** AI runs: count of auto-approved weight deltas actually APPLIED. */
   readonly proposals_applied?: number;
+  /**
+   * Realism v3 self-disclosure (six typed keys; absent on v1/v2 archives —
+   * exactly how the finetune log tells run 3 apart). Booleans are the
+   * physics/decision-policy switches; numerics are the value knobs +
+   * full-ledger effective-price evidence.
+   */
+  /** Winners paid at the taken leg's effective cost (NO pays 1 − price). */
+  readonly side_correct_pricing?: boolean;
+  /** decide() saw the market price (EV-gated value betting). */
+  readonly value_betting?: boolean;
+  /** Minimum |p_model − price| edge the seed required (e.g. 0.02). */
+  readonly min_edge?: number | null;
+  /** Market-prior tilt scale: p_model = price + kappa·fused. */
+  readonly kappa?: number | null;
+  /** Bet-level side-aware floor on the effective entry price. */
+  readonly effective_entry_price_floor?: number | null;
+  /** Min effective entry price across ALL placed bets + baseline bets. */
+  readonly min_effective_entry_price?: number | null;
 }
 
 /** How a life ended. `null` for the final surviving life. */
@@ -386,7 +404,35 @@ function validateSummary(raw: unknown): SurvivalSummary {
       o.proposals_applied === undefined
         ? undefined
         : asNonNegInt(o.proposals_applied, `${where}.proposals_applied`),
+    // Realism v3 (six typed keys; r4 L-1: booleans validated AS booleans,
+    // numerics as finite-or-null; all tolerated absent on archives).
+    side_correct_pricing: asOptBool(
+      o.side_correct_pricing,
+      `${where}.side_correct_pricing`,
+    ),
+    value_betting: asOptBool(o.value_betting, `${where}.value_betting`),
+    min_edge: asOptFiniteOrNull(o.min_edge, `${where}.min_edge`),
+    kappa: asOptFiniteOrNull(o.kappa, `${where}.kappa`),
+    effective_entry_price_floor: asOptFiniteOrNull(
+      o.effective_entry_price_floor,
+      `${where}.effective_entry_price_floor`,
+    ),
+    min_effective_entry_price: asOptFiniteOrNull(
+      o.min_effective_entry_price,
+      `${where}.min_effective_entry_price`,
+    ),
   };
+}
+
+/** Optional boolean: absent stays absent; present must be a real boolean. */
+function asOptBool(v: unknown, where: string): boolean | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "boolean") {
+    throw new SurvivalJourneyError(
+      `${where}: expected boolean, got ${typeof v}`,
+    );
+  }
+  return v;
 }
 
 function validateDeath(raw: unknown, where: string): SurvivalDeath {

@@ -50,6 +50,13 @@ export const SURVIVAL_JOURNEY_AI_RUN1_FILENAME = "survival_journey_ai_run1.json"
 // (the v2 AI artifact above was carried by the MiniMax fallback). Optional.
 export const SURVIVAL_JOURNEY_AI_GEMINI_FILENAME =
   "survival_journey_ai_gemini.json";
+// Archived PRE-VALUE-PHYSICS (v2) snapshots: preserved verbatim when realism
+// rule #3 landed (side-correct payouts + EV-gated value betting). The primary
+// filenames now carry the v3 runs. Optional — absent on fresh checkouts.
+export const SURVIVAL_JOURNEY_RUN2_FILENAME = "survival_journey_run2.json";
+export const SURVIVAL_JOURNEY_AI_RUN2_FILENAME = "survival_journey_ai_run2.json";
+export const SURVIVAL_JOURNEY_AI_GEMINI_RUN2_FILENAME =
+  "survival_journey_ai_gemini_run2.json";
 
 /** The journeys surfaced by the /survival toggle (current + archived + provider legs). */
 export type SurvivalJourneyMode =
@@ -57,7 +64,10 @@ export type SurvivalJourneyMode =
   | "ai"
   | "ai_gemini"
   | "numerical_run1"
-  | "ai_run1";
+  | "ai_run1"
+  | "numerical_run2"
+  | "ai_run2"
+  | "ai_gemini_run2";
 
 /** Per-mode artifact filename + env-override variable. */
 const MODE_CONFIG: Record<
@@ -77,6 +87,18 @@ const MODE_CONFIG: Record<
   ai_run1: {
     filename: SURVIVAL_JOURNEY_AI_RUN1_FILENAME,
     envVar: "SURVIVAL_JOURNEY_AI_RUN1_PATH",
+  },
+  numerical_run2: {
+    filename: SURVIVAL_JOURNEY_RUN2_FILENAME,
+    envVar: "SURVIVAL_JOURNEY_RUN2_PATH",
+  },
+  ai_run2: {
+    filename: SURVIVAL_JOURNEY_AI_RUN2_FILENAME,
+    envVar: "SURVIVAL_JOURNEY_AI_RUN2_PATH",
+  },
+  ai_gemini_run2: {
+    filename: SURVIVAL_JOURNEY_AI_GEMINI_RUN2_FILENAME,
+    envVar: "SURVIVAL_JOURNEY_AI_GEMINI_RUN2_PATH",
   },
 };
 

@@ -242,3 +242,128 @@ describe("Finetune log — archived run1 exhibits", () => {
     expect(screen.queryByTestId("finetune-card-ai_gemini")).toBeNull();
   });
 });
+
+
+describe("Realism v3 — eight modes + typed summary keys + chapter 3", () => {
+  it("renders all eight toggle entries when every artifact is available", () => {
+    render(
+      <SurvivalModeToggle
+        mode="numerical"
+        onChange={() => {}}
+        aiAvailable
+        aiGeminiAvailable
+        numericalRun1Available
+        aiRun1Available
+        numericalRun2Available
+        aiRun2Available
+        aiGeminiRun2Available
+      />,
+    );
+    const toggle = screen.getByTestId("survival-mode-toggle");
+    const buttons = within(toggle).getAllByRole("radio");
+    expect(buttons).toHaveLength(8);
+    for (const id of [
+      "survival-mode-numerical",
+      "survival-mode-ai",
+      "survival-mode-ai_gemini",
+      "survival-mode-numerical_run1",
+      "survival-mode-ai_run1",
+      "survival-mode-numerical_run2",
+      "survival-mode-ai_run2",
+      "survival-mode-ai_gemini_run2",
+    ]) {
+      expect(within(toggle).getByTestId(id)).toBeInTheDocument();
+    }
+  });
+
+  it("validates + surfaces the six v3 summary keys on the finetune card", () => {
+    const v3 = validateSurvivalJourney({
+      ...JSON.parse(JSON.stringify(fixtureRawForV3())),
+    });
+    expect(v3.summary.side_correct_pricing).toBe(true);
+    expect(v3.summary.value_betting).toBe(true);
+    expect(v3.summary.min_edge).toBeCloseTo(0.035);
+    expect(v3.summary.kappa).toBeCloseTo(0.49);
+    expect(v3.summary.effective_entry_price_floor).toBe(0.05);
+    expect(v3.summary.min_effective_entry_price).toBe(0.05);
+
+    render(
+      <SurvivalJourneyShell numerical={v3} ai={null} />,
+    );
+    const log = screen.getByTestId("survival-finetune-log");
+    const rules = within(log).getByTestId("finetune-rules-numerical");
+    expect(rules.textContent).toContain("side-correct pricing");
+    expect(rules.textContent).toContain("EV-gated");
+    // Chapter-3 narrative block is present.
+    expect(screen.getByTestId("finetune-chapter-3").textContent).toContain(
+      "EV-gated value betting",
+    );
+  });
+
+  it("rejects a non-boolean side_correct_pricing (typed validation, r4 L-1)", () => {
+    const raw = fixtureRawForV3() as { summary: Record<string, unknown> };
+    raw.summary.side_correct_pricing = "yes";
+    expect(() => validateSurvivalJourney(raw)).toThrow(/expected boolean/);
+  });
+});
+
+/** Raw (un-validated) v3 fixture JSON with the six new summary keys. */
+function fixtureRawForV3(): unknown {
+  return {
+    seed: {
+      max_breath_risk_pct: 0.38,
+      min_bet_size_usd: 4,
+      min_confidence: 0.08,
+      weights: weights(),
+    },
+    summary: {
+      best_life: 0,
+      deaths: 0,
+      learner_final_pnl: 42,
+      learning_vs_static_delta: 42,
+      lives: 1,
+      static_final_pnl: 0,
+      total_steps: 1,
+      entry_price_floor: 0.05,
+      max_bet_pnl_usd: 100,
+      side_correct_pricing: true,
+      value_betting: true,
+      min_edge: 0.035,
+      kappa: 0.49,
+      effective_entry_price_floor: 0.05,
+      min_effective_entry_price: 0.05,
+    },
+    lives: [
+      {
+        idx: 0,
+        bets: 1,
+        pnl: 42,
+        death: null,
+        final_bankroll_usd: 142,
+        final_breath: 30,
+        settlements: 1,
+        start_ts: "2024-09-01T00:00:00+00:00",
+      },
+    ],
+    steps: [
+      {
+        life_idx: 0,
+        market: market("m1"),
+        side: "YES",
+        size: 4,
+        pnl: 42,
+        cum_pnl: 42,
+        breath: 30,
+        win_rate: 1,
+        weights: weights(),
+        weights_before: weights(),
+        signals: signals(),
+      },
+    ],
+    baselines: {
+      static: [{ idx: 0, cum_pnl: 0, pnl: 0, is_bet: false, market_id: "m1", side: null, size: 0 }],
+      random: [{ idx: 0, cum_pnl: 0, pnl: 0, is_bet: false, market_id: "m1", side: null, size: 0 }],
+      always_favorite: [{ idx: 0, cum_pnl: 0, pnl: 0, is_bet: false, market_id: "m1", side: null, size: 0 }],
+    },
+  };
+}

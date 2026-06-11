@@ -34,6 +34,12 @@ const nextConfig: NextConfig = {
       "./public/backtest/survival_journey_ai_run1.json",
       // Provider-comparison leg (Gemini-only full run, same rules).
       "./public/backtest/survival_journey_ai_gemini.json",
+      // Archived pre-value-physics (v2) snapshots — realism rule #3 exhibits
+      // (r2 M-1: without tracing, the Vercel fn bundle lacks the files and
+      // the modes silently 404 in prod while working locally).
+      "./public/backtest/survival_journey_run2.json",
+      "./public/backtest/survival_journey_ai_run2.json",
+      "./public/backtest/survival_journey_ai_gemini_run2.json",
     ],
   },
 };

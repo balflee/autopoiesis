@@ -25,20 +25,26 @@ interface ModeMeta {
 }
 
 const MODES: readonly ModeMeta[] = [
-  { mode: "numerical", label: "Numerical", sub: "deterministic EMA learning" },
-  { mode: "ai", label: "AI", sub: "LLM reflection · MiniMax" },
+  { mode: "numerical", label: "Numerical", sub: "value physics · EMA learning" },
+  { mode: "ai", label: "AI · MiniMax", sub: "LLM reflection · provider-pure" },
 ];
 
 // Optional extra modes — only rendered when their artifact is actually present
 // (absence is the normal fresh-checkout state, not an error, so no disabled
 // placeholder for these): the Gemini-only provider-comparison leg + the
-// archived pre-realism-rules run1 snapshots (finetune-log exhibits).
+// archived run1 (pre-realism-rules) and run2 (pre-value-physics) snapshots
+// (finetune-log exhibits).
 const GEMINI_MODE: ModeMeta = {
-  mode: "ai_gemini", label: "AI · Gemini", sub: "Gemini-only · provider comparison",
+  mode: "ai_gemini", label: "AI · Gemini", sub: "Gemini-only · provider-pure",
 };
 const RUN1_MODES: readonly ModeMeta[] = [
   { mode: "numerical_run1", label: "Numerical · v1", sub: "archived · no realism rules" },
   { mode: "ai_run1", label: "AI · v1", sub: "archived · no realism rules" },
+];
+const RUN2_MODES: readonly ModeMeta[] = [
+  { mode: "numerical_run2", label: "Numerical · v2", sub: "archived · pre-value physics" },
+  { mode: "ai_run2", label: "AI · v2", sub: "archived · pre-value physics" },
+  { mode: "ai_gemini_run2", label: "Gemini · v2", sub: "archived · pre-value physics" },
 ];
 
 export interface SurvivalModeToggleProps {
@@ -51,6 +57,10 @@ export interface SurvivalModeToggleProps {
   /** Whether the archived run1 (pre-rules) artifacts are available. */
   readonly numericalRun1Available?: boolean;
   readonly aiRun1Available?: boolean;
+  /** Whether the archived run2 (pre-value-physics) artifacts are available. */
+  readonly numericalRun2Available?: boolean;
+  readonly aiRun2Available?: boolean;
+  readonly aiGeminiRun2Available?: boolean;
 }
 
 export function SurvivalModeToggle({
@@ -60,9 +70,15 @@ export function SurvivalModeToggle({
   aiGeminiAvailable = false,
   numericalRun1Available = false,
   aiRun1Available = false,
+  numericalRun2Available = false,
+  aiRun2Available = false,
+  aiGeminiRun2Available = false,
 }: SurvivalModeToggleProps): JSX.Element {
   const modes: ModeMeta[] = [...MODES];
   if (aiGeminiAvailable) modes.push(GEMINI_MODE);
+  if (numericalRun2Available) modes.push(RUN2_MODES[0]!);
+  if (aiRun2Available) modes.push(RUN2_MODES[1]!);
+  if (aiGeminiRun2Available) modes.push(RUN2_MODES[2]!);
   if (numericalRun1Available) modes.push(RUN1_MODES[0]!);
   if (aiRun1Available) modes.push(RUN1_MODES[1]!);
   return (

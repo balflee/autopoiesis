@@ -63,21 +63,36 @@ export default async function SurvivalRoute(): Promise<JSX.Element> {
   let aiGeminiFixture: SurvivalJourneyFixture | null = null;
   let run1Fixture: SurvivalJourneyFixture | null = null;
   let aiRun1Fixture: SurvivalJourneyFixture | null = null;
+  let run2Fixture: SurvivalJourneyFixture | null = null;
+  let aiRun2Fixture: SurvivalJourneyFixture | null = null;
+  let aiGeminiRun2Fixture: SurvivalJourneyFixture | null = null;
   let loadError: string | null = null;
   try {
     // Numerical run is the required primary artifact; the AI run, the
-    // Gemini-only provider leg, AND the two archived pre-rules run1 snapshots
-    // (the finetune-log exhibits) are all OPTIONAL — read via the graceful
-    // loader so a missing file degrades the toggle/log rather than the page.
-    // A malformed file STILL throws (caught below).
-    [fixture, aiFixture, aiGeminiFixture, run1Fixture, aiRun1Fixture] =
-      await Promise.all([
-        loadSurvivalJourneyOrNull({ mode: "numerical" }),
-        loadSurvivalJourneyOrNull({ mode: "ai" }),
-        loadSurvivalJourneyOrNull({ mode: "ai_gemini" }),
-        loadSurvivalJourneyOrNull({ mode: "numerical_run1" }),
-        loadSurvivalJourneyOrNull({ mode: "ai_run1" }),
-      ]);
+    // Gemini-only provider leg, AND the archived run1 (pre-realism-rules) +
+    // run2 (pre-value-physics) snapshots (the finetune-log exhibits) are all
+    // OPTIONAL — read via the graceful loader so a missing file degrades the
+    // toggle/log rather than the page. A malformed file STILL throws (caught
+    // below).
+    [
+      fixture,
+      aiFixture,
+      aiGeminiFixture,
+      run1Fixture,
+      aiRun1Fixture,
+      run2Fixture,
+      aiRun2Fixture,
+      aiGeminiRun2Fixture,
+    ] = await Promise.all([
+      loadSurvivalJourneyOrNull({ mode: "numerical" }),
+      loadSurvivalJourneyOrNull({ mode: "ai" }),
+      loadSurvivalJourneyOrNull({ mode: "ai_gemini" }),
+      loadSurvivalJourneyOrNull({ mode: "numerical_run1" }),
+      loadSurvivalJourneyOrNull({ mode: "ai_run1" }),
+      loadSurvivalJourneyOrNull({ mode: "numerical_run2" }),
+      loadSurvivalJourneyOrNull({ mode: "ai_run2" }),
+      loadSurvivalJourneyOrNull({ mode: "ai_gemini_run2" }),
+    ]);
   } catch (err) {
     loadError = err instanceof Error ? err.message : String(err);
   }
@@ -152,6 +167,9 @@ export default async function SurvivalRoute(): Promise<JSX.Element> {
         aiGemini={aiGeminiFixture}
         numericalRun1={run1Fixture}
         aiRun1={aiRun1Fixture}
+        numericalRun2={run2Fixture}
+        aiRun2={aiRun2Fixture}
+        aiGeminiRun2={aiGeminiRun2Fixture}
       />
     </Shell>
   );

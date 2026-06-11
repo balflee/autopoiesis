@@ -49,6 +49,10 @@ function rulesLabel(fixture: SurvivalJourneyFixture): string {
     return "no realism rules · uncapped payouts";
   }
   const parts: string[] = [];
+  // Realism v3 (run 3): side-correct payouts + EV-gated value decisions —
+  // disclosed FIRST because they change what the money means.
+  if (s.side_correct_pricing === true) parts.push("side-correct pricing");
+  if (s.value_betting === true) parts.push("EV-gated");
   if (floor != null) parts.push(`entry price ≥ ${floor}`);
   if (cap != null) parts.push(`profit/bet ≤ $${cap}`);
   return parts.join(" · ");
@@ -69,7 +73,7 @@ export function FinetuneLog({
         finetune log · run history
       </h2>
 
-      {/* The WHY — the lottery finding that motivated the realism rules. */}
+      {/* The WHY — the audit findings that motivated each generation of rules. */}
       <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
         After run 1 we audited the data: most of the headline came from two $5
         bets that hit extreme longshots at
@@ -77,15 +81,33 @@ export function FinetuneLog({
         — bet size was capped at $5 by market liquidity, but the payout
         <span className="text-[var(--ab-text)]"> size×(1/price−1) </span>
         was unbounded (one bet &quot;won&quot; +$9,995 and pumped breath into
-        the thousands, faking &quot;learned to survive&quot;). Run 2 introduces
-        two realism rules and{" "}
+        the thousands, faking &quot;learned to survive&quot;). Run 2 introduced
+        an entry-price floor and a per-bet profit cap, both enforced as hard
+        invariants in the exporter.
+      </p>
+      <p
+        data-testid="finetune-chapter-3"
+        className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]"
+      >
+        After run 2 we audited the payout physics itself and found winning NO
+        bets were paid at the YES leg&apos;s odds — always-favorite&apos;s
+        <span className="text-[var(--ab-text)]"> +$8,451 </span>
+        became
+        <span className="text-[var(--ab-death)]"> −$661 </span>
+        once each side paid its own price, and ~80–90% of our own learner
+        P&amp;L had ridden the same artifact. Run 3 prices every leg
+        correctly, floors the EFFECTIVE entry price, and replaces
+        signal-betting with{" "}
         <span className="text-[var(--ab-text)]">
-          reruns both the numerical and AI seasons
-        </span>
-        : an entry-price floor filters untradeable longshots, and a per-bet
-        profit cap (= one life&apos;s starting bankroll). Both rules are
-        enforced as hard invariants in the exporter — a journey violating its
-        own physics can never be written to disk.
+          EV-gated value betting
+        </span>{" "}
+        (market prior + signal tilt) — then re-picked the seed with an
+        earnings-aligned sweep validated in the sequential season. The old
+        seed rescored under the corrected physics:{" "}
+        <span className="text-[var(--ab-text)]">$5.52</span>, statistically
+        zero. The numbers got smaller, then real — and the exporter now
+        recomputes every bet from first principles before an artifact can be
+        written.
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

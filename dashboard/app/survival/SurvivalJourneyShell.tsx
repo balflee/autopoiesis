@@ -61,11 +61,15 @@ export interface SurvivalJourneyShellProps {
   readonly numerical: SurvivalJourneyFixture;
   /** The AI run, or `null` when its artifact has not been generated. */
   readonly ai: SurvivalJourneyFixture | null;
-  /** Gemini-only provider-comparison leg (same realism rules); optional. */
+  /** Gemini-only provider-comparison leg (same physics); optional. */
   readonly aiGemini?: SurvivalJourneyFixture | null;
-  /** Archived pre-realism-rules snapshots (finetune-log exhibits); optional. */
+  /** Archived pre-realism-rules (v1) snapshots (finetune-log exhibits); optional. */
   readonly numericalRun1?: SurvivalJourneyFixture | null;
   readonly aiRun1?: SurvivalJourneyFixture | null;
+  /** Archived pre-value-physics (v2) snapshots (finetune-log exhibits); optional. */
+  readonly numericalRun2?: SurvivalJourneyFixture | null;
+  readonly aiRun2?: SurvivalJourneyFixture | null;
+  readonly aiGeminiRun2?: SurvivalJourneyFixture | null;
 }
 
 export function SurvivalJourneyShell({
@@ -74,6 +78,9 @@ export function SurvivalJourneyShell({
   aiGemini = null,
   numericalRun1 = null,
   aiRun1 = null,
+  numericalRun2 = null,
+  aiRun2 = null,
+  aiGeminiRun2 = null,
 }: SurvivalJourneyShellProps): JSX.Element {
   const [mode, setMode] = useState<SurvivalJourneyMode>("numerical");
   const aiAvailable = ai !== null;
@@ -85,14 +92,17 @@ export function SurvivalJourneyShell({
     ai_gemini: aiGemini,
     numerical_run1: numericalRun1,
     ai_run1: aiRun1,
+    numerical_run2: numericalRun2,
+    ai_run2: aiRun2,
+    ai_gemini_run2: aiGeminiRun2,
   };
   const fixture = byMode[mode] ?? numerical;
   const s = fixture.summary;
   const best = bestLife(fixture);
 
-  // Finetune-log cards: archived v1 first (the "before"), current v2 after,
-  // then the provider-comparison leg — chronological reading order. Only
-  // available runs become cards.
+  // Finetune-log cards: archived v1 first (the "before"), archived v2 next,
+  // then the current v3 runs — chronological reading order. Only available
+  // runs become cards.
   const finetuneEntries: FinetuneEntry[] = [];
   if (numericalRun1) {
     finetuneEntries.push({
@@ -104,19 +114,46 @@ export function SurvivalJourneyShell({
       mode: "ai_run1", title: "v1 · AI", tag: "run 1 · pre-rules", fixture: aiRun1,
     });
   }
+  if (numericalRun2) {
+    finetuneEntries.push({
+      mode: "numerical_run2",
+      title: "v2 · Numerical",
+      tag: "run 2 · realism rules",
+      fixture: numericalRun2,
+    });
+  }
+  if (aiRun2) {
+    finetuneEntries.push({
+      mode: "ai_run2",
+      title: "v2 · AI · MiniMax",
+      tag: "run 2 · realism rules",
+      fixture: aiRun2,
+    });
+  }
+  if (aiGeminiRun2) {
+    finetuneEntries.push({
+      mode: "ai_gemini_run2",
+      title: "v2 · AI · Gemini",
+      tag: "run 2 · provider comparison",
+      fixture: aiGeminiRun2,
+    });
+  }
   finetuneEntries.push({
-    mode: "numerical", title: "v2 · Numerical", tag: "run 2 · realism rules", fixture: numerical,
+    mode: "numerical",
+    title: "v3 · Numerical",
+    tag: "run 3 · value physics",
+    fixture: numerical,
   });
   if (ai) {
     finetuneEntries.push({
-      mode: "ai", title: "v2 · AI · MiniMax", tag: "run 2 · realism rules", fixture: ai,
+      mode: "ai", title: "v3 · AI · MiniMax", tag: "run 3 · value physics", fixture: ai,
     });
   }
   if (aiGemini) {
     finetuneEntries.push({
       mode: "ai_gemini",
-      title: "v2 · AI · Gemini",
-      tag: "run 3 · provider comparison",
+      title: "v3 · AI · Gemini",
+      tag: "run 3 · value physics",
       fixture: aiGemini,
     });
   }
@@ -138,6 +175,9 @@ export function SurvivalJourneyShell({
           aiGeminiAvailable={aiGemini !== null}
           numericalRun1Available={numericalRun1 !== null}
           aiRun1Available={aiRun1 !== null}
+          numericalRun2Available={numericalRun2 !== null}
+          aiRun2Available={aiRun2 !== null}
+          aiGeminiRun2Available={aiGeminiRun2 !== null}
         />
       </section>
 

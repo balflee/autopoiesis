@@ -30,17 +30,21 @@ Every market is read by five independent signal engines, fused by a tunable 2-la
 
 ## Results — every run on the record
 
-Backtested over a **4,925-market tennis universe (2024–2026)** built from real Polymarket odds (point-in-time; no hindsight). After run 1 we audited our own headline, found it 62% lottery (two $5 bets hitting $0.0005-class longshots), and introduced **realism rules**: entry-price floor ≥ 0.05 and a per-bet profit cap of $100, enforced as hard invariants in the exporter. The pre-rules runs stay published — that's the point.
+Backtested over a **4,925-market tennis universe (2024–2026)** built from real Polymarket odds (point-in-time; no hindsight). The headline has been **audited and corrected three times, in public**:
 
-| Run | Rules | Learner P&L | Lives/Deaths | AI deltas applied |
-|-----|-------|------------:|--------------|------------------:|
-| v1 · Numerical | pre-rules · uncapped | $11,879 | 7 / 6 | — |
-| v1 · AI (MiniMax) | pre-rules · uncapped | $17,469 | 6 / 5 | 130 |
-| v2 · Numerical | floor 0.05 · cap $100 | $1,668 | 8 / 7 | — |
-| v2 · AI (MiniMax) | floor 0.05 · cap $100 | **$2,757** | 10 / 9 | 126 |
-| v2 · AI (Gemini) | floor 0.05 · cap $100 | **$2,510** | 10 / 9 | 411 |
+1. **Run 1 → 2:** the headline was 62% lottery (two $5 bets at $0.0005-class longshots). Fix: entry-price floor ≥ 0.05 + per-bet profit cap $100, enforced as hard exporter invariants.
+2. **Run 2 → 3:** the payout formula paid winning NO bets at the YES leg's odds (81x overpaid at yes-mid 0.10) — always-favorite's "+$8,451" became **−$661** under side-correct pricing, and ~80–90% of our own learner P&L rode the same artifact. Fix (**realism rule #3**): side-correct payouts, a side-aware floor on the *effective* entry price, EV-gated value betting (the decision engine finally sees the market price), an exporter that **recomputes every bet from first principles** before an artifact can be written, and an earnings-aligned re-sweep (t-stat ≥ 2 gated, survival-validated — [the full report](docs/backtest/value_sweep_v3.md)). The old celebrated seed rescored under correct physics: **$5.52** — statistically zero.
 
-Under identical physics, both self-learning agents out-earned the frozen static seed ($874). Toggle every run live on the [survival page](https://autopoiesis.draftlabs.org/survival).
+| Run | Physics | Learner P&L | Lives/Deaths | AI deltas applied |
+|-----|---------|------------:|--------------|------------------:|
+| v1 · Numerical | uncapped (superseded) | $11,879 | 7 / 6 | — |
+| v1 · AI (MiniMax) | uncapped (superseded) | $17,469 | 6 / 5 | 130 |
+| v2 · Numerical | floors+cap, YES-priced (superseded) | $1,668 | 8 / 7 | — |
+| v2 · AI (MiniMax) | floors+cap, YES-priced (superseded) | $2,757 | 10 / 9 | 126 |
+| v2 · AI (Gemini) | floors+cap, YES-priced (superseded) | $2,510 | 10 / 9 | 411 |
+| v3 · Numerical | **side-correct · EV-gated** | **$3,249** | 10 / 9 | — |
+
+Under the corrected physics the honest ladder reads: always-favorite **−$661** < random +$206 < frozen value seed +$1,327 < **learning agent +$3,249** (+$1,922 ahead of its frozen twin). Superseded numbers stay published — the audit trail IS the product. Toggle every run live on the [survival page](https://autopoiesis.draftlabs.org/survival).
 
 ## Deployed contracts
 
@@ -60,7 +64,7 @@ Full manifest with ABI hashes: [`submission/SUBMISSION.md`](submission/SUBMISSIO
 
 ## Lifecycle
 
-**backtest → survival → mock-bet → live.** Born from the best backtested seed (0.649 per-bet Sharpe, 81.5% win rate over 65 selective bets), hardened in the survival sandbox (current phase), paper-trading live odds next, real on-chain capital last.
+**backtest → survival → mock-bet → live.** Born from the best backtested seed (v3: an EV-gated, h2h-weighted config — $1,327 over 1,982 bets at t-stat 7.7 under side-correct physics; the original 0.649-Sharpe seed it replaced rescored to $5.52), hardened in the survival sandbox (current phase), paper-trading live odds next, real on-chain capital last.
 
 ## Provenance — built entirely inside the Buildathon
 

@@ -255,6 +255,13 @@ const RUNS: readonly {
     lives: "10 / 9",
     applied: "411",
   },
+  {
+    run: "v3 · Numerical",
+    rules: "side-correct · EV-gated",
+    pnl: "$3,249",
+    lives: "10 / 9",
+    applied: "—",
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -417,6 +424,29 @@ export default function DocsPage(): JSX.Element {
                   <Hi>hard invariants in the exporter</Hi> — a journey that
                   violates its own physics can never be written to disk.
                 </Prose>
+                <div className="mt-3" />
+                <Prose>
+                  After run 2 we audited the payout physics itself and found{" "}
+                  <Hi>winning NO bets were paid at the YES leg&apos;s odds</Hi>{" "}
+                  — an 81x overpayment at yes-mid 0.10. Always-favorite&apos;s
+                  +$8,451 became <Glow>−$661</Glow> once each side paid its own
+                  price, and ~80–90% of the learner&apos;s P&L had ridden the
+                  same artifact. <Hi>Rule #3 (run 3)</Hi>:{" "}
+                  <Glow>side-correct pricing</Glow> (a NO bet costs 1 − price),
+                  a <Glow>side-aware floor on the EFFECTIVE entry price</Glow>,
+                  and <Glow>EV-gated value betting</Glow> — the decision engine
+                  now sees the market price (p_model = price + κ·signal,
+                  minimum-edge gate, odds-aware Kelly). The exporter recomputes{" "}
+                  <Hi>every settled bet and every baseline point from first
+                  principles</Hi> before an artifact can be written, and the
+                  seed was re-picked by an earnings-aligned sweep (t-stat ≥ 2
+                  gate) validated in the sequential season — see{" "}
+                  <Ext href="https://github.com/balflee/autopoiesis/blob/main/docs/backtest/value_sweep_v3.md">
+                    value_sweep_v3.md ↗
+                  </Ext>
+                  . The old seed rescored under correct physics: $5.52 —
+                  statistically zero.
+                </Prose>
               </Panel>
             </SpineSection>
 
@@ -470,8 +500,11 @@ export default function DocsPage(): JSX.Element {
                   </tbody>
                 </table>
                 <Caveat>
-                  The fluke-inflated v1 runs stay published — they are the
-                  reason the realism rules exist. Toggle every run live on the{" "}
+                  Every superseded run stays published — the v1 numbers were
+                  fluke-inflated by uncapped longshots, and the v2 numbers
+                  (including the $17,469) rode the NO-side payout artifact
+                  that rule #3 fixed. Only the v3 rows are computed under
+                  side-correct physics. Toggle every run live on the{" "}
                   <Link
                     href="/survival"
                     className="text-[var(--ab-glow)] underline decoration-[var(--ab-glow)]/40 underline-offset-2"

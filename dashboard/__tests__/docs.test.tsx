@@ -71,7 +71,7 @@ describe("DocsPage — paper-trail smoke", () => {
     ).toBeInTheDocument();
   });
 
-  it("documents the realism rules (floor 0.05, cap $100)", () => {
+  it("documents the realism rules (floor 0.05, cap $100, rule #3)", () => {
     render(<DocsPage />);
     const realism = screen.getByTestId("docs-realism");
     expect(
@@ -80,15 +80,23 @@ describe("DocsPage — paper-trail smoke", () => {
     expect(
       within(realism).getByText(/per-bet profit cap of \$100/i),
     ).toBeInTheDocument();
+    // Rule #3 (run 3): side-correct pricing + EV-gated value betting.
+    expect(
+      within(realism).getByText(/side-correct pricing/i),
+    ).toBeInTheDocument();
+    expect(
+      within(realism).getByText(/EV-gated value betting/i),
+    ).toBeInTheDocument();
   });
 
-  it("keeps every run on the record, including the v1 fluke runs", () => {
+  it("keeps every run on the record, including the superseded runs", () => {
     render(<DocsPage />);
     const runs = screen.getByTestId("docs-runs");
     expect(within(runs).getByText("$17,469")).toBeInTheDocument(); // v1 AI
     expect(within(runs).getByText("$2,757")).toBeInTheDocument(); // v2 MiniMax
     expect(within(runs).getByText("$2,510")).toBeInTheDocument(); // v2 Gemini
     expect(within(runs).getByText("$1,668")).toBeInTheDocument(); // v2 numerical
+    expect(within(runs).getByText("$3,249")).toBeInTheDocument(); // v3 numerical
   });
 
   it("documents the buildathon timeline with the provenance log link", () => {

@@ -111,3 +111,62 @@ logs/
 reports/
 .worktrees/
 .git_old_backup/
+dashboard/screenshots/
+
+# --- Hardened never-commit guards (keep this repo permanently clean) ---
+# Secrets / credentials — broaden beyond the basics above. .env stays blocked
+# by the `Secrets` block; these catch the common extra shapes.
+.env.local
+.env.*.local
+*.env
+!*.env.example
+!.env.example
+*.pfx
+*.crt
+*.cer
+*.der
+*.keystore
+*.jks
+id_rsa*
+id_ed25519*
+*.ppk
+.netrc
+.npmrc
+.pypirc
+.aws/
+.gcloud/
+gha-creds-*.json
+service-account*.json
+*service_account*.json
+*.credentials.json
+*credentials*.json
+!*.credentials.example.json
+
+# Agent / LLM session transcripts + audit trails — THE leak vector that put a
+# Gemini key + a personal email into git before. Block them wherever they land,
+# not just under .dev/.
+**/track_agent_events*.jsonl
+**/*session*.jsonl
+**/agent_transcript*.jsonl
+**/.transcripts/
+
+# Vercel / deploy CLI link (project + org ids; Vercel itself says don't commit)
+.vercel/
+**/.vercel/
+
+# AI-coding tool local state (can cache file contents incl. secrets)
+.aider*
+.cursor/
+.continue/
+.history/
+.codeium/
+
+# Misc local databases / dumps that can hold real data
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# OS/editor strays not already covered
+*.orig
+.env.bak

@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-02T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "59",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-21T21:00:06.008000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-27T09:16:18.004000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-02T21:32:30+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-02T21:32:30+00",
+  "slug": "will-there-be-a-federal-charge-filed-against-hunter-biden-before-2021",
+  "winning_price": null
+}

@@ -1,0 +1,40 @@
+# Local development noise — don't ship to Railway build context
+.dev/
+.worktrees/
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.vercel/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+.cache/
+.coverage
+htmlcov/
+out/
+dist/
+build/
+contracts/cache/
+contracts/out/
+contracts/lib/forge-std/
+.foundry/
+broadcast/
+state/
+reports/sprint7/
+reports/sprint8/
+reports/phase1/training_journey.jsonl
+# NOTE: do NOT exclude data/ — the Dockerfile COPYs it to /app/data so
+# agent/engines/tennis_technical.py can resolve `from data.etl.pit_correct`.
+# (Sized at ~108KB for etl/, ~few MB total including fixtures — fine.)
+data/parquet/
+data/fixtures/largesample*

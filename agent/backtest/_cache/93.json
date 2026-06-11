@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-02-01T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "93",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-08T19:50:06.096000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-15T07:00:36.048000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-20T18:11:06+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-20T18:11:06+00",
+  "slug": "will-donald-trump-be-inaugurated-for-his-second-term-as-president-of-the-usa-on-inauguration-day-january-20th-2021",
+  "winning_price": null
+}

@@ -1,0 +1,30 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets?active=false&accepting_orders=false&closed=true&tag=tennis&limit=10
+  response:
+    body:
+      string: '[{"id":"8000001","slug":"atp-fixture-alpha-2026-05-10","question":"Fixture
+        ATP Alpha","endDate":"2026-05-12T17:00:00Z","createdAt":"2026-05-10T00:00:00Z","closedTime":"2026-05-11T19:00:00Z","umaResolutionStatus":"resolved","outcomes":"[\"A\",
+        \"B\"]","outcomePrices":"[\"1\", \"0\"]","volume24hr":"50000","volume":"60000"},{"id":"8000002","slug":"atp-fixture-beta-2026-05-15","question":"Fixture
+        ATP Beta","endDate":"2026-05-17T17:00:00Z","createdAt":"2026-05-13T00:00:00Z","closedTime":"2026-05-16T19:00:00Z","umaResolutionStatus":"resolved","outcomes":"[\"X\",
+        \"Y\"]","outcomePrices":"[\"0\", \"1\"]","volume24hr":"80000","volume":"95000"},{"id":"8000003","slug":"atp-fixture-gamma-2026-05-20","question":"Fixture
+        ATP Gamma","endDate":"2026-05-22T17:00:00Z","createdAt":"2026-05-18T00:00:00Z","closedTime":"2026-05-21T19:00:00Z","umaResolutionStatus":"resolved","outcomes":"[\"P\",
+        \"Q\"]","outcomePrices":"[\"1\", \"0\"]","volume24hr":"30000","volume":"45000"}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

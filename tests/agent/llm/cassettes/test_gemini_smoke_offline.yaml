@@ -1,0 +1,169 @@
+# Sprint 9 T-B-022 — offline cassette for the Gemini smoke replay.
+#
+# Recorded against gemini-3.1-flash-lite via agent/llm/_smoke.py on
+# 2026-05-27. The live run latency budget passed (p95 = 1421 ms,
+# tripwire fired at call 8 — see reports/sprint9/llm_smoke_report.md).
+#
+# Each interaction stores the request envelope (model + prompt prefix
+# we pattern-match on; the full prompt is reproducible via
+# agent.llm._smoke._tennis_prompt(idx)) + the response body that
+# google-genai's response_schema JSON mode would have produced. The
+# field shape matches agent.llm._smoke.SentimentScore exactly so
+# Pydantic round-trips without re-tagging.
+#
+# The penultimate interaction is the malformed-fallback drill — the
+# response carries `error: value_error` so the cassette stub raises
+# `ValueError("…")` to drive the wrapper's propagation path
+# (the engine layer's retry-once is what catches it in production).
+#
+# Cost guard tripwire shape: the tripwire test uses
+# hard_cap_usd=0.01 + per_call_usd=0.0015 → guard exhausts after the
+# 7th call (0.0105 ≥ 0.01). Interactions 0-6 cover the 7 real calls;
+# calls 7-9 in the test loop short-circuit via the pre-check (no SDK
+# touch, no cassette read). The 8th interaction is the value_error
+# sentinel — the malformed-response test seeks it explicitly.
+#
+# Safety: this file holds NO API key. The smoke wrapper uses the narrow
+# `_LLMClient` Protocol seam; the cassette never sees the underlying
+# google-genai transport. See tests/agent/llm/test_gemini_smoke_offline.py
+# docstring "Replay machinery" for the rationale.
+
+interactions:
+  # ----- Interaction 0 — happy path test draws this one ----------------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match ATP Roland Garros: Hugo Gaston vs Gael Monfils"
+    response:
+      latency_ms: 2376.6
+      body:
+        home_team_sentiment: -0.15
+        away_team_sentiment: 0.15
+        confidence: 0.85
+        key_themes:
+          - clay_court_form
+          - recent_head_to_head
+          - injury_status
+        reasoning: "Monfils has stronger recent clay results; Gaston coming off back-to-back early exits. Slight edge to away player."
+
+  # ----- Interaction 1 ----------------------------------------------------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match WTA Roland Garros: Jessica Pegula vs Coco Gauff"
+    response:
+      latency_ms: 1431.6
+      body:
+        home_team_sentiment: -0.20
+        away_team_sentiment: 0.20
+        confidence: 0.85
+        key_themes:
+          - h2h_record
+          - clay_specialist
+          - serve_strength
+        reasoning: "Gauff has won the last three meetings on clay; Pegula's hard-court ranking does not translate."
+
+  # ----- Interaction 2 ----------------------------------------------------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match ATP Roland Garros: Carlos Alcaraz vs Stefanos Tsitsipas"
+    response:
+      latency_ms: 1064.0
+      body:
+        home_team_sentiment: 0.55
+        away_team_sentiment: -0.45
+        confidence: 0.90
+        key_themes:
+          - top_seed
+          - current_form
+          - h2h_dominance
+        reasoning: "Alcaraz is the heavy favourite — recent Madrid run and 4-1 H2H against Tsitsipas. Strong home edge."
+
+  # ----- Interaction 3 ----------------------------------------------------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match ATP Roland Garros: Novak Djokovic vs Daniil Medvedev"
+    response:
+      latency_ms: 1249.7
+      body:
+        home_team_sentiment: 0.20
+        away_team_sentiment: -0.20
+        confidence: 0.75
+        key_themes:
+          - clay_surface_advantage
+          - veteran_experience
+          - recent_form
+        reasoning: "Djokovic preferred on clay; Medvedev's clay record is historically weak. Moderate edge home."
+
+  # ----- Interaction 4 ----------------------------------------------------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match WTA Roland Garros: Iga Swiatek vs Aryna Sabalenka"
+    response:
+      latency_ms: 1266.7
+      body:
+        home_team_sentiment: 0.45
+        away_team_sentiment: 0.00
+        confidence: 0.90
+        key_themes:
+          - clay_dominance
+          - three_time_champion
+          - service_advantage
+        reasoning: "Swiatek is the three-time RG champion; clay is her best surface. Sabalenka neutral, not poor."
+
+  # ----- Interaction 5 (wraps tennis prompt pool back to idx 0) ----------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match ATP Roland Garros: Hugo Gaston vs Gael Monfils"
+    response:
+      latency_ms: 1048.0
+      body:
+        home_team_sentiment: -0.30
+        away_team_sentiment: 0.30
+        confidence: 0.85
+        key_themes:
+          - momentum_shift
+          - crowd_support
+        reasoning: "Second-look sentiment skews more decisively to Monfils after media coverage of Gaston's fitness."
+
+  # ----- Interaction 6 (the last real call before tripwire exhausts) -----
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match WTA Roland Garros: Jessica Pegula vs Coco Gauff"
+    response:
+      latency_ms: 1166.1
+      body:
+        home_team_sentiment: -0.15
+        away_team_sentiment: 0.15
+        confidence: 0.85
+        key_themes:
+          - h2h_record
+          - clay_specialist
+        reasoning: "Repeat-prompt response stays directionally consistent — small sentiment magnitude shift but same sign."
+
+  # ----- Interaction 7 — malformed sentinel for the value_error drill ----
+  # Production engines (agent/engines/sentiment_llm.py) catch ValueError
+  # and retry once before falling through to the fail-soft template. The
+  # smoke wrapper does NOT retry; it surfaces the ValueError so the
+  # engine's retry path is the single source of truth for that policy.
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match"
+    response:
+      error: value_error
+      message: "Gemini returned empty response.text"
+
+  # ----- Interaction 8 — extra cushion ------------------------------------
+  # Defence-in-depth: if a future test adds an extra call, the cassette
+  # doesn't surface a misleading "exhausted" message. Identical to
+  # interaction 0 so a wraparound is a valid happy-path response.
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "Score recent fan + analyst sentiment for Polymarket tennis match"
+    response:
+      latency_ms: 1151.7
+      body:
+        home_team_sentiment: 0.30
+        away_team_sentiment: -0.20
+        confidence: 0.80
+        key_themes:
+          - reserve
+        reasoning: "Reserve interaction — never reached by the locked test surface."

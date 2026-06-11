@@ -1,0 +1,178 @@
+/*
+ * death_watch.css — palette + animation declarations for the T-D-004
+ * Death Watch surface (PRD §8 Phase 4 takeover, Demo §9 4:00-5:00).
+ *
+ * Why a stand-alone stylesheet (vs. inline Tailwind)?
+ *   - The keyframes + the prefers-reduced-motion escape hatch are
+ *     non-trivial CSS; embedding them with `<style>` per component would
+ *     duplicate bytes across LastWordsTypewriter + TombstoneMintAnimation.
+ *   - Tailwind cannot express the chained timing functions cleanly.
+ *
+ * Imported from `app/globals.css` so the chunk is part of the critical
+ * CSS bundle (no FOUC when the Death Watch mounts).
+ */
+
+/* ------------------------------------------------------------------ */
+/* Body-level red glow when DeathWatch is visible. The component       */
+/* toggles `genesis-death-watch-active` on <body> via useEffect.       */
+/* ------------------------------------------------------------------ */
+body.genesis-death-watch-active {
+  /* Subtle red wash behind the surface — visible at the chrome edges
+     when the radial overlay does not cover the corners. */
+  background-color: #1a0a10;
+  transition: background-color 600ms ease-out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Surface — the fixed full-screen container                           */
+/* ------------------------------------------------------------------ */
+.genesis-death-watch-surface {
+  animation: genesis-death-watch-fade-in 480ms ease-out forwards;
+}
+
+@keyframes genesis-death-watch-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Energy bar pulse — only the inner fill, so the bar's track stays    */
+/* steady (CLS protection).                                            */
+/* ------------------------------------------------------------------ */
+.genesis-death-watch-fill {
+  transition: width 500ms linear;
+  animation: genesis-energy-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes genesis-energy-pulse {
+  0% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.5);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 12px 4px rgba(230, 57, 70, 0.45);
+  }
+  100% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.5);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Typewriter caret blink                                              */
+/* ------------------------------------------------------------------ */
+.genesis-typewriter-caret {
+  animation: genesis-caret-blink 900ms steps(2, end) infinite;
+}
+
+@keyframes genesis-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Tombstone mint flourish — slide up + fade to grey                   */
+/* ------------------------------------------------------------------ */
+.genesis-tombstone-mint {
+  animation: genesis-tombstone-rise 1100ms cubic-bezier(0.16, 0.84, 0.32, 1) both;
+}
+
+@keyframes genesis-tombstone-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* T-D-007 — DeathWatchBorder pulsing red ring                          */
+/* ------------------------------------------------------------------ */
+/* Renders as a fixed inset-0 overlay with an inset box-shadow (so the
+   border sits ON the viewport, not consuming layout pixels). Two
+   stacked shadows give the inner crisp ring + outer glow that reads
+   from the projector at the back of the room. Opacity oscillates
+   0.4 → 1.0 on a 2 s cycle per acceptance criterion. */
+.genesis-death-watch-border {
+  /* Inset box-shadow paints the ring on the inside of the viewport
+     so no scrollbars / layout shift. 4 px ring + 12 px outer glow. */
+  box-shadow:
+    inset 0 0 0 4px #e63946,
+    inset 0 0 32px 12px rgba(230, 57, 70, 0.45);
+  animation: genesis-border-pulse 2s ease-in-out infinite;
+}
+
+@keyframes genesis-border-pulse {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* T-D-007 — CountdownWidget tier-bound emphasis                       */
+/* ------------------------------------------------------------------ */
+/* The widget's value text already gets its colour inline via the
+   TIER_COLOR map; the keyframes below only escalate weight + pulse
+   for the imminent tier (≤ 60 s). */
+.genesis-countdown-widget[data-tier="imminent"] [data-testid="countdown-widget-value"] {
+  animation: genesis-countdown-pulse 1s ease-in-out infinite;
+}
+
+@keyframes genesis-countdown-pulse {
+  0% {
+    transform: scale(1);
+    text-shadow: 0 0 0 rgba(230, 57, 70, 0);
+  }
+  50% {
+    transform: scale(1.04);
+    text-shadow: 0 0 14px rgba(230, 57, 70, 0.6);
+  }
+  100% {
+    transform: scale(1);
+    text-shadow: 0 0 0 rgba(230, 57, 70, 0);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduced motion — disable every animation in this file.              */
+/* The components also short-circuit their JS animation paths.         */
+/* ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .genesis-death-watch-surface,
+  .genesis-death-watch-fill,
+  .genesis-typewriter-caret,
+  .genesis-tombstone-mint,
+  .genesis-death-watch-border,
+  .genesis-countdown-widget[data-tier="imminent"] [data-testid="countdown-widget-value"] {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+  body.genesis-death-watch-active {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-10-29T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "56",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-20T18:20:05.236000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-24T16:57:31.118000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-28T15:34:57+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-10-28T15:34:57+00",
+  "slug": "who-will-win-the-2020-mlb-world-series-1",
+  "winning_price": null
+}

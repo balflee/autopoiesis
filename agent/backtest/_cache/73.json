@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-05T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "73",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-30T15:45:08.932000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-02T15:58:54.966000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-05T16:12:41+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-05T16:12:41+00",
+  "slug": "will-donald-trump-tweet-announcing-that-he-won-the-election-before-november-5th-2020",
+  "winning_price": null
+}

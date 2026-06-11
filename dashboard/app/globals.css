@@ -1,0 +1,373 @@
+/* Phase C redesign — "abyssal bioluminescent telemetry" display + mono
+ * faces. Runtime-fetched via Google Fonts (NOT next/font) so a build with
+ * no network still compiles; offline demo machines degrade to the
+ * declared fallbacks. @import MUST precede all other statements. */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* T-D-004 sprint_5 — Death Watch palette + animations. Imported here so
+ * the chunk is part of the critical CSS bundle (no FOUC when the
+ * surface mounts at the climax). */
+@import "../styles/death_watch.css";
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #0b1426; /* ColorTokens.BG — must match exactly. */
+  color: #f5f7fa;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Helvetica,
+    Arial,
+    sans-serif;
+  min-height: 100dvh;
+}
+
+#__next,
+body > div:first-child {
+  min-height: 100dvh;
+}
+
+/* On abyssal pages (.abyss present), paint the page ROOT with the abyss floor so
+ * the fixed-attachment .abyss gradient never flashes the legacy navy (#0b1426)
+ * underneath during scroll. Scoped via :has() so legacy navy pages are untouched. */
+html:has(.abyss),
+html:has(.abyss) body {
+  background-color: #060d0b;
+}
+
+/* Focus ring: visible against #0B1426 without leaking a 5th brand color. */
+*:focus-visible {
+  outline: 2px solid #ffb703;
+  outline-offset: 2px;
+}
+
+/* ---- Skip-to-content link (G4 a11y) -------------------------------- */
+/* Rendered as the first focusable element in the shared shell so keyboard
+   + screen-reader users can jump past the chrome straight to <main>. It is
+   visually hidden until focused, then drops into the top-left as a pill. The
+   glow accent matches the abyss surface but the link is also legible on the
+   legacy navy pages (high-contrast lime on near-black). */
+.skip-to-content {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  margin: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.5rem;
+  background: #c8f94c;
+  color: #060d0b;
+  font-family:
+    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  /* Hidden off-screen until focused — does NOT use display:none so it stays
+     in the tab order and is reachable by keyboard. */
+  transform: translateY(-150%);
+  opacity: 0;
+  transition: transform 120ms ease-out, opacity 120ms ease-out;
+}
+.skip-to-content:focus,
+.skip-to-content:focus-visible {
+  transform: translateY(0);
+  opacity: 1;
+  outline: 2px solid #060d0b;
+  outline-offset: 2px;
+}
+
+/* ================================================================== */
+/* PHASE C — "ABYSSAL BIOLUMINESCENT TELEMETRY" DESIGN SYSTEM          */
+/* ------------------------------------------------------------------ */
+/* ADDITIVE + SCOPED. Every token + utility below is namespaced under  */
+/* the `.abyss` wrapper class so the legacy genesis-navy pages (`/`,    */
+/* `/live`, `/backtest`, `/playback`, `/workshop`) are byte-for-byte   */
+/* unaffected. The new vars use the `--ab-*` prefix exclusively.       */
+/* ================================================================== */
+.abyss {
+  /* Palette ------------------------------------------------------- */
+  --ab-bg: #060d0b; /* near-black abyssal floor, faint teal undertone */
+  --ab-bg-2: #0a1714; /* raised panel / vignette core */
+  --ab-bg-3: #0d211c; /* hairline surfaces */
+  --ab-glow: #c8f94c; /* the single bioluminescent accent — electric lime */
+  --ab-glow-soft: rgba(200, 249, 76, 0.16);
+  --ab-moss: #2e5e50; /* secondary moss / teal structure */
+  --ab-moss-2: #1c3a32;
+  --ab-text: #dbe7e0; /* body text — bright for readability on the near-black floor (15.4:1 on --ab-bg) */
+  /* G4 a11y: contrast verified for WCAG AA body text — --ab-dim on --ab-bg is
+     8.87:1 and on the raised --ab-bg-2 panel is 8.29:1, both well past the
+     4.5:1 AA threshold (and 3:1 for large text). No bump needed; keeping the
+     token at its already-brightened value preserves the aesthetic. */
+  --ab-dim: #9fb3a9; /* secondary labels / notes — readable, not faint */
+  --ab-death: #ff6b4a; /* warning / permadeath amber-red */
+
+  /* Typography --------------------------------------------------- */
+  --font-display: "Instrument Serif", ui-serif, Georgia, Cambria,
+    "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  background-color: var(--ab-bg);
+  color: var(--ab-text);
+  font-family: var(--font-mono);
+  /* Twin radial pools of bioluminescence rising from the deep. */
+  background-image:
+    radial-gradient(
+      120% 80% at 50% -10%,
+      rgba(46, 94, 80, 0.22) 0%,
+      rgba(6, 13, 11, 0) 60%
+    ),
+    radial-gradient(
+      90% 60% at 8% 108%,
+      rgba(200, 249, 76, 0.07) 0%,
+      rgba(6, 13, 11, 0) 55%
+    );
+  background-attachment: fixed;
+}
+
+/* ---- Grain / noise overlay (feTurbulence data-URI, very low opacity) */
+.abyss::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- A faint scanning sheen — telemetry "sweep" — drifting upward.   */
+.abyss::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background: linear-gradient(
+    to top,
+    rgba(200, 249, 76, 0.04) 0%,
+    rgba(6, 13, 11, 0) 14%
+  );
+  background-size: 100% 220px;
+  animation: ab-sweep 9s linear infinite;
+}
+
+@keyframes ab-sweep {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 -220px;
+  }
+}
+
+/* Content sits above the grain/sweep layers. */
+.abyss > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- Typography utilities (scoped) --------------------------------- */
+.abyss .font-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.005em;
+}
+.abyss .font-data {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+.abyss .ab-glow-text {
+  color: var(--ab-glow);
+  text-shadow: 0 0 18px rgba(200, 249, 76, 0.45);
+}
+
+/* ---- The breath / heartbeat waveform ------------------------------- */
+/* A polyline traced in the glow color. The dash offset animates so the
+   ECG pulse appears to travel left→right; the whole stroke also breathes
+   its opacity so the line "lives". */
+.abyss .ab-breath-line {
+  stroke: var(--ab-glow);
+  stroke-width: 2;
+  fill: none;
+  filter: drop-shadow(0 0 6px rgba(200, 249, 76, 0.6));
+  stroke-dasharray: 1400;
+  stroke-dashoffset: 1400;
+  animation:
+    ab-breath-draw 4.5s linear infinite,
+    ab-breath-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes ab-breath-draw {
+  from {
+    stroke-dashoffset: 1400;
+  }
+  to {
+    stroke-dashoffset: -1400;
+  }
+}
+
+@keyframes ab-breath-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---- Lifeline spine (the glowing vertical thread) ------------------ */
+.abyss .ab-spine {
+  background: linear-gradient(
+    to bottom,
+    var(--ab-glow) 0%,
+    var(--ab-moss) 42%,
+    var(--ab-moss-2) 70%,
+    rgba(28, 58, 50, 0) 100%
+  );
+  box-shadow: 0 0 14px rgba(200, 249, 76, 0.25);
+}
+
+/* ---- Node pulse (the ACTIVE life-stage) ---------------------------- */
+.abyss .ab-pulse-node {
+  animation: ab-node-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes ab-node-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(200, 249, 76, 0.45),
+      0 0 22px 2px rgba(200, 249, 76, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 10px rgba(200, 249, 76, 0),
+      0 0 34px 6px rgba(200, 249, 76, 0.55);
+  }
+}
+
+/* ---- The pulsing dot at the heart of the ACTIVE node --------------- */
+.abyss .ab-pulse-dot {
+  animation: ab-dot-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ab-dot-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.7;
+  }
+}
+
+/* ---- Staggered page-load reveal (the lifeline "draws in") ---------- */
+.abyss .ab-reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  animation: ab-reveal-in 720ms cubic-bezier(0.16, 0.84, 0.32, 1) forwards;
+}
+
+@keyframes ab-reveal-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- Hero title entrance ------------------------------------------- */
+.abyss .ab-hero-in {
+  opacity: 0;
+  filter: blur(8px);
+  animation: ab-hero-in 1100ms cubic-bezier(0.16, 0.84, 0.32, 1) forwards;
+}
+
+@keyframes ab-hero-in {
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+/* ---- Reduced motion — still down EVERYTHING in the abyss (G4) ------ */
+/* Coverage audit — every animation reachable on an abyss page must be
+   neutralized here. Named keyframes consumed under `.abyss`:
+     - ab-sweep        → `.abyss::after`        (telemetry sheen)
+     - ab-breath-draw  ┐ `.abyss .ab-breath-line` (heartbeat ECG draw + glow;
+     - ab-breath-glow  ┘                          roadmap hero + survival vitals)
+     - ab-node-pulse   → `.abyss .ab-pulse-node` (active lifeline node)
+     - ab-dot-pulse    → `.abyss .ab-pulse-dot`  (active node + status chip)
+     - ab-reveal-in    → `.abyss .ab-reveal`     (staggered section reveal:
+                                                  roadmap nodes, survival +
+                                                  /mock body sections, backtest
+                                                  panels)
+     - ab-hero-in      → `.abyss .ab-hero-in`    (hero title/eyebrow entrance)
+   Tailwind utility animations that ride along on reused abyss widgets:
+     - animate-pulse   → the LiveStream typewriter caret (/mock) + the
+                         VitalsPanel / DualEngineMeter / DecisionFeed skeleton
+                         loaders rendered with variant="abyss".
+     - animate-spin / animate-ping → defensive (none today, future-proof).
+   The Death Watch surface keyframes live in styles/death_watch.css, which has
+   its OWN prefers-reduced-motion block. */
+@media (prefers-reduced-motion: reduce) {
+  .abyss::after,
+  .abyss .ab-breath-line,
+  .abyss .ab-pulse-node,
+  .abyss .ab-pulse-dot,
+  .abyss .ab-reveal,
+  .abyss .ab-hero-in,
+  .abyss .animate-pulse,
+  .abyss .animate-spin,
+  .abyss .animate-ping {
+    animation: none !important;
+  }
+  /* Kill the per-step / hover micro-motions inside the abyss too (breath-bar
+     width tween, chart active-index slides, link colour fades). */
+  .abyss *,
+  .abyss *::before,
+  .abyss *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .abyss .ab-breath-line {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+  /* The reveal / hero entrances start at opacity:0 + translate/blur and only
+     reach their final frame via the animation — with the animation off they
+     must be pinned to their END state or the content stays invisible. */
+  .abyss .ab-reveal,
+  .abyss .ab-hero-in {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  /* The skip-link's own reveal tween. */
+  .skip-to-content {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-02-16T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "109",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-23T17:25:07.518000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-22T17:28:35.759000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-20T17:32:04+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-20T17:32:04+00",
+  "slug": "will-trump-pardon-himself-in-his-first-term",
+  "winning_price": null
+}

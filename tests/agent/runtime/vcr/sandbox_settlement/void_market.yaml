@@ -1,0 +1,27 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990001
+  response:
+    body:
+      string: '{"id":"9990001","question":"Synthetic walkover for T-B-019 void
+        path","slug":"synthetic-walkover-void","endDate":"2026-05-31T09:00:00Z","outcomes":"[\"Side
+        A\",\"Side B\"]","outcomePrices":"[\"0.5\",\"0.5\"]","gameStartTime":"2026-05-25
+        12:00:00+00","closedTime":"2026-05-25 18:00:00+00","umaEndDate":"2026-05-25T18:00:00Z","umaResolutionStatus":"resolved"}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

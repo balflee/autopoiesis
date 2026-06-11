@@ -1,0 +1,143 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "genesis-harness"
+version = "0.1.0"
+description = "Deterministic governance harness for the Genesis Experiment dev framework."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Genesis Project" }]
+
+dependencies = [
+    "jsonschema>=4.23",
+    "pyyaml>=6.0",
+    "pydantic>=2.9",
+    # Production LLM for the deployed Autopoiesis agent's sentiment +
+    # reflection engines (PRD §4.3, §4.4). NOT used by dev tooling
+    # (orchestrator subagents) which goes through Claude Code.
+    # Model: gemini-3.1-flash-lite via AI Studio (GEMINI_API_KEY).
+    # See agent/llm/gemini_client.py (sprint_4 T-B-006).
+    "google-genai>=1.0.0",
+    # MiniMax fallback for the production Gemini LLM seam (user-approved
+    # "MiniMax as fallback for Gemini"; MiniMax is NOT Anthropic/OpenAI).
+    # agent/llm/minimax_client.py talks to MiniMax's OpenAI-compatible
+    # chat-completions endpoint over plain HTTP via httpx (no MiniMax/OpenAI
+    # SDK). httpx is already pulled transitively by google-genai; declared
+    # DIRECT here so a clean `pip install -e .` guarantees it for the
+    # fallback path. Fallback is OFF by default (no MINIMAX_API_KEY).
+    "httpx>=0.27",
+    # sprint_13 T-B-042 RhChainAdapter — production wire from the agent
+    # loop to the deployed EnergyController + AgentLifecycle +
+    # TombstoneNFT on the RH Chain L3 (TP §7). web3.py supplies the JSON-RPC
+    # client + EIP-1559 tx builder; eth-account supplies the EIP-712
+    # signer + signature recovery. Both are runtime deps because the
+    # production loop factory (agent.server.main._build_chain_adapter)
+    # constructs a real Web3 instance when
+    # PROD_LOOP_CHAIN_ADAPTER_KIND=rh_chain. The sandbox kind path is
+    # in-memory only and does not exercise the network — these libs are
+    # safe to keep import-free of the sandbox loop body.
+    "web3>=6.20",
+    "eth-account>=0.11",
+    # Real-signal path (2026-06-08 plan) runtime deps. Previously these were
+    # declared ONLY in the mypy override below (a pre-existing gap): the
+    # flag-on real-signal path imports them transitively — SackmannLoader ->
+    # pandas/requests; find_optimal_config/weight_updater -> numpy. Declare
+    # them so a clean `pip install -e .` pulls them and the real paths don't
+    # break on a fresh environment.
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "mypy>=1.13",
+    "ruff>=0.7",
+    # sprint_13 T-B-042 RhChainAdapter test substrate. eth-tester +
+    # py-evm provide a pure-Python EVM the tests use as the anvil-fork
+    # fallback (the brief locks "anvil fork or eth_tester fallback"
+    # because anvil itself is not in CI). Dev-only — production never
+    # imports either.
+    "eth-tester>=0.12",
+    "py-evm>=0.10",
+]
+
+[project.scripts]
+harness = "harness.cli:main"
+
+[tool.hatch.build.targets.wheel]
+# ``.dev/harness`` is the deterministic governance harness; ``sim`` is the
+# Track C calibration framework (sprint_1 skeleton — see README_SIM.md +
+# PRD.md §14); ``data`` is the Track E point-in-time-correct ETL layer
+# (sprint_1 skeleton — see README_DATA.md + PRD.md §7, §14.1). All ship
+# inside this single wheel so the orchestrator can import any of them
+# without an external installation step.
+packages = [".dev/harness", "sim", "data"]
+
+[tool.hatch.build.targets.wheel.sources]
+".dev/harness" = "harness"
+
+[tool.pytest.ini_options]
+testpaths = [".dev/integration_tests/unit", ".dev/integration_tests/e2e",
+             "tests/sim", "tests/agent", "tests/data", "tests/dashboard"]
+python_files = "test_*.py"
+python_functions = "test_*"
+# Resolves the tests/sim/__init__.py shadowing issue flagged in T-C-001
+# generic_review (non-blocking medium). Two settings together:
+#   --import-mode=importlib   — pytest imports test modules via importlib
+#                               instead of mutating sys.path; this means
+#                               tests/sim/__init__.py does NOT shadow the
+#                               real top-level sim/ package
+#   pythonpath = ["."]        — defensive: ensures cwd is on sys.path even
+#                               for ad-hoc invocations
+addopts = "-ra --strict-markers --import-mode=importlib"
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+explicit_package_bases = true
+mypy_path = ".dev"
+
+[[tool.mypy.overrides]]
+module = ["yaml", "jsonschema.*"]
+ignore_missing_imports = true
+
+# Track C sprint_3 (T-C-003) Bayesian-Optimization dependency. scikit-optimize
+# does not ship type stubs and has no py.typed marker; the BO entrypoint in
+# sim/sampling/bo.py uses it at runtime only, so we narrow the typed surface
+# to the wrapper's signature and let internals stay untyped.
+[[tool.mypy.overrides]]
+module = ["skopt", "skopt.*", "matplotlib", "matplotlib.*"]
+ignore_missing_imports = true
+
+# Track E sprint_2 fetcher dependencies. These libraries either lack
+# type stubs (web3, vcr) or have heavy stub trees we deliberately avoid
+# pulling into the harness wheel (pandas-stubs, polars). The Track E
+# fetchers + the PIT chokepoint stay typed at their public surface;
+# narrowing internally happens via runtime isinstance checks.
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*", "polars", "polars.*", "web3", "web3.*", "vcr", "vcr.*", "requests", "requests.*", "praw", "praw.*", "pyarrow", "pyarrow.*", "eth_account", "eth_account.*", "eth_tester", "eth_tester.*", "eth_utils", "eth_utils.*", "hexbytes", "hexbytes.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = [
+    "E501",  # line length handled by formatter
+    # Ambiguous-unicode checks fire on the project's INTENTIONAL spec
+    # glyphs — `§` (PRD/TP section refs), `—` (em-dash in docstrings),
+    # and CJK in the bilingual narrative/comments. These are deliberate,
+    # not homoglyph attacks, so the whole family is suppressed repo-wide.
+    "RUF001",  # ambiguous-unicode-character-string
+    "RUF002",  # ambiguous-unicode-character-docstring
+    "RUF003",  # ambiguous-unicode-character-comment
+]

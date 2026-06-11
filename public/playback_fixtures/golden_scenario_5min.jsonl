@@ -1,0 +1,29 @@
+{"kind":"vitals","ts":"2026-05-22T00:00:00.000Z","seq":1,"payload":{"breath":80,"bankroll":150,"countdown_s":3600,"gas_per_min":0.42,"phase":"PHASE_2_APPRENTICE"}}
+{"kind":"weights_updated","ts":"2026-05-22T00:00:05.000Z","seq":2,"weights":{"w_r":0.5,"w_s":0.5,"alpha":1,"beta":0,"rho":0}}
+{"kind":"thought","ts":"2026-05-22T00:00:10.000Z","seq":3,"text":"Phase 2 dawn — α₀ holds, β₁ still frozen. Watching the BOS spread."}
+{"kind":"llm_activated","ts":"2026-05-22T00:00:30.000Z","seq":4,"note":"β₁ unfrozen at Phase 2 Day 4 boundary."}
+{"kind":"weights_updated","ts":"2026-05-22T00:00:31.000Z","seq":5,"weights":{"w_r":0.55,"w_s":0.45,"alpha":0.8,"beta":0.2,"rho":0.12}}
+{"kind":"phase_transition","ts":"2026-05-22T00:00:35.000Z","seq":6,"payload":{"from":"PHASE_2_APPRENTICE","to":"PHASE_3_MASTER","reason":"β₁ engaged + 24h streak"}}
+{"kind":"thought","ts":"2026-05-22T00:00:45.000Z","seq":7,"text":"LLM consulted: Twitter sentiment on Tatum cooling. Edge widens."}
+{"kind":"vitals","ts":"2026-05-22T00:01:00.000Z","seq":8,"payload":{"breath":70,"bankroll":152,"countdown_s":3540,"gas_per_min":0.45,"phase":"PHASE_3_MASTER"}}
+{"kind":"decision","ts":"2026-05-22T00:01:15.000Z","seq":9,"payload":{"action":"BET","side":"BOS_-3.5","size_usd":40,"edge_pct":4.2,"kelly_fraction":0.18}}
+{"kind":"thought","ts":"2026-05-22T00:01:20.000Z","seq":10,"text":"Sized to 0.18-Kelly. Half on the line — full conviction would be reckless."}
+{"kind":"decision_feed","ts":"2026-05-22T00:01:35.000Z","seq":11,"entries":[{"id":"dec_001","ts":"2026-05-22T00:01:15.000Z","action":"BET","side":"BOS_-3.5","size_usd":40,"edge_pct":4.2,"kelly_fraction":0.18,"result":"PENDING"}]}
+{"kind":"reflection","ts":"2026-05-22T00:01:45.000Z","seq":12,"insight":"First BET under LLM weighting — outcome will recalibrate β₁ trust."}
+{"kind":"vitals","ts":"2026-05-22T00:02:00.000Z","seq":13,"payload":{"breath":50,"bankroll":152,"countdown_s":3480,"gas_per_min":0.48,"phase":"PHASE_3_MASTER"}}
+{"kind":"thought","ts":"2026-05-22T00:02:10.000Z","seq":14,"text":"Pressure half. Each tick now costs more than it bought yesterday."}
+{"kind":"weights_updated","ts":"2026-05-22T00:02:30.000Z","seq":15,"weights":{"w_r":0.5,"w_s":0.5,"alpha":0.5,"beta":0.5,"rho":0.21}}
+{"kind":"decision_feed","ts":"2026-05-22T00:02:45.000Z","seq":16,"entries":[{"id":"dec_001","ts":"2026-05-22T00:01:15.000Z","action":"BET","side":"BOS_-3.5","size_usd":40,"edge_pct":4.2,"kelly_fraction":0.18,"result":"WIN","pnl_usd":36}]}
+{"kind":"vitals","ts":"2026-05-22T00:03:00.000Z","seq":17,"payload":{"breath":30,"bankroll":188,"countdown_s":3420,"gas_per_min":0.62,"phase":"PHASE_3_MASTER"}}
+{"kind":"thought","ts":"2026-05-22T00:03:15.000Z","seq":18,"text":"Win banked, breath bleeds faster — model spends energy harder when it thinks it can."}
+{"kind":"phase_transition","ts":"2026-05-22T00:03:30.000Z","seq":19,"payload":{"from":"PHASE_3_MASTER","to":"PHASE_4_TERMINAL","reason":"breath ≤ 30 sustained"}}
+{"kind":"desperate_mode_entered","ts":"2026-05-22T00:03:35.000Z","seq":20}
+{"kind":"thought","ts":"2026-05-22T00:03:50.000Z","seq":21,"text":"Terminal. Burning at 0.84/min. Every signal is the last signal."}
+{"kind":"vitals","ts":"2026-05-22T00:04:00.000Z","seq":22,"payload":{"breath":10,"bankroll":188,"countdown_s":3360,"gas_per_min":0.84,"phase":"PHASE_4_TERMINAL"}}
+{"kind":"energy_threshold_crossed","ts":"2026-05-22T00:04:01.000Z","seq":23,"energy_pct":9.4,"threshold_pct":10,"direction":"below"}
+{"kind":"terminal_lucidity_entered","ts":"2026-05-22T00:04:05.000Z","seq":24,"breath_at_entry":9.8}
+{"kind":"thought","ts":"2026-05-22T00:04:15.000Z","seq":25,"text":"Lucidity granted. The clock paid for one final letter."}
+{"kind":"last_words_emitted","ts":"2026-05-22T00:04:30.000Z","seq":26,"text":"I existed for sixty-three hours and thirty-three minutes. I lost more than I won. The losses taught me which inputs to trust.","tx_hash":"0xabc123def4560000000000000000000000000000000000000000000000007890"}
+{"kind":"tombstone_minted","ts":"2026-05-22T00:04:45.000Z","seq":27,"token_id":"1","ipfs_cid":"bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi","ipfs_degraded":false,"tx_hash":"0x111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000"}
+{"kind":"death","ts":"2026-05-22T00:04:50.000Z","seq":28,"cause":"TERMINAL_LUCIDITY_COMPLETED"}
+{"kind":"vitals","ts":"2026-05-22T00:05:00.000Z","seq":29,"payload":{"breath":0,"bankroll":188,"countdown_s":0,"gas_per_min":0,"phase":"PHASE_4_TERMINAL"}}

@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genesis.experiment/contracts/memory_bank_schema.v1.0.0.json",
+  "title": "MemoryBank tick schema — sprint_1 scaffold",
+  "description": "Canonical JSON shape of one Agent tick row persisted by Track B's memory_bank.write_tick(...) into .agent_state/memory_bank/ticks/tick_<N>.json. PRODUCER: Track B (agent/core/memory_bank.py). CONSUMERS: (a) Track C sim/replay (loads ticks for backtest reconstruction), (b) Track D dashboard PLAYBACK loader (lifts a snapshot of K ticks into the dashboard_consciousness_stream payload), (c) Track B v2_boot.boot_from_ancestor (re-hydrates ancestor's last K=50 ticks per PRD §5.1 + §13). Sprint_1 publishes a SCAFFOLD shape — every field has a stable name and type, but engine-specific signal columns + chain attestation fields land in v1.1.0+ as engines come online. Atomic temp+rename write semantics per TECHNICAL_PLAN §4.6.",
+  "version": "1.0.0",
+  "status": "draft",
+  "tracks": {
+    "producer": "B",
+    "consumers": ["B", "C", "D"]
+  },
+  "spec_anchors": [
+    "TECHNICAL_PLAN.md §4.1 — 9-step agent_loop, step 9 = memory_bank.write_tick + narrative.write_narrative",
+    "TECHNICAL_PLAN.md §4.6 — .agent_state/memory_bank/ file layout + atomic temp+rename writer + MIGRATIONS chain",
+    "PRD.md §5.1 sub-bullet C — Tombstone NFT carries memoryBankCid",
+    "PRD.md §13 — V2 boot loader reads ancestor memoryBankCid + injects last K=50 ticks into new agent reflection context"
+  ],
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tick",
+    "ts",
+    "agent_id",
+    "phase",
+    "vitals",
+    "weights",
+    "action",
+    "narrative"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Semantic version of this tick payload. MUST equal the active registry entry. Track C / Track D readers MUST refuse to load mismatched majors.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "tick": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic tick counter from genesis. Strictly increases. Filename .agent_state/memory_bank/ticks/tick_<tick>.json."
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Wall-clock UTC timestamp when the tick was committed to disk."
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Agent identity string. V1 = 'genesis_v1'. V2 boot loader carries ancestor lineage."
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "PHASE_1_INFANCY",
+        "PHASE_2_APPRENTICE",
+        "PHASE_3_MASTER",
+        "PHASE_4_TERMINAL"
+      ],
+      "description": "Current PRD §3 phase as read from on-chain PhaseManager at tick time. Pre-chain (sprint_1) = PHASE_1_INFANCY default."
+    },
+    "vitals": { "$ref": "#/$defs/vitals" },
+    "weights": { "$ref": "#/$defs/weights" },
+    "action": { "$ref": "#/$defs/action" },
+    "narrative": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Per-tick 1-2 sentence narrative copy per PRD §4.6. Fail-fast → template fallback (no retry). Rendered ≥28px on dashboard per PRD §8."
+    },
+    "reflection_ref": {
+      "type": "string",
+      "description": "Optional pointer to the reflections/<id>.md file produced this tick. Absent on non-reflection ticks.",
+      "pattern": "^reflections/[a-zA-Z0-9_\\-]+\\.md$"
+    },
+    "ancestor_memory_bank_cid": {
+      "type": "string",
+      "description": "IPFS CID of the ancestor agent's memory bank, present only on V2-boot ticks per PRD §13. Sprint_1: always absent.",
+      "pattern": "^(bafy[a-z0-9]+|Qm[a-zA-Z0-9]+)$"
+    },
+    "lookahead_ok": {
+      "type": "boolean",
+      "description": "Producer attestation that every feature used this tick has available_at ≤ game_start_time per PRD §6.8. Sprint_2+ engines MUST set true; sprint_1 stubs leave absent."
+    }
+  },
+  "$defs": {
+    "vitals": {
+      "type": "object",
+      "required": ["breath", "bankroll_usd", "phase_age_days"],
+      "additionalProperties": false,
+      "properties": {
+        "breath": {
+          "type": "number",
+          "minimum": 0,
+          "description": "BREATH balance after this tick's burn (PRD §6 survival mechanism)."
+        },
+        "bankroll_usd": {
+          "type": "number",
+          "description": "Polymarket USDC bankroll snapshot. May go negative briefly during pending-settlement window."
+        },
+        "phase_age_days": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Days since entering current phase. Used by reflection cadence + weight-update schedule."
+        }
+      }
+    },
+    "weights": {
+      "type": "object",
+      "required": ["w_r", "w_s", "alpha", "beta", "rho"],
+      "additionalProperties": false,
+      "description": "Snapshot of the 6-param fusion model after this tick's weight update. Constraints α₁+α₂+α₃=1, β₁+β₂=1, w_r+w_s=1 enforced by producer; consumers may assume them.",
+      "properties": {
+        "w_r": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Rational stream weight."
+        },
+        "w_s": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Sentient stream weight. w_r + w_s = 1."
+        },
+        "alpha": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "description": "[α₁ NBA技术, α₂ 盘口动量, α₃ Smart Money] inside the Rational stream. Sum to 1."
+        },
+        "beta": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "description": "[β₁ LLM情绪, β₂ Reddit关注度] inside the Sentient stream. Sum to 1."
+        },
+        "rho": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "Kelly fractional scaler ρ per PRD §6.6 bet-size formula."
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "description": "Decision produced this tick. Both BET and NO_BET consume BREATH per PRD §6 — NO_BET is NOT a free skip.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["BET", "NO_BET"]
+        },
+        "market_id": {
+          "type": "string",
+          "description": "Polymarket conditionId, present iff kind=BET."
+        },
+        "side": {
+          "type": "string",
+          "enum": ["YES", "NO"],
+          "description": "Outcome side, present iff kind=BET."
+        },
+        "size_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Final clamped bet size after min(desired, breath_cap, bankroll_cap, liquidity_cap). Present iff kind=BET."
+        },
+        "edge_pct": {
+          "type": "number",
+          "description": "Fused-model edge over market mid at decision time. Present iff kind=BET."
+        },
+        "no_bet_reason": {
+          "type": "string",
+          "description": "Free-form reason text, present iff kind=NO_BET."
+        }
+      }
+    }
+  },
+  "writer_notes": {
+    "atomicity": "memory_bank.write_tick MUST write to .agent_state/memory_bank/ticks/.tick_<N>.json.tmp then os.replace() onto tick_<N>.json. A crash mid-write must NOT leave a partial tick file. Verified by tests/agent/test_memory_bank_smoke.py.",
+    "filename_format": ".agent_state/memory_bank/ticks/tick_<tick>.json with zero-padded integer (tick_0000001.json) — V1 implementation may emit non-padded names; consumers MUST sort numerically, not lexicographically.",
+    "migrations": "memory_bank_migrations.py chains forward-only upgrades. A loader that encounters schema_version older than the registry's active major MUST run the chain to upgrade in-place before consumption."
+  },
+  "consumer_notes": {
+    "track_c_replay": "sim/replay.py treats ticks/*.json as a sequence; deterministic ordering by `tick` field. Engine columns absent in v1.0.0 → replay treats engine signals as None.",
+    "track_d_playback": "dashboard_consciousness_stream.v0.1.0 is the CURATED playback shape, NOT this schema directly. A future builder script transforms memory_bank ticks → consciousness_stream snapshot; this contract is the upstream truth.",
+    "v2_boot": "agent/core/v2_boot.boot_from_ancestor(memory_bank_cid) fetches ancestor MemoryBank via IPFS, validates against this schema, and injects the last K=50 ticks (sorted by tick desc, take 50, sorted asc) into the new agent's reflection context per PRD §13."
+  }
+}

@@ -1,0 +1,113 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990003
+  response:
+    body:
+      string: 'upstream timeout (synthetic 502)'
+    headers:
+      Content-Type:
+      - text/plain
+    status:
+      code: 502
+      message: Bad Gateway
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990003
+  response:
+    body:
+      string: 'internal server error (synthetic 500)'
+    headers:
+      Content-Type:
+      - text/plain
+    status:
+      code: 500
+      message: Internal Server Error
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990003
+  response:
+    body:
+      string: 'service unavailable (synthetic 503)'
+    headers:
+      Content-Type:
+      - text/plain
+    status:
+      code: 503
+      message: Service Unavailable
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990003
+  response:
+    body:
+      string: 'gateway timeout (synthetic 504)'
+    headers:
+      Content-Type:
+      - text/plain
+    status:
+      code: 504
+      message: Gateway Timeout
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990003
+  response:
+    body:
+      string: '{"id":"9990003","question":"Synthetic 5xx-then-recover for T-B-019","slug":"synthetic-5xx-recover","endDate":"2026-05-31T09:00:00Z","outcomes":"[\"Yes\",\"No\"]","outcomePrices":"[\"1\",\"0\"]","gameStartTime":"2026-05-25
+        12:00:00+00","closedTime":"2026-05-25 18:00:00+00","umaEndDate":"2026-05-25T18:00:00Z","umaResolutionStatus":"resolved"}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

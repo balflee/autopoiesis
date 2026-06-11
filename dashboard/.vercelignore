@@ -1,0 +1,15 @@
+# Vercel CLI upload filter. When this file exists, Vercel uses IT instead of
+# falling back to .gitignore — which is the whole point: .gitignore excludes the
+# large survival-journey artifacts (public/backtest/survival_journey*.json), but
+# the deployed /survival page NEEDS them. By NOT listing them here, they upload.
+#
+# Exclude only what the build regenerates or shouldn't ship:
+node_modules
+.next
+.git
+.vercel
+*.log
+# Local test/coverage noise:
+coverage
+playwright-report
+test-results

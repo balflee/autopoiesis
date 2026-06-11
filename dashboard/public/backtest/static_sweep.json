@@ -1,0 +1,436 @@
+{
+  "schema_version": "0.1.0",
+  "task_id": "T-D-001",
+  "sprint": "phase_d",
+  "coverage_pct": 65.7,
+  "optimal_seed": {
+    "weights": {
+      "w_r": 0.564,
+      "w_s": 0.436,
+      "alpha": [
+        0.486,
+        0.328,
+        0.186
+      ],
+      "beta": [
+        0.443,
+        0.557
+      ],
+      "rho": 0.186
+    },
+    "sizing": {
+      "max_breath_risk_pct": 0.232,
+      "min_confidence": 0.049,
+      "min_bet_size_usd": 4.0
+    },
+    "sharpe": 0.649,
+    "bets": 65,
+    "win_rate": 0.815,
+    "net_pnl": 852.56,
+    "avg_bet_size": 4.63
+  },
+  "frontier": [
+    {
+      "rank": 1,
+      "sharpe": 0.649,
+      "net_pnl": 852,
+      "win_rate": 0.815,
+      "bets": 65,
+      "w_r": 0.56,
+      "alpha": [
+        0.49,
+        0.33,
+        0.19
+      ],
+      "rho": 0.19,
+      "max_breath_risk_pct": 0.23,
+      "min_bet_size_usd": 4.0
+    },
+    {
+      "rank": 2,
+      "sharpe": 0.526,
+      "net_pnl": 344,
+      "win_rate": 0.823,
+      "bets": 62,
+      "w_r": 0.02,
+      "alpha": [
+        0.54,
+        0.25,
+        0.2
+      ],
+      "rho": 0.14,
+      "max_breath_risk_pct": 0.22,
+      "min_bet_size_usd": 4.0
+    },
+    {
+      "rank": 3,
+      "sharpe": 0.502,
+      "net_pnl": 1100,
+      "win_rate": 0.785,
+      "bets": 130,
+      "w_r": 0.64,
+      "alpha": [
+        0.45,
+        0.14,
+        0.41
+      ],
+      "rho": 0.19,
+      "max_breath_risk_pct": 0.25,
+      "min_bet_size_usd": 4.0
+    },
+    {
+      "rank": 4,
+      "sharpe": 0.443,
+      "net_pnl": 1893,
+      "win_rate": 0.743,
+      "bets": 284,
+      "w_r": 0.85,
+      "alpha": [
+        0.61,
+        0.25,
+        0.15
+      ],
+      "rho": 0.15,
+      "max_breath_risk_pct": 0.35,
+      "min_bet_size_usd": 3.9
+    },
+    {
+      "rank": 5,
+      "sharpe": 0.427,
+      "net_pnl": 1293,
+      "win_rate": 0.789,
+      "bets": 313,
+      "w_r": 0.23,
+      "alpha": [
+        0.75,
+        0.05,
+        0.2
+      ],
+      "rho": 0.17,
+      "max_breath_risk_pct": 0.35,
+      "min_bet_size_usd": 2.2
+    },
+    {
+      "rank": 6,
+      "sharpe": 0.424,
+      "net_pnl": 2566,
+      "win_rate": 0.771,
+      "bets": 397,
+      "w_r": 0.55,
+      "alpha": [
+        0.41,
+        0.39,
+        0.2
+      ],
+      "rho": 0.3,
+      "max_breath_risk_pct": 0.46,
+      "min_bet_size_usd": 4.0
+    },
+    {
+      "rank": 7,
+      "sharpe": 0.417,
+      "net_pnl": 1891,
+      "win_rate": 0.785,
+      "bets": 474,
+      "w_r": 0.33,
+      "alpha": [
+        0.64,
+        0.11,
+        0.25
+      ],
+      "rho": 0.18,
+      "max_breath_risk_pct": 0.1,
+      "min_bet_size_usd": 2.1
+    },
+    {
+      "rank": 8,
+      "sharpe": 0.408,
+      "net_pnl": 3836,
+      "win_rate": 0.765,
+      "bets": 750,
+      "w_r": 0.06,
+      "alpha": [
+        0.73,
+        0.15,
+        0.12
+      ],
+      "rho": 0.52,
+      "max_breath_risk_pct": 0.48,
+      "min_bet_size_usd": 4.0
+    },
+    {
+      "rank": 9,
+      "sharpe": 0.405,
+      "net_pnl": 1591,
+      "win_rate": 0.783,
+      "bets": 267,
+      "w_r": 0.26,
+      "alpha": [
+        0.51,
+        0.02,
+        0.48
+      ],
+      "rho": 0.26,
+      "max_breath_risk_pct": 0.34,
+      "min_bet_size_usd": 4.0
+    },
+    {
+      "rank": 10,
+      "sharpe": 0.396,
+      "net_pnl": 3517,
+      "win_rate": 0.753,
+      "bets": 697,
+      "w_r": 0.02,
+      "alpha": [
+        0.72,
+        0.05,
+        0.23
+      ],
+      "rho": 0.56,
+      "max_breath_risk_pct": 0.41,
+      "min_bet_size_usd": 4.0
+    }
+  ],
+  "sample_bets": [
+    {
+      "market_id": "1113566",
+      "players": [
+        "Sabalenka",
+        "Bucsa"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.865,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": 0.9961,
+        "market_momentum": 0.1514,
+        "smart_money": 0.4,
+        "sentiment_llm": 1.0,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.48,
+      "pnl": 0.7
+    },
+    {
+      "market_id": "1389419",
+      "players": [
+        "Gauff",
+        "Mertens"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.605,
+      "outcome": "no",
+      "signals": {
+        "tennis_technical": 0.9726,
+        "market_momentum": 0.1996,
+        "smart_money": 0.15,
+        "sentiment_llm": 1.0,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.24,
+      "pnl": -4.24
+    },
+    {
+      "market_id": "1390701",
+      "players": [
+        "Alcaraz",
+        "Royer"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.9,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": 0.9994,
+        "market_momentum": 0.3542,
+        "smart_money": 0.5,
+        "sentiment_llm": 1.0,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.76,
+      "pnl": 0.53
+    },
+    {
+      "market_id": "1521117",
+      "players": [
+        "Nakashima",
+        "Zverev"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.315,
+      "outcome": "no",
+      "signals": {
+        "tennis_technical": -0.7644,
+        "market_momentum": -0.0984,
+        "smart_money": -0.15,
+        "sentiment_llm": -1.0,
+        "crowd_volume": 0.0
+      },
+      "side": "NO",
+      "size": 4.31,
+      "pnl": 9.37
+    },
+    {
+      "market_id": "1573718",
+      "players": [
+        "Alcaraz",
+        "Medvedev"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.795,
+      "outcome": "no",
+      "signals": {
+        "tennis_technical": 0.9978,
+        "market_momentum": 0.0609,
+        "smart_money": 0.1,
+        "sentiment_llm": 0.5,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.06,
+      "pnl": -4.06
+    },
+    {
+      "market_id": "1669198",
+      "players": [
+        "Rybakina",
+        "Kostyuk"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.715,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": 0.9696,
+        "market_momentum": 0.0236,
+        "smart_money": 0.15,
+        "sentiment_llm": 1.0,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.89,
+      "pnl": 1.95
+    },
+    {
+      "market_id": "1739843",
+      "players": [
+        "Sabalenka",
+        "Gauff"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.67,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": 0.8908,
+        "market_momentum": 0.0249,
+        "smart_money": 0.2,
+        "sentiment_llm": 0.4286,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.57,
+      "pnl": 2.25
+    },
+    {
+      "market_id": "1941708",
+      "players": [
+        "Alcaraz",
+        "Vacherot"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.835,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": 0.9992,
+        "market_momentum": 0.3189,
+        "smart_money": 0.25,
+        "sentiment_llm": 1.0,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.28,
+      "pnl": 0.85
+    },
+    {
+      "market_id": "2002469",
+      "players": [
+        "Muchova",
+        "Gauff"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.34,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": -0.9845,
+        "market_momentum": -0.1481,
+        "smart_money": 0.05,
+        "sentiment_llm": -0.6,
+        "crowd_volume": 0.0
+      },
+      "side": "NO",
+      "size": 4.84,
+      "pnl": -4.84
+    },
+    {
+      "market_id": "2183110",
+      "players": [
+        "Musetti",
+        "Perricard"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.77,
+      "outcome": "yes",
+      "signals": {
+        "tennis_technical": 0.6884,
+        "market_momentum": 0.0191,
+        "smart_money": 0.25,
+        "sentiment_llm": 0.6667,
+        "crowd_volume": 0.0
+      },
+      "side": "YES",
+      "size": 4.11,
+      "pnl": 1.23
+    },
+    {
+      "market_id": "2329921",
+      "players": [
+        "Erjavec",
+        "Rybakina"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.1,
+      "outcome": "no",
+      "signals": {
+        "tennis_technical": -0.9893,
+        "market_momentum": -0.3217,
+        "smart_money": -0.6333,
+        "sentiment_llm": 0.0,
+        "crowd_volume": -0.9453
+      },
+      "side": "NO",
+      "size": 5.0,
+      "pnl": 45.0
+    },
+    {
+      "market_id": "2351480",
+      "players": [
+        "Andreeva",
+        "Ribera"
+      ],
+      "surface": "Hard",
+      "entry_price": 0.895,
+      "outcome": "no",
+      "signals": {
+        "tennis_technical": 0.8476,
+        "market_momentum": 0.018,
+        "smart_money": 0.7,
+        "sentiment_llm": 0.0,
+        "crowd_volume": 1.0
+      },
+      "side": "YES",
+      "size": 4.45,
+      "pnl": -4.45
+    }
+  ]
+}

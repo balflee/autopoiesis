@@ -1,0 +1,25 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/9990002
+  response:
+    body:
+      string: '{"id":"9990002","question":"Synthetic pending market for T-B-019","slug":"synthetic-pending","endDate":"2026-05-31T09:00:00Z","outcomes":"[\"Yes\",\"No\"]","outcomePrices":"[\"0.5\",\"0.5\"]","gameStartTime":"2026-05-25
+        12:00:00+00","umaResolutionStatus":"proposed"}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

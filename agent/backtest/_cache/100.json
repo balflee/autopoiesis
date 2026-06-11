@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-01T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "100",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-13T18:40:06.566000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-29T05:29:18.283000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-14T16:18:30+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-12-14T16:18:30+00",
+  "slug": "will-indoor-dining-be-prohibited-in-nyc-at-any-point-before-2021",
+  "winning_price": null
+}

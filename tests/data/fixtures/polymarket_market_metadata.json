@@ -1,0 +1,9 @@
+{
+  "condition_id": "0xabcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd",
+  "question": "Will the Lakers beat the Celtics on 2026-04-12?",
+  "slug": "nba-lakers-vs-celtics-2026-04-12",
+  "closed": true,
+  "resolved": true,
+  "outcome": "Yes",
+  "category": "Sports"
+}

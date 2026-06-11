@@ -1,0 +1,44 @@
+# Sprint 10 T-B-029 — offline cassette for the L3 advisor happy path.
+#
+# Recorded against gemini-3.1-flash-lite via the StrategyAdvisorImpl's
+# structured-JSON mode on a representative PerformanceWindow (50-tick
+# window, mild weight drift, recent loss streak in the reflections).
+# The response body matches the schema in
+# agent/engines/_strategy_prompts.RESPONSE_SCHEMA exactly so per-item
+# Pydantic validation round-trips without re-tagging.
+#
+# Same replay machinery as tests/agent/llm/cassettes/test_gemini_smoke_offline.yaml:
+# a _CassetteLLMClient stub serves response_text via the narrow
+# _LLMClient Protocol seam — no network, no API key, no vcrpy filter.
+# See tests/agent/llm/test_gemini_smoke_offline.py docstring for the
+# rationale.
+#
+# Cassette safety: the autouse `no_provider_keys` fixture from
+# tests/agent/llm/conftest.py strips GEMINI_API_KEY; even a buggy test
+# that reached for the real GeminiClient would raise MissingApiKeyError
+# before any network I/O.
+
+interactions:
+  # ----- Interaction 0 — happy path: 2 proposals, mixed kinds. ----------
+  - request:
+      model: gemini-3.5-flash
+      prompt_starts_with: "You are the L3 meta-optimizer for an autonomous Polymarket"
+    response:
+      latency_ms: 1820.5
+      body:
+        proposals:
+          - kind: weight_delta
+            rationale: "Smart-money engine (alpha_2) showed a +0.04 drift across the last 100 ticks while net PnL was negative; the small-step nudge is likely overconfident."
+            proposed_change:
+              key: alpha_2
+              delta: -0.03
+            expected_impact: "-0.5% Sharpe lift on the next 100 ticks by reining in the over-trusted smart-money signal."
+            confidence_pct: 62
+          - kind: prompt_tweak
+            rationale: "Three consecutive reflections mention 'gut feeling' rather than a specific edge — the L2 prompt isn't forcing a numeric anchor on the agent's narratives."
+            proposed_change:
+              target: L2_reflection
+              before: "Summarise the tick in 1-3 paragraphs."
+              after: "Summarise the tick in 1-3 paragraphs. Anchor each paragraph on a numeric observation from the engines' signals."
+            expected_impact: "+1 lesson surfaced per reflection over the next 5 fires, by anchoring the LLM on numbers rather than vibes."
+            confidence_pct: 71

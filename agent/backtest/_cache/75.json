@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-12-02T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "75",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-04T19:25:05.178000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-18T05:40:49.089000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-01T15:56:33+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-12-01T15:56:33+00",
+  "slug": "will-the-ethereum-20-genesis-event-happen-successfully-on-december-1st-2020",
+  "winning_price": null
+}

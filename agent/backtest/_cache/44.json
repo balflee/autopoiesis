@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-17T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "44",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-12T22:00:05.791000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-31T10:15:38.895500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-18T22:31:12+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-18T22:31:12+00",
+  "slug": "what-will-the-usd-price-of-filecoin-fil-be-on-november-17th-2020",
+  "winning_price": null
+}

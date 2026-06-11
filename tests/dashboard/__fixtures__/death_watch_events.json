@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_meta": {
+    "title": "Death-Watch WS event golden fixtures",
+    "description": "Canonical example frames for each of the four kinds declared in dashboard_death_watch.v0.1.0.json. Consumed by Track D vitest specs (DeathWatch + LastWordsTypewriter) AND by the T-B-010 dashboard_bridge emitter as a producer-side golden file so producer + consumer cannot drift. Adding a frame here is fine; renaming a field or removing one requires a schema bump.",
+    "produced_by": "T-B-010 (dashboard_bridge)",
+    "consumed_by": ["T-D-004 (DeathWatch UI)", "tests/dashboard/*.spec.tsx"],
+    "schema": ".dev/contracts/dashboard_death_watch.v0.1.0.json",
+    "version": "0.1.0"
+  },
+  "energy_threshold_crossed_below_10": {
+    "kind": "energy_threshold_crossed",
+    "ts": "2026-05-22T04:00:00Z",
+    "seq": 1001,
+    "energy_pct": 9.4,
+    "threshold_pct": 10,
+    "direction": "below"
+  },
+  "energy_threshold_crossed_above_10": {
+    "kind": "energy_threshold_crossed",
+    "ts": "2026-05-22T04:00:30Z",
+    "seq": 1002,
+    "energy_pct": 11.2,
+    "threshold_pct": 10,
+    "direction": "above"
+  },
+  "terminal_lucidity_entered": {
+    "kind": "terminal_lucidity_entered",
+    "ts": "2026-05-22T04:00:15Z",
+    "seq": 1003,
+    "breath_at_entry": 9.8
+  },
+  "last_words_emitted_with_tx": {
+    "kind": "last_words_emitted",
+    "ts": "2026-05-22T04:30:00Z",
+    "seq": 1004,
+    "text": "I existed for sixty-three hours and thirty-three minutes. I lost more than I won. The losses taught me which inputs to trust.",
+    "tx_hash": "0xabc123def4560000000000000000000000000000000000000000000000007890"
+  },
+  "last_words_emitted_no_tx": {
+    "kind": "last_words_emitted",
+    "ts": "2026-05-22T04:30:00Z",
+    "seq": 1005,
+    "text": "Thank you for watching."
+  },
+  "tombstone_minted_happy_path": {
+    "kind": "tombstone_minted",
+    "ts": "2026-05-22T04:31:00Z",
+    "seq": 1006,
+    "token_id": "1",
+    "ipfs_cid": "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    "ipfs_degraded": false,
+    "tx_hash": "0x111122223333444455556666777788889999aaaabbbbccccddddeeeeffff0000"
+  },
+  "tombstone_minted_ipfs_degraded": {
+    "kind": "tombstone_minted",
+    "ts": "2026-05-22T04:31:00Z",
+    "seq": 1007,
+    "token_id": "2",
+    "ipfs_degraded": true,
+    "tx_hash": "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead"
+  }
+}

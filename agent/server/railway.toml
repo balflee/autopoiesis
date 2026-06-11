@@ -1,0 +1,85 @@
+# =============================================================================
+# Genesis Experiment — Railway service config (T-B-028)
+# -----------------------------------------------------------------------------
+# Deploy:
+#   railway link <project-id>
+#   railway up
+#
+# Brief acceptance criteria (T-B-028):
+#   * start         = uvicorn agent.server.main:app --host 0.0.0.0 --port $PORT
+#   * healthcheck   = /healthz
+#   * env           = GEMINI_API_KEY, DASHBOARD_API_TOKEN,
+#                     GEMINI_MONTHLY_BUDGET_USD, SANDBOX_STATE_DIR
+#
+# Secrets are configured in Railway's project UI (Variables tab) — NEVER
+# checked into this file. The four variables below declare the env keys
+# the deploy MUST have set; Railway surfaces unset-but-required vars in
+# the deploy preview.
+# =============================================================================
+
+[build]
+# Use the project Dockerfile so the image identity matches local `docker
+# build` smoke runs. Path is relative to the repo root.
+builder       = "DOCKERFILE"
+dockerfilePath = "agent/server/Dockerfile"
+
+[deploy]
+# uvicorn binds 0.0.0.0 — Railway's edge proxy reaches it via $PORT.
+# `exec` ensures uvicorn becomes PID 1 inside the container so signals
+# from Railway (SIGTERM on rolling deploy / scale-to-zero) reach it
+# directly. Without `exec`, the wrapping shell intercepts the signal
+# and the FastAPI app never gets a chance to drain.
+startCommand = "exec uvicorn agent.server.main:app --host 0.0.0.0 --port $PORT"
+
+# Railway pings this path after the deploy boots; if the response is
+# !=200 within healthcheckTimeout, the deploy is marked failed and
+# rolled back. /healthz is unauthed by design (Railway's prober ships
+# no bearer token).
+healthcheckPath    = "/healthz"
+healthcheckTimeout = 300
+
+# Restart strategy:
+#   * ON_FAILURE — uvicorn crashed (FastAPI exception, missing dep);
+#     retry up to 3 times before giving up + alerting.
+#   * Sandbox-loop state survives because it lives under
+#     /data/sandbox (mounted volume) — not /app — so a restart
+#     reconstructs from disk per the T-B-020 contract.
+restartPolicyType       = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# -----------------------------------------------------------------------------
+# Environment variables — declared so the Railway UI shows them in the
+# Variables tab; ACTUAL values are set by the operator in the UI and
+# NEVER hard-coded here.
+# -----------------------------------------------------------------------------
+#
+# Each entry's `default` is intentionally omitted for secrets so a
+# missing value triggers a Railway "unset variable" warning at deploy
+# time rather than silently substituting an empty string.
+
+# Required — production Gemini API key for sentiment + reflection engines.
+# Get from: https://aistudio.google.com/apikey
+[[envVars]]
+name = "GEMINI_API_KEY"
+
+# Required — bearer token the dashboard sends in the Authorization header.
+# Generate with: `openssl rand -hex 32` and paste into BOTH the Railway
+# variable AND the Vercel project's NEXT_PUBLIC_DASHBOARD_API_TOKEN.
+[[envVars]]
+name = "DASHBOARD_API_TOKEN"
+
+# Optional — monthly USD ceiling for total Gemini spend. The cost guard
+# trips when the running total exceeds this value and the engines fall
+# back to template stubs (warning: `cost_guard_tripped`). Default 20 USD
+# matches :data:`agent.llm._smoke.DEFAULT_MONTHLY_BUDGET_USD`.
+[[envVars]]
+name    = "GEMINI_MONTHLY_BUDGET_USD"
+default = "20.0"
+
+# Optional — filesystem root the sandbox loop writes JSONL streams +
+# snapshot into. The Dockerfile sets a default of /data/sandbox and
+# expects /data to be a Railway volume mount; overriding here lets the
+# operator point at a different mount without rebuilding the image.
+[[envVars]]
+name    = "SANDBOX_STATE_DIR"
+default = "/data/sandbox"

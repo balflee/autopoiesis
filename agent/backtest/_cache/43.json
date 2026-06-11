@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-02T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "43",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-12T22:00:05.791000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-22T21:52:58.895500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-02T21:45:52+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-02T21:45:52+00",
+  "slug": "what-will-the-total-value-locked-tvl-in-defi-be-at-the-end-of-2020-according-to-defipulse",
+  "winning_price": null
+}

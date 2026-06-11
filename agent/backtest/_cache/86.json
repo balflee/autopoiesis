@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-01T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "86",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-07T20:35:05.270000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-05T21:08:00.635000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-02T21:40:56+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-02T21:40:56+00",
+  "slug": "will-kanye-west-release-a-new-studio-album-before-2021",
+  "winning_price": null
+}

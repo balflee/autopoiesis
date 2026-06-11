@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+coverage/
+*.log
+.DS_Store
+.env*.local
+# T-D-010 sprint_9 — committed deploy templates (placeholders only,
+# enforced by reviewer-demo-readiness). Override the parent's .env.*
+# blanket rule. The matching .env.production file (real values) is
+# still ignored via .env*.local + .env (parent).
+!.env.production.example
+next-env.d.ts.bak
+.vercel

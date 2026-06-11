@@ -1,0 +1,75 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/2328096
+  response:
+    body:
+      string: '{"id":"2328096","question":"Roland Garros ATP: Hugo Gaston vs Gael
+        Monfils","conditionId":"0xe80e58da06faefe2b9fcda12de0797658450497d6fda6dbcdf72d27b05186f98","slug":"atp-gaston-monfils-2026-05-24","resolutionSource":"https://www.atptour.com/en/scores/current","endDate":"2026-05-31T09:00:00Z","startDate":"2026-05-22T04:04:07.587739Z","image":"https://polymarket-upload.s3.us-east-2.amazonaws.com/atp-tour-b4390c4fb8.jpg","icon":"https://polymarket-upload.s3.us-east-2.amazonaws.com/atp-tour-b4390c4fb8.jpg","description":"This
+        market refers to the tennis match between Hugo Gaston and Gael Monfils in
+        the Roland Garros ATP, originally scheduled for May 24, 2026 at 5:00AM ET.\n\nThis
+        market will resolve to ''Hugo Gaston'' if Hugo Gaston advances against Gael
+        Monfils.\n\nThis market will resolve to ''Gael Monfils'' if Gael Monfils advances
+        against Hugo Gaston.\n\nIf the match is canceled (not played at all), ends
+        in a tie, or is delayed beyond 7 days from the scheduled date without a winner
+        determined, this market will resolve to 50-50.\n\nIf the match begins but
+        is not completed, and one player advances due to the opponent''s retirement,
+        default, or disqualification, this market will resolve to the player who advances.\n\nIf
+        the match ends in a walkover (player withdraws before the start and the other
+        advances automatically), this market will resolve to 50-50.\n\nThe primary
+        resolution source will be official information from the ATP Tour. A consensus
+        of credible reporting may also be used.","outcomes":"[\"Hugo Gaston\", \"Gael
+        Monfils\"]","outcomePrices":"[\"1\", \"0\"]","volume":"1364632.551485001","active":true,"closed":true,"marketMakerAddress":"","createdAt":"2026-05-22T04:00:18.151348Z","updatedAt":"2026-05-26T03:06:19.178165Z","closedTime":"2026-05-25
+        23:57:11+00","new":false,"featured":false,"submitted_by":"0x91430CaD2d3975766499717fA0D66A78D814E5c5","archived":false,"resolvedBy":"0x65070BE91477460D8A7AeEb94ef92fe056C2f2A7","restricted":true,"groupItemThreshold":"0","questionID":"0x06821f82020fc4911191259703811446ebb757d38808cf26a33d1d35b8c0788b","umaEndDate":"2026-05-25T23:57:11Z","enableOrderBook":true,"orderPriceMinTickSize":0.001,"orderMinSize":5,"umaResolutionStatus":"resolved","volumeNum":1364632.551485001,"endDateIso":"2026-05-31","startDateIso":"2026-05-22","hasReviewedDates":true,"volume24hr":1360941.6171169986,"volume1wk":1364632.5514849983,"volume1mo":1364632.5514849983,"volume1yr":1364632.5514849983,"gameStartTime":"2026-05-25
+        18:20:00+00","secondsDelay":1,"clobTokenIds":"[\"9296540516413561645376890244500216862919670126506657519030338977716424037286\",
+        \"105883406058424576065899909550658527706553182078376951708856636065742202913161\"]","umaBond":"500","umaReward":"2","volume24hrClob":1360941.6171169986,"volume1wkClob":1364632.5514849983,"volume1moClob":1364632.5514849983,"volume1yrClob":1364632.5514849983,"volumeClob":1364632.551485001,"makerBaseFee":1000,"takerBaseFee":1000,"customLiveness":0,"acceptingOrders":false,"negRisk":false,"negRiskRequestID":"","ready":false,"funded":false,"acceptingOrdersTimestamp":"2026-05-22T04:03:05Z","cyom":false,"pagerDutyNotificationEnabled":false,"approved":true,"rewardsMinSize":1000,"rewardsMaxSpread":2.5,"spread":0.001,"automaticallyResolved":true,"oneDayPriceChange":0.5045,"lastTradePrice":0.999,"bestBid":0.999,"bestAsk":1,"automaticallyActive":true,"clearBookOnStart":true,"manualActivation":false,"negRiskOther":false,"sportsMarketType":"moneyline","umaResolutionStatuses":"[\"proposed\"]","pendingDeployment":false,"deploying":false,"deployingTimestamp":"2026-05-22T04:00:40.342132Z","rfqEnabled":false,"holdingRewardsEnabled":false,"feesEnabled":true,"requiresTranslation":false,"feeType":"sports_fees_v2","feeSchedule":{"exponent":1,"rate":0.03,"takerOnly":true,"rebateRate":0.25}}
+
+        '
+    headers:
+      Age:
+      - '269'
+      CF-RAY:
+      - a0199af28a8d3c51-KUL
+      Cache-Control:
+      - public, max-age=300
+      Connection:
+      - keep-alive
+      Content-Type:
+      - application/json
+      Date:
+      - Tue, 26 May 2026 03:13:40 GMT
+      Server:
+      - cloudflare
+      Strict-Transport-Security:
+      - max-age=7776000; includeSubDomains
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Accept-Encoding
+      - Origin
+      alt-svc:
+      - h3=":443"; ma=86400
+      cf-cache-status:
+      - HIT
+      expires:
+      - Tue, 26 May 2026 03:18:40 GMT
+      last-modified:
+      - Tue, 26 May 2026 03:10:10 GMT
+      set-cookie:
+      - __cf_bm=DCWWI1EZ3EioJ0VKeYbb1H9OlpKH25hoODzrMXYxxgs-1779765220.2479234-1.0.1.1-XNuHx5tTvKi7DPbxTHNgmC4.P1p1V7w4pxW4pfdQDDkafzaww9iYsscTaPiIfElh3SwASx33XIT7UP3kNC2jbrXQbJLOisa59jCqvudtxvriBnDGQhxW43GYrClFLgzs;
+        HttpOnly; SameSite=None; Secure; Path=/; Domain=polymarket.com; Expires=Tue,
+        26 May 2026 03:43:40 GMT
+    status:
+      code: 200
+      message: OK
+version: 1

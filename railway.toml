@@ -1,0 +1,132 @@
+# =============================================================================
+# Genesis Experiment — Railway service config (T-B-028)
+# -----------------------------------------------------------------------------
+# Deploy:
+#   railway link <project-id>
+#   railway up
+#
+# Brief acceptance criteria (T-B-028):
+#   * start         = uvicorn agent.server.main:app --host 0.0.0.0 --port $PORT
+#   * healthcheck   = /healthz
+#   * env           = GEMINI_API_KEY, DASHBOARD_API_TOKEN,
+#                     GEMINI_MONTHLY_BUDGET_USD, SANDBOX_STATE_DIR
+#
+# Secrets are configured in Railway's project UI (Variables tab) — NEVER
+# checked into this file. The four variables below declare the env keys
+# the deploy MUST have set; Railway surfaces unset-but-required vars in
+# the deploy preview.
+# =============================================================================
+
+[build]
+# Use the project Dockerfile so the image identity matches local `docker
+# build` smoke runs. Path is relative to the repo root.
+builder       = "DOCKERFILE"
+dockerfilePath = "agent/server/Dockerfile"
+
+# -----------------------------------------------------------------------------
+# Persistent volume — T-B-038. CEO direction D-S11-001 §scope-decisions §7
+# locks the Railway Hobby-plan 1GB volume at /data. The mount holds the
+# sandbox loop's JSONL streams + snapshot, the backtest sweep output dirs,
+# AND the seeded Polymarket market cache. All three live under /data so a
+# Railway redeploy (which rebuilds the container's writable layer) does
+# NOT lose operator-approved state.
+#
+# The volume itself must be PROVISIONED in the Railway UI first — `railway`
+# CLI does not expose volume creation as of 2026-05. See
+# `docs/DEPLOYMENT.md` "Railway Volume Provisioning" for the operator
+# runbook. Once the volume exists with name `autopoiesis-state`, this
+# stanza tells Railway to attach it at /data on every deploy.
+# -----------------------------------------------------------------------------
+[[mounts]]
+mountPath = "/data"
+volumeName = "autopoiesis-state"
+
+[deploy]
+# uvicorn binds 0.0.0.0 — Railway's edge proxy reaches it via $PORT.
+# Wrap in `/bin/sh -c "exec uvicorn ..."` so the shell handles `exec`
+# (a shell builtin, not a standalone executable). Railway runs Dockerfile
+# startCommands in exec form — bare `exec uvicorn ...` would look up `exec`
+# as a binary and fail with "executable 'exec' could not be found" (see
+# Railway Diagnosis Config Error 2026-05-28). The inner `exec` still
+# ensures uvicorn becomes PID 1 inside the container so signals from
+# Railway (SIGTERM on rolling deploy / scale-to-zero) reach it directly.
+startCommand = "/bin/sh -c \"uvicorn agent.server.main:app --host 0.0.0.0 --port ${PORT}\""
+
+# Railway pings this path after the deploy boots; if the response is
+# !=200 within healthcheckTimeout, the deploy is marked failed and
+# rolled back. /healthz is unauthed by design (Railway's prober ships
+# no bearer token).
+healthcheckPath    = "/healthz"
+healthcheckTimeout = 300
+
+# Restart strategy:
+#   * ON_FAILURE — uvicorn crashed (FastAPI exception, missing dep);
+#     retry up to 3 times before giving up + alerting.
+#   * Sandbox-loop state survives because it lives under
+#     /data/sandbox (mounted volume) — not /app — so a restart
+#     reconstructs from disk per the T-B-020 contract.
+restartPolicyType       = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# 2026-05-28 hotfix: force single replica. FastAPI process is STATEFUL —
+# BacktestRegistry, SandboxPhase2Loop, proposals registry are all in-memory
+# dicts per process. Multi-replica means POST hits replica A (records run_id
+# in A's dict), GET hits replica B (404 "unknown run_id"). Surfaced via the
+# /workshop sweep diagnostic: 25+ distinct edge IPs polling, every GET 404'd.
+# Sprint 11 will add Supabase-backed state if horizontal scaling becomes
+# desirable; for the single-user demo path 1 replica is correct.
+numReplicas = 1
+
+# -----------------------------------------------------------------------------
+# Environment variables — declared so the Railway UI shows them in the
+# Variables tab; ACTUAL values are set by the operator in the UI and
+# NEVER hard-coded here.
+# -----------------------------------------------------------------------------
+#
+# Each entry's `default` is intentionally omitted for secrets so a
+# missing value triggers a Railway "unset variable" warning at deploy
+# time rather than silently substituting an empty string.
+
+# Required — production Gemini API key for sentiment + reflection engines.
+# Get from: https://aistudio.google.com/apikey
+[[envVars]]
+name = "GEMINI_API_KEY"
+
+# Required — bearer token the dashboard sends in the Authorization header.
+# Generate with: `openssl rand -hex 32` and paste into BOTH the Railway
+# variable AND the Vercel project's NEXT_PUBLIC_DASHBOARD_API_TOKEN.
+[[envVars]]
+name = "DASHBOARD_API_TOKEN"
+
+# Optional — monthly USD ceiling for total Gemini spend. The cost guard
+# trips when the running total exceeds this value and the engines fall
+# back to template stubs (warning: `cost_guard_tripped`). Default 20 USD
+# matches :data:`agent.llm._smoke.DEFAULT_MONTHLY_BUDGET_USD`.
+[[envVars]]
+name    = "GEMINI_MONTHLY_BUDGET_USD"
+default = "20.0"
+
+# Optional — filesystem root the sandbox loop writes JSONL streams +
+# snapshot into. The Dockerfile sets a default of /data/sandbox and
+# expects /data to be a Railway volume mount; overriding here lets the
+# operator point at a different mount without rebuilding the image.
+[[envVars]]
+name    = "SANDBOX_STATE_DIR"
+default = "/data/sandbox"
+
+# Optional — filesystem root the backtest sweep runner writes per-run
+# results.json + lifetimes.jsonl dirs into (T-B-038). Lives under /data
+# so a Railway redeploy preserves operator sweep history; the dashboard's
+# workshop history pane reads back via GET /api/backtest/{run_id}.
+[[envVars]]
+name    = "BACKTEST_OUTPUT_ROOT"
+default = "/data/backtest/runs"
+
+# Optional — seeded Polymarket market cache the sweep runner consumes
+# (T-B-038). Bootstrap one-time-primes the volume from the image's baked
+# copy at agent/backtest/_cache/ on first boot (mtime-guarded so a
+# rebooted volume keeps any operator-edited entries). Operator may seed
+# fresh cassettes by uploading directly into the mounted volume.
+[[envVars]]
+name    = "BACKTEST_CACHE_DIR"
+default = "/data/backtest/cache"

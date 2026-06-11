@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-11-01T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "66",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-27T21:40:03.746000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-30T10:00:15.373000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-01T22:20:27+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-01T22:20:27+00",
+  "slug": "who-will-win-the-2020-league-of-legends-world-championship",
+  "winning_price": null
+}

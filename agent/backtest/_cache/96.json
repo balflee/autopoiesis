@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-23T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "96",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-11T17:35:06.676000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-28T16:19:46.338000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-15T15:04:26+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-12-15T15:04:26+00",
+  "slug": "will-trump-win-any-of-pennsylvania-arizona-or-georgia",
+  "winning_price": null
+}

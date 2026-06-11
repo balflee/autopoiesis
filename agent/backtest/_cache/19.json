@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-02T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "19",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-02T19:20:04.234000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-17T20:27:49.117000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-02T21:35:34+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-02T21:35:34+00",
+  "slug": "will-kim-kardashian-and-kanye-west-divorce-before-jan-1-2021",
+  "winning_price": null
+}

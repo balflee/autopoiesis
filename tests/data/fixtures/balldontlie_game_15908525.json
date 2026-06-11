@@ -1,0 +1,31 @@
+{
+  "data": {
+    "id": 15908525,
+    "date": "2026-04-12",
+    "season": 2025,
+    "status": "Final",
+    "period": 4,
+    "time": null,
+    "postseason": false,
+    "home_team_score": 112,
+    "visitor_team_score": 108,
+    "home_team": {
+      "id": 14,
+      "conference": "West",
+      "division": "Pacific",
+      "city": "Los Angeles",
+      "name": "Lakers",
+      "full_name": "Los Angeles Lakers",
+      "abbreviation": "LAL"
+    },
+    "visitor_team": {
+      "id": 2,
+      "conference": "East",
+      "division": "Atlantic",
+      "city": "Boston",
+      "name": "Celtics",
+      "full_name": "Boston Celtics",
+      "abbreviation": "BOS"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-10-31T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "57",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-21T21:00:05.999000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-26T10:41:44.499500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-31T00:23:23+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-10-31T00:23:23+00",
+  "slug": "will-dharma-s-phase-1-retroactive-uni-distribution-proposal-pass",
+  "winning_price": null
+}

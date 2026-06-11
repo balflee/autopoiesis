@@ -1,0 +1,23 @@
+{
+  "snapshot_id": "phase2_day4_first_twitter_mistake_v1",
+  "schema_version": "0.1.0",
+  "agent_id": "autopoiesis-sandbox-001",
+  "phase": "APPRENTICESHIP",
+  "day_index": 4,
+  "title": "Phase 2 Day 4 — First Twitter Mistake (placeholder)",
+  "synopsis": "Curated PLAYBACK arc placeholder. Will be regenerated from real sandbox runs by sprint 10's reflection-export pipeline.",
+  "ticks": [
+    {
+      "tick": 1,
+      "phase": "lead_in",
+      "dwell_ms": 2000,
+      "timestamp": "2026-05-27T00:00:00Z",
+      "vitals": { "breath": 100.0, "bankroll": 250.0, "phase_age_days": 4 },
+      "weights": { "w_r": 0.5, "w_s": 0.5, "alpha": 0.5, "beta": 0.0, "rho": 0.5 },
+      "diary": "Waiting for sandbox loop to produce real reflection ticks.",
+      "decision": null,
+      "outcome": null,
+      "highlights": ["placeholder"]
+    }
+  ]
+}

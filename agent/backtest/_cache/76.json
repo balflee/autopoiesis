@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-01T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "76",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-06T21:50:06.493000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-26T17:53:26.246500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-16T13:56:46+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-12-16T13:56:46+00",
+  "slug": "will-btc-break-20k-before-2021",
+  "winning_price": null
+}

@@ -1,0 +1,3 @@
+# Placeholder so the cache directory is tracked.
+# Runtime contents are <market_id>.json files written by
+# agent/backtest/historical_fetcher.save_cached_market.

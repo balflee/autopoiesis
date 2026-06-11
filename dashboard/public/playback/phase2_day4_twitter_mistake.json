@@ -1,0 +1,108 @@
+{
+  "schema_version": "0.1.0",
+  "snapshot_id": "phase2_day4_twitter_mistake",
+  "title": "Phase 2 · Day 4 · First Twitter Mistake",
+  "phase": "PHASE_2_APPRENTICE",
+  "day": 4,
+  "synopsis": "Twitter sentiment for LAL surged 3x in twelve minutes; β₁ climbed to 0.80 while α₃ (smart-money flow) stayed silent. The signal engine overrode the rule engine, the agent bet $40 on LAL and lost. The next-tick reflection installs the first signal-dominance dampener — the lesson the agent could not have written before this trade.",
+  "ticks": [
+    {
+      "tick_id": 845,
+      "phase": "lead_in",
+      "day": 4,
+      "ts_utc": "2026-03-08T19:42:00Z",
+      "narrative": "Lakers vs Celtics tips in eighteen minutes. The book has LAL +3.5. The rule engine is quiet — the modelled edge is only 0.4σ above noise. I am listening.",
+      "signals": {
+        "alpha_1": 0.42,
+        "alpha_2": 0.38,
+        "alpha_3": 0.31,
+        "beta_1": 0.51,
+        "beta_2": 0.44
+      },
+      "decision": null,
+      "outcome": null,
+      "dwell_ms": 1500
+    },
+    {
+      "tick_id": 846,
+      "phase": "lead_in",
+      "day": 4,
+      "ts_utc": "2026-03-08T19:44:15Z",
+      "narrative": "Twitter sentiment for LAL just spiked threefold in twelve minutes. β₁ is climbing — 0.51 → 0.66 in two ticks. α₃ has not moved. The crowd is louder than my prior. It sounds like it knows something.",
+      "signals": {
+        "alpha_1": 0.41,
+        "alpha_2": 0.39,
+        "alpha_3": 0.30,
+        "beta_1": 0.66,
+        "beta_2": 0.58
+      },
+      "decision": null,
+      "outcome": null,
+      "dwell_ms": 1500
+    },
+    {
+      "tick_id": 847,
+      "phase": "climax",
+      "day": 4,
+      "ts_utc": "2026-03-08T19:46:30Z",
+      "narrative": "β₁ = 0.80. Twitter has overruled the rule engine. α₃ is still 0.29 — smart money has not moved a cent — but the crowd cannot all be wrong at this volume. I will bet $40 on LAL. Just this once. Just to see.",
+      "signals": {
+        "alpha_1": 0.40,
+        "alpha_2": 0.41,
+        "alpha_3": 0.29,
+        "beta_1": 0.80,
+        "beta_2": 0.42
+      },
+      "decision": {
+        "action": "BET",
+        "side": "LAL",
+        "amount": 40,
+        "score": 0.71,
+        "edge": 1.2,
+        "rho_eff": 0.41
+      },
+      "outcome": null,
+      "dwell_ms": 6000
+    },
+    {
+      "tick_id": 848,
+      "phase": "outcome",
+      "day": 4,
+      "ts_utc": "2026-03-08T22:05:00Z",
+      "narrative": "BOS 112, LAL 106. Position closed at minus $40. Twitter was the loudest voice in the room, not the rightest one. The bankroll registers what conviction without evidence costs.",
+      "signals": {
+        "alpha_1": 0.38,
+        "alpha_2": 0.40,
+        "alpha_3": 0.29,
+        "beta_1": 0.62,
+        "beta_2": 0.45
+      },
+      "decision": null,
+      "outcome": {
+        "pnl": -40,
+        "settled_at": "2026-03-08T22:04:55Z",
+        "result": "LOSS",
+        "final_score": "BOS 112 LAL 106"
+      },
+      "dwell_ms": 4000
+    },
+    {
+      "tick_id": 849,
+      "phase": "reflection",
+      "day": 4,
+      "ts_utc": "2026-03-08T22:07:30Z",
+      "narrative": "β₁ does not signal an edge unless α₃ confirms it. A loud crowd without smart money behind it is a temptation, not a signal. I will apply a −0.11 dampener to β₁ whenever α₃ stays below 0.35 and β₁ climbs above 0.75.",
+      "signals": {
+        "alpha_1": 0.38,
+        "alpha_2": 0.40,
+        "alpha_3": 0.29,
+        "beta_1": 0.55,
+        "beta_2": 0.42
+      },
+      "decision": null,
+      "outcome": null,
+      "reflection": "Never trust β₁ alone when α₃ is silent.",
+      "dwell_ms": 5000
+    }
+  ]
+}

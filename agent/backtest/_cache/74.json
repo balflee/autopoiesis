@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-06T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "74",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-04T16:15:05.543000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-05T11:25:28.271500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-06T06:35:51+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-06T06:35:51+00",
+  "slug": "will-the-associated-press-publish-a-tweet-calling-the-2020-us-presidential-election-before-november-6",
+  "winning_price": null
+}

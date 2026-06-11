@@ -1,0 +1,71 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - identity
+      Connection:
+      - keep-alive
+      Host:
+      - gamma-api.polymarket.com
+    method: GET
+    uri: https://gamma-api.polymarket.com/markets/2348945
+  response:
+    body:
+      string: '{"id":"2348945","question":"Ilagan vs. Uchiyama: Set 1 Games O/U 8.5","conditionId":"0x35e680058ed7e61f633ba73e8f71c31c188297d4d78cd71e9fd17590ec5481f7","slug":"atp-ilagan-uchiyam-2026-05-25-first-set-total-8pt5","resolutionSource":"https://www.atptour.com/en/scores/current","endDate":"2026-06-01T15:00:00Z","liquidity":"0","startDate":"2026-05-24T23:03:24.858197Z","image":"https://polymarket-upload.s3.us-east-2.amazonaws.com/atp-tour-b4390c4fb8.jpg","icon":"https://polymarket-upload.s3.us-east-2.amazonaws.com/atp-tour-b4390c4fb8.jpg","description":"This
+        market refers to the tennis match between Andre Ilagan and Yasutaka Uchiyama
+        in the Little Rock, originally scheduled for May 25, 2026 at 2:00PM ET.\nThis
+        market will resolve to \"Over\" if the total number of games completed in
+        the first set equals or exceeds 9. Otherwise, it will resolve to \"Under.\"\nAny
+        first-set tiebreak counts as one (1) game toward the total.\nIf the first
+        set is not completed for any reason, this market will resolve 50-50. If the
+        match is canceled before play begins, or delayed beyond 7 days without commencement,
+        this market will also resolve 50-50.\nResolution will be based on official
+        Challenger results.","outcomes":"[\"Over\", \"Under\"]","outcomePrices":"[\"1\",
+        \"0\"]","volume":"78","active":true,"closed":true,"marketMakerAddress":"","createdAt":"2026-05-24T23:00:16.759171Z","updatedAt":"2026-05-25T22:56:32.732955Z","closedTime":"2026-05-25
+        22:55:18+00","new":false,"featured":false,"submitted_by":"0xF43d55F3A8B7484Ed4B6931f93CB6F9eF5Dd369D","archived":false,"resolvedBy":"0x65070BE91477460D8A7AeEb94ef92fe056C2f2A7","restricted":true,"groupItemTitle":"Little
+        Rock: Andre Ilagan vs Yasutaka Uchiyama Set 1 O/U 8.5","groupItemThreshold":"2","questionID":"0x6629f3be6b665e74284209865b19e6abb63adcda00dffd59c5f76992e81bc965","umaEndDate":"2026-05-25T22:55:18Z","enableOrderBook":true,"orderPriceMinTickSize":0.001,"orderMinSize":5,"umaResolutionStatus":"resolved","volumeNum":78,"liquidityNum":0,"endDateIso":"2026-06-01","startDateIso":"2026-05-24","hasReviewedDates":true,"volume24hr":78,"volume1wk":78,"volume1mo":78,"volume1yr":78,"gameStartTime":"2026-05-25
+        19:40:00+00","secondsDelay":1,"clobTokenIds":"[\"70759560205421775449448779896883137833496006696898467942421727433140823938513\",
+        \"91990484802363889986502544356419448695449790318127751702125641677543260140950\"]","umaBond":"500","umaReward":"2","volume24hrClob":78,"volume1wkClob":78,"volume1moClob":78,"volume1yrClob":78,"volumeClob":78,"liquidityAmm":0,"liquidityClob":0,"makerBaseFee":1000,"takerBaseFee":1000,"customLiveness":0,"acceptingOrders":false,"negRisk":false,"negRiskRequestID":"","ready":false,"funded":false,"acceptingOrdersTimestamp":"2026-05-24T23:02:29Z","cyom":false,"competitive":0,"pagerDutyNotificationEnabled":false,"approved":true,"rewardsMinSize":50,"rewardsMaxSpread":4.5,"spread":0.001,"automaticallyResolved":true,"lastTradePrice":0.999,"bestBid":0.999,"bestAsk":1,"automaticallyActive":true,"clearBookOnStart":true,"manualActivation":false,"negRiskOther":false,"sportsMarketType":"tennis_first_set_totals","line":8.5,"umaResolutionStatuses":"[\"proposed\"]","pendingDeployment":false,"deploying":false,"deployingTimestamp":"2026-05-24T23:00:29.638391Z","rfqEnabled":false,"holdingRewardsEnabled":false,"feesEnabled":true,"requiresTranslation":false,"feeType":"sports_fees_v2","feeSchedule":{"exponent":1,"rate":0.03,"takerOnly":true,"rebateRate":0.25}}
+
+        '
+    headers:
+      Age:
+      - '259'
+      CF-RAY:
+      - a0199af4498f3c45-KUL
+      Cache-Control:
+      - public, max-age=300
+      Connection:
+      - keep-alive
+      Content-Type:
+      - application/json
+      Date:
+      - Tue, 26 May 2026 03:13:40 GMT
+      Server:
+      - cloudflare
+      Strict-Transport-Security:
+      - max-age=7776000; includeSubDomains
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Accept-Encoding
+      - Origin
+      alt-svc:
+      - h3=":443"; ma=86400
+      cf-cache-status:
+      - HIT
+      expires:
+      - Tue, 26 May 2026 03:18:40 GMT
+      last-modified:
+      - Tue, 26 May 2026 03:10:11 GMT
+      set-cookie:
+      - __cf_bm=wQTx_NBRlR56QsILT5YMo.u4amGBj8uW6gOUMDePevo-1779765220.5283146-1.0.1.1-1ZBMJoEc3Tcukkue4KaUGhDcL2XT0FSbX52G66sXMQueGS3e0Dbl7N.EUfB7GiD2CjInY9dqfXXc1s8imlhzAblc8M1CLzH6kaIlQusIVlrie6AkBM1nnnHMIYR3HV1O;
+        HttpOnly; SameSite=None; Secure; Path=/; Domain=polymarket.com; Expires=Tue,
+        26 May 2026 03:43:40 GMT
+    status:
+      code: 200
+      message: OK
+version: 1

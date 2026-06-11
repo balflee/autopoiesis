@@ -1,0 +1,20 @@
+{
+  "$schema": "https://www.npmjs.com/package/@lhci/cli",
+  "version": "0.1.0",
+  "description": "Lighthouse perf+a11y+best-practices+SEO gate for the Genesis Dashboard. Read by both scripts/lighthouse.mjs (the shellout runner) and tests/playwright/lighthouse.spec.ts (the Playwright-driven gate). The orchestrator's lighthouse_perf hard gate consumes the thresholds below — bumping a number here means the gate moves with the config.",
+  "url": "http://127.0.0.1:3100/",
+  "preset": "desktop",
+  "thresholds": {
+    "performance": 85,
+    "accessibility": 90,
+    "best_practices": 85,
+    "seo": 85
+  },
+  "categories": ["performance", "accessibility", "best-practices", "seo"],
+  "chrome_flags": ["--headless=new", "--no-sandbox"],
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "note": "Track D writes here per T-D-007. The lighthouse_target_set precondition the orchestrator reads is satisfied by the presence of this file + the thresholds block."
+}

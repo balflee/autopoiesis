@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-20T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "69",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-28T20:20:03.681000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-01T06:53:07.340500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-04T17:26:11+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-04T17:26:11+00",
+  "slug": "which-party-will-win-texas-in-the-2020-presidential-election",
+  "winning_price": null
+}

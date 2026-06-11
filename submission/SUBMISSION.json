@@ -1,0 +1,224 @@
+{
+  "project_title": "The Genesis Experiment",
+  "schema_version": "1.1.0",
+  "commit_hash": "3c350830ffbf041eddc305ea3a84167f8cb52f9a",
+  "generated_at": "2026-05-26T03:00:00Z",
+  "deploys": [
+    {
+      "chain": "robinhood_chain_testnet",
+      "chain_id": 46630,
+      "explorer_url": "https://explorer.testnet.chain.robinhood.com/",
+      "contracts": [
+        {
+          "name": "EnergyController",
+          "address": "0xeb504449195b0491F52b455650056f0763A54525"
+        },
+        {
+          "name": "PhaseManager",
+          "address": "0x20e07db0169E35553a66608736161f433d8E44E0"
+        },
+        {
+          "name": "AgentLifecycle",
+          "address": "0x125929f6451e5e5Fa9C64b498646793CaF5b4128"
+        },
+        {
+          "name": "DecisionLog",
+          "address": "0x3e58BE777F8fe7F1B81dfBdFA716295D0EF89818"
+        },
+        {
+          "name": "TombstoneNFT",
+          "address": "0xDE6178D892AA9F80f748a399f07B588b08Faec2f"
+        }
+      ],
+      "deploy_block": 60897767,
+      "placeholder": false
+    },
+    {
+      "chain": "arbitrum_sepolia",
+      "chain_id": 421614,
+      "explorer_url": "https://sepolia.arbiscan.io/",
+      "contracts": [
+        {
+          "name": "EnergyController",
+          "address": "0xeb504449195b0491F52b455650056f0763A54525"
+        },
+        {
+          "name": "PhaseManager",
+          "address": "0x20e07db0169E35553a66608736161f433d8E44E0"
+        },
+        {
+          "name": "AgentLifecycle",
+          "address": "0x125929f6451e5e5Fa9C64b498646793CaF5b4128"
+        },
+        {
+          "name": "DecisionLog",
+          "address": "0x3e58BE777F8fe7F1B81dfBdFA716295D0EF89818"
+        },
+        {
+          "name": "TombstoneNFT",
+          "address": "0xDE6178D892AA9F80f748a399f07B588b08Faec2f"
+        }
+      ],
+      "deploy_block": 10917212,
+      "placeholder": false
+    },
+    {
+      "chain": "polygon_amoy",
+      "chain_id": 80002,
+      "explorer_url": "https://amoy.polygonscan.com/",
+      "contracts": [
+        {
+          "name": "EnergyController",
+          "address": "0x0000000000000000000000000000000000000000"
+        },
+        {
+          "name": "PhaseManager",
+          "address": "0x0000000000000000000000000000000000000000"
+        },
+        {
+          "name": "AgentLifecycle",
+          "address": "0x0000000000000000000000000000000000000000"
+        },
+        {
+          "name": "DecisionLog",
+          "address": "0x0000000000000000000000000000000000000000"
+        },
+        {
+          "name": "TombstoneNFT",
+          "address": "0x0000000000000000000000000000000000000000"
+        }
+      ],
+      "deploy_block": 0,
+      "placeholder": true
+    }
+  ],
+  "abi_hashes": [
+    {
+      "contract": "EnergyController",
+      "abi_file": "energy_controller_abi.v0.4.0.json",
+      "abi_version": "0.4.0",
+      "sha256": "7803cff04cb2092ebde2b4bf358244f07058163ab1214a8e2e5c1abf94c0eb9a"
+    },
+    {
+      "contract": "PhaseManager",
+      "abi_file": "phase_manager_abi.v0.3.0.json",
+      "abi_version": "0.3.0",
+      "sha256": "f71d12c9afe7f6bbe62781996f4ba6879bd38e90e1d8849d263c4802968e9cec"
+    },
+    {
+      "contract": "AgentLifecycle",
+      "abi_file": "agent_lifecycle_abi.v0.3.0.json",
+      "abi_version": "0.3.0",
+      "sha256": "2d7fcf7f0111af534c8b281eba4610076ba2576e048c3d9be85082530a5afcc9"
+    },
+    {
+      "contract": "DecisionLog",
+      "abi_file": "decision_log_abi.v0.1.0.json",
+      "abi_version": "0.1.0",
+      "sha256": "9abb46dd00c0beea51551599c6db38543412fe1c8bbce6e866c11e5e1c976912"
+    },
+    {
+      "contract": "TombstoneNFT",
+      "abi_file": "tombstone_nft_abi.v0.2.0.json",
+      "abi_version": "0.2.0",
+      "sha256": "64874cf596344cbf9d47f6a0aaf77746642539a1ad080f7502efcf34f507ff39"
+    }
+  ],
+  "ipfs_roots": [
+    {
+      "name": "memory_bank_v1",
+      "cid": "bafyplaceholder0000000000000000000000000000000000000000000",
+      "placeholder": true
+    },
+    {
+      "name": "tombstone_metadata",
+      "cid": "bafyplaceholder0000000000000000000000000000000000000000000",
+      "placeholder": true
+    },
+    {
+      "name": "demo_assets",
+      "cid": "bafyplaceholder0000000000000000000000000000000000000000000",
+      "placeholder": true
+    }
+  ],
+  "demo_video": {
+    "url": "https://placeholder.invalid/demo.mp4",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "duration_seconds": 0,
+    "placeholder": true
+  },
+  "phase3_launch": [
+    {
+      "chain": "robinhood_chain_testnet",
+      "launch_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "pause_role_renounced_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "upgrade_role_renounced_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "block_number": 0,
+      "placeholder": true
+    },
+    {
+      "chain": "arbitrum_sepolia",
+      "launch_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "pause_role_renounced_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "upgrade_role_renounced_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "block_number": 0,
+      "placeholder": true
+    },
+    {
+      "chain": "polygon_amoy",
+      "launch_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "pause_role_renounced_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "upgrade_role_renounced_tx": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "block_number": 0,
+      "placeholder": true
+    }
+  ],
+  "rehearsal_summary": {
+    "report_path": "submission\\rehearsal_report.placeholder.json",
+    "passed": false,
+    "fail_reason": "MISSING_RENUNCIATION_EVENT",
+    "desperate_mode_count": 0,
+    "lung_expansion_count": 0,
+    "settlement_count": 0,
+    "ws_disconnect_count": 0,
+    "pause_role_renounced_tx": null,
+    "upgrade_role_renounced_tx": null
+  },
+  "phase1_training_summary": {
+    "sport": "tennis",
+    "dataset_path": "data/parquet/tennis_phase1.parquet",
+    "weights_path": "reports/phase1/weights_v0.json",
+    "backtest_report_path": "reports/phase1/backtest_report.json",
+    "training_matches": 88,
+    "test_matches": 22,
+    "epochs": 12,
+    "uniform_baseline_log_loss": 0.6498143359822738,
+    "trained_log_loss": 0.597348517833706,
+    "improvement_pct": 8.073970554875382,
+    "weights_v0": {
+      "alpha": [
+        0.7869408587530673,
+        0.10700322092982174,
+        0.10605592031711109
+      ],
+      "beta": [
+        0.0,
+        1.0
+      ],
+      "rho": 0.5,
+      "w_r": 0.5,
+      "w_s": 0.5
+    }
+  },
+  "phase2_dryrun_summary": {
+    "log_path": "logs/phase2_dryrun/sprint7_dryrun.jsonl",
+    "summary_path": "logs/phase2_dryrun/sprint7_dryrun_summary.md",
+    "decisions_count": 5,
+    "bets_count": 5,
+    "no_bets_count": 0,
+    "heartbeat_count": 0,
+    "markets_used": 5,
+    "broadcast_count": 0,
+    "real_market_referenced": true
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": null,
+    "before": null,
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "fixture001",
+          "title": "Lakers tipoff thread vs Celtics",
+          "subreddit": "nba",
+          "created_utc": 1775955600,
+          "num_comments": 245,
+          "score": 88,
+          "author": "rng_user_1"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "fixture002",
+          "title": "Celtics defensive scheme breakdown for tonight",
+          "subreddit": "nba",
+          "created_utc": 1775959200,
+          "num_comments": 120,
+          "score": 67,
+          "author": "rng_user_2"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "fixture003",
+          "title": "Lakers Lakers Lakers will win this one",
+          "subreddit": "nba",
+          "created_utc": 1775962800,
+          "num_comments": 14,
+          "score": 9,
+          "author": "rng_user_3"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "fixture999",
+          "title": "Future post that should be filtered out by PIT cutoff",
+          "subreddit": "nba",
+          "created_utc": 1776100000,
+          "num_comments": 0,
+          "score": 0,
+          "author": "future_user"
+        }
+      }
+    ]
+  }
+}

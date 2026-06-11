@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-20T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "40",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-09T17:00:08.468000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-25T05:27:54.734000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-09T17:55:41+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-09T17:55:41+00",
+  "slug": "will-trump-win-the-2020-us-presidential-election",
+  "winning_price": null
+}

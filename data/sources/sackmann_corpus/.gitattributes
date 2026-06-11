@@ -1,0 +1,5 @@
+# The vendored Sackmann corpus is pinned to LF line endings so the bytes match
+# upstream (JeffSackmann/tennis_{atp,wta} serve LF) regardless of host OS. This
+# keeps `scripts/vendor_sackmann_corpus.py` idempotent: a re-vendor on Windows,
+# Linux, or macOS reproduces the same blob instead of an ~80k-line CRLF<->LF diff.
+*.csv text eol=lf

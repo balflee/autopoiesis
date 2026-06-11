@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-02T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "48",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-12T22:00:05.798000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-10T08:51:36.899000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-08T19:43:08+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-12-08T19:43:08+00",
+  "slug": "how-many-confirmed-coronavirus-cases-will-there-be-at-eoy-in-the-usa",
+  "winning_price": null
+}

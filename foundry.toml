@@ -1,0 +1,49 @@
+[profile.default]
+src = "contracts"
+test = "test"
+out = "out"
+libs = ["lib"]
+script = "script"
+cache_path = "cache"
+solc_version = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+fuzz = { runs = 10000 }
+fs_permissions = [
+    { access = "read", path = "./" },
+    # T-A-005: DeployCalibrated.s.sol writes per-chain deployment fixtures
+    # under ./script/deployments/sprint_3/<chain>.json when WRITE_FIXTURE=true
+    # is set at broadcast time. `read-write` so the same script can read
+    # back its own emissions on a follow-up tick (state_sync.py asks
+    # foundry to recompute the selectedParamsHash without re-running the
+    # full broadcast). Default ./script tree stays read-only via the
+    # broader entry above.
+    { access = "read-write", path = "./script/deployments" },
+    # T-A-005: DeployCalibratedTest writes throwaway JSON fixtures under
+    # ./test/fixtures/ for the schema-violation negative-path tests
+    # (test_RevertWhen_RequiredKeyMissing / _SoftCapBelowInitialBreath).
+    # Each test cleans up via vm.removeFile so the worktree diff stays
+    # limited to the canonical fixtures committed alongside the tests.
+    # `read-write` so happy-path tests can also read the canonical
+    # selected_params.test.json fixture from the same subtree without
+    # the write perm shadowing the broader './' read entry on Windows.
+    { access = "read-write", path = "./test/fixtures" },
+]
+
+[fuzz]
+runs = 10000
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+
+# Notes:
+#   * No `seed = "0x…"` literal — see E-0016 / E-0015 root cause.
+#     Deterministic fuzz seeds are owned by per-CI invocations, not by the
+#     repo TOML (would otherwise trip secret_scan).
+#   * fuzz.runs intentionally large (10000) to satisfy DEV_FRAMEWORK hard rule
+#     even though the per-task brief asks for `--fuzz-runs 1000`. CI can lower
+#     via the CLI override; we never go below 1000.

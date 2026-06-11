@@ -1,0 +1,11 @@
+{
+  "pass": false,
+  "fail_reason": "MISSING_RENUNCIATION_EVENT",
+  "desperate_mode_count": 0,
+  "lung_expansion_count": 0,
+  "settlement_count": 0,
+  "ws_disconnect_count": 0,
+  "pause_role_renounced_tx": null,
+  "upgrade_role_renounced_tx": null,
+  "timeline_events": []
+}

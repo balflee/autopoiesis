@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-12-01T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "77",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-06T23:05:12.952000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-19T07:28:45.976000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-12-01T15:52:19+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-12-01T15:52:19+00",
+  "slug": "will-donald-trump-formally-concede-the-2020-us-election-before-december-1st-2020",
+  "winning_price": null
+}

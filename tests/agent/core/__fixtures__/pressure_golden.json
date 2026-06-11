@@ -1,0 +1,63 @@
+{
+  "description": "Golden vector for agent.core.pressure_monitor.compute_pressure. TARGET_HORIZON_HOURS=36, MIN_BURN_RATE_PER_HOUR=1.0. Each row pins (breath, effective_burn_rate_per_hour) → (projected_hours, pressure). pressure = clamp((36 - projected)/36, 0, 1).",
+  "target_horizon_hours": 36.0,
+  "min_burn_rate_per_hour": 1.0,
+  "samples": [
+    {
+      "label": "safe_2x_horizon",
+      "breath": 7200.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 72.0,
+      "pressure": 0.0
+    },
+    {
+      "label": "at_horizon_exactly",
+      "breath": 3600.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 36.0,
+      "pressure": 0.0
+    },
+    {
+      "label": "below_threshold_0.4444",
+      "breath": 2000.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 20.0,
+      "pressure": 0.4444444444444444
+    },
+    {
+      "label": "above_threshold_0.5833",
+      "breath": 1500.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 15.0,
+      "pressure": 0.5833333333333334
+    },
+    {
+      "label": "deep_pressure_0.6667",
+      "breath": 1200.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 12.0,
+      "pressure": 0.6666666666666666
+    },
+    {
+      "label": "near_terminal",
+      "breath": 100.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 1.0,
+      "pressure": 0.9722222222222222
+    },
+    {
+      "label": "zero_breath",
+      "breath": 0.0,
+      "effective_burn_rate_per_hour": 100.0,
+      "projected_hours": 0.0,
+      "pressure": 1.0
+    },
+    {
+      "label": "rate_floor_engaged",
+      "breath": 36.0,
+      "effective_burn_rate_per_hour": 0.0,
+      "projected_hours": 36.0,
+      "pressure": 0.0
+    }
+  ]
+}

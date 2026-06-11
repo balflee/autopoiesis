@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-04T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "42",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-12T22:00:05.783000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-23T07:16:44.391500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-02T16:33:23+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-02T16:33:23+00",
+  "slug": "will-there-be-an-emergency-use-authorization-granted-for-a-covid-19-vaccine-prior-to-nov-3",
+  "winning_price": null
+}

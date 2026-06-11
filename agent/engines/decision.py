@@ -1,0 +1,368 @@
+# Greek letters mirror PRD §4.1 / §6.6 notation; see agent/core/agent.py.
+"""Decision engine — 2-layer fusion + Kelly + 4-constraint bet sizing.
+
+T-B-003 ships the production body of step 4 of the agent_loop
+(TECHNICAL_PLAN §4.1):
+
+1. **Rational stream**::
+
+       raw_R = α₁·Tennis·conf_Tennis
+             + α₂·MM·conf_MM
+             + α₃·SM·conf_SM
+
+   Each engine's score is weighted by its self-rated confidence
+   BEFORE the α mix so a high-confidence small-edge signal is not
+   drowned by a low-confidence large-edge one.
+
+2. **Sentient stream**::
+
+       raw_S = β₁·LLM·conf_LLM + β₂·CV·conf_CV
+
+3. **Fused score**::
+
+       fused = W_R·raw_R + W_S·raw_S        # ∈ [-1, 1]
+
+   Sign chooses the side (YES if fused > 0, NO if fused < 0).
+
+4. **Kelly fraction (fractional)**::
+
+       k = clamp(|fused| / (1 - |fused|), 0, 1)
+
+5. **ρ_effective**::
+
+       ρ_eff = clamp(ρ, 0, 1)
+
+   Weights.rho ∈ [-1, 1] per the persisted schema, but PRD §6.6 only
+   admits a non-negative Kelly scaler — a negative ρ would invert the
+   bet direction at the very end of the pipeline, which is the failure
+   mode this clamp prevents.
+
+6. **4-constraint min** (PRD §6.6)::
+
+       desired      = ρ_eff · k · mean_confidence · bankroll
+       breath_cap   = breath · MAX_BREATH_RISK_PCT / CONVERSION_RATE
+       bankroll_cap = bankroll · bet_size_cap_fraction   # 0.30 / 0.50
+       liquidity_cap = liquidity_cap_usd
+
+       size = min(desired, breath_cap, bankroll_cap, liquidity_cap)
+
+   ``bet_size_cap_fraction`` is **0.30** in normal mode and **0.50**
+   in Desperate Mode (TP §4.7). The flag is an input — the decision
+   engine never decides whether desperate mode is on; that's the
+   responsibility of :mod:`agent.core.lifecycle` reading on-chain
+   BREATH against ``desperate_threshold``.
+
+7. **NO_BET fallthrough**: any of {``size < min_bet_size``, ``k == 0``,
+   ``mean_confidence < min_confidence``, fused == 0, missing engine
+   signal} routes to a NO_BET with a structured ``no_bet_reason`` so
+   the reflection layer + Track D dashboard can render WHY.
+
+Both branches emit an :class:`agent.core.state.Action`. Both BET and
+NO_BET consume BREATH downstream (PRD §6 — NO_BET is NOT a free skip).
+
+NB: the decision engine itself is *pure* — it never calls the chain,
+never enqueues an order, and never burns BREATH. Those side effects
+are step 5 of the loop (:func:`agent.core.agent.agent_loop`). Pure
+math here means tests don't need mocks.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Final
+
+from agent.core.state import Action, ActionKind, Side
+from agent.engines.base import EngineSignal
+
+# Engine-name constants — keep the dict-key strings in one place so a
+# typo in the agent_loop fanout surfaces at import time, not at runtime.
+#
+# Sprint_7 sport pivot (PRD §15 已决 #8): the canonical α₁ stream is
+# TENNIS_TECHNICAL post-pivot. The NBA_TECHNICAL constant + the
+# nba_technical.py engine module are deleted in lockstep so there is
+# one unambiguous source of truth for α₁'s identity.
+TENNIS_TECHNICAL: Final[str] = "tennis_technical"
+MARKET_MOMENTUM: Final[str] = "market_momentum"
+SMART_MONEY: Final[str] = "smart_money"
+SENTIMENT_LLM: Final[str] = "sentiment_llm"
+CROWD_VOLUME: Final[str] = "crowd_volume"
+
+# Ordered tuples — used to verify alpha[i] / beta[i] index ↔ engine
+# name mapping in tests. Re-ordering these is a BREAKING change.
+RATIONAL_ENGINES: Final[tuple[str, str, str]] = (
+    TENNIS_TECHNICAL,
+    MARKET_MOMENTUM,
+    SMART_MONEY,
+)
+SENTIENT_ENGINES: Final[tuple[str, str]] = (
+    SENTIMENT_LLM,
+    CROWD_VOLUME,
+)
+
+# Bet-size cap fractions per TP §4.7. The desperate-mode flip is an
+# input to :meth:`DecisionEngine.decide`; this module does NOT decide
+# the threshold (lifecycle does).
+NORMAL_BET_SIZE_CAP: Final[float] = 0.30
+DESPERATE_BET_SIZE_CAP: Final[float] = 0.50
+
+# PRD §6 BREATH economy constants. Sourced from sim.params defaults
+# (T-C-001/002) — when calibration ships selected_params.json a
+# follow-up task will pipe these through; for now they're the placebos
+# matching PRD §6.7 placeholders so the formula is exercisable.
+DEFAULT_MAX_BREATH_RISK_PCT: Final[float] = 0.30  # 30% of breath per bet
+DEFAULT_CONVERSION_RATE: Final[float] = 1.0  # 1 BREATH = 1 USD (placeholder)
+DEFAULT_MIN_BET_SIZE_USD: Final[float] = 5.0  # matches sim.params.min_bet_size
+DEFAULT_MIN_CONFIDENCE: Final[float] = 0.05  # below this, abstain
+
+# NO_BET reason strings — bound here so Track D can switch on them
+# without parsing free-form text.
+NO_BET_MISSING_SIGNAL: Final[str] = "missing_engine_signal"
+NO_BET_BELOW_MIN_SIZE: Final[str] = "size_below_min_bet"
+NO_BET_LOW_CONFIDENCE: Final[str] = "mean_confidence_below_threshold"
+NO_BET_ZERO_KELLY: Final[str] = "zero_kelly_fraction"
+NO_BET_NEUTRAL_FUSED: Final[str] = "fused_score_neutral"
+
+
+@dataclass(frozen=True)
+class FusionResult:
+    """Intermediate breakdown emitted by :func:`_fuse_signals`.
+
+    Public so the agent_loop step 9 can persist these as raw_features
+    on the TickPayload + Track D dashboard can render the dual-engine
+    meter (PRD §8) without recomputing the fusion math.
+    """
+
+    raw_rational: float
+    raw_sentient: float
+    fused: float
+    mean_confidence: float
+
+
+class DecisionEngine:
+    """Owns the fusion + bet-sizing arithmetic.
+
+    Stateless — every parameter that affects the output is passed in
+    via :meth:`decide`. The async signature is preserved so the
+    agent_loop's ``await`` machinery is unchanged; the body itself does
+    no IO and could be sync. Async also reserves room for a future
+    LLM-driven veto step at the fusion boundary (PRD §4.4) without a
+    second interface migration.
+    """
+
+    name = "decision"
+
+    def __init__(
+        self,
+        *,
+        max_breath_risk_pct: float = DEFAULT_MAX_BREATH_RISK_PCT,
+        conversion_rate: float = DEFAULT_CONVERSION_RATE,
+        min_bet_size_usd: float = DEFAULT_MIN_BET_SIZE_USD,
+        min_confidence: float = DEFAULT_MIN_CONFIDENCE,
+    ) -> None:
+        if max_breath_risk_pct <= 0.0 or max_breath_risk_pct > 1.0:
+            raise ValueError(
+                f"max_breath_risk_pct must be in (0, 1] (got {max_breath_risk_pct})"
+            )
+        if conversion_rate <= 0.0:
+            raise ValueError(f"conversion_rate must be > 0 (got {conversion_rate})")
+        if min_bet_size_usd < 0.0:
+            raise ValueError(
+                f"min_bet_size_usd must be ≥ 0 (got {min_bet_size_usd})"
+            )
+        if not 0.0 <= min_confidence <= 1.0:
+            raise ValueError(
+                f"min_confidence must be in [0, 1] (got {min_confidence})"
+            )
+        self._max_breath_risk_pct = max_breath_risk_pct
+        self._conversion_rate = conversion_rate
+        self._min_bet_size_usd = min_bet_size_usd
+        self._min_confidence = min_confidence
+
+    async def decide(
+        self,
+        *,
+        signals: dict[str, EngineSignal],
+        weights_alpha: tuple[float, float, float],
+        weights_beta: tuple[float, float],
+        w_r: float,
+        w_s: float,
+        rho: float,
+        bankroll_usd: float,
+        breath: float,
+        liquidity_cap_usd: float,
+        market_id: str,
+        desperate: bool = False,
+    ) -> Action:
+        """Run fusion + bet sizing for one tick.
+
+        Returns either a BET :class:`Action` (with market_id, side,
+        size_usd, edge_pct) or a NO_BET :class:`Action` (with a
+        structured ``no_bet_reason``).
+        """
+        # ── 1. Missing-signal guard ───────────────────────────────────
+        # Every engine must have produced a signal — a missing one is
+        # a topology error (engine crashed mid-fanout) so we route to
+        # NO_BET rather than zero-imputing.
+        missing = [
+            n
+            for n in (*RATIONAL_ENGINES, *SENTIENT_ENGINES)
+            if n not in signals
+        ]
+        if missing:
+            return Action(
+                kind=ActionKind.NO_BET,
+                no_bet_reason=f"{NO_BET_MISSING_SIGNAL}:{','.join(missing)}",
+            )
+
+        # ── 2. Fuse the 5 engines into a single signed edge ────────────
+        fusion = _fuse_signals(
+            signals=signals,
+            alpha=weights_alpha,
+            beta=weights_beta,
+            w_r=w_r,
+            w_s=w_s,
+        )
+
+        # ── 3. Confidence floor ───────────────────────────────────────
+        if fusion.mean_confidence < self._min_confidence:
+            return Action(
+                kind=ActionKind.NO_BET,
+                no_bet_reason=NO_BET_LOW_CONFIDENCE,
+            )
+
+        # ── 4. Direction + Kelly ──────────────────────────────────────
+        if fusion.fused == 0.0:
+            return Action(
+                kind=ActionKind.NO_BET,
+                no_bet_reason=NO_BET_NEUTRAL_FUSED,
+            )
+        side = Side.YES if fusion.fused > 0.0 else Side.NO
+        edge_abs = abs(fusion.fused)
+        kelly = _kelly_fraction(edge_abs)
+        if kelly == 0.0:
+            return Action(
+                kind=ActionKind.NO_BET,
+                no_bet_reason=NO_BET_ZERO_KELLY,
+            )
+
+        # ── 5. 4-constraint min ───────────────────────────────────────
+        rho_eff = max(0.0, min(1.0, rho))
+        desired = rho_eff * kelly * fusion.mean_confidence * bankroll_usd
+        breath_cap = breath * self._max_breath_risk_pct / self._conversion_rate
+        bet_size_cap = (
+            DESPERATE_BET_SIZE_CAP if desperate else NORMAL_BET_SIZE_CAP
+        )
+        bankroll_cap = bankroll_usd * bet_size_cap
+        liquidity_cap = max(0.0, liquidity_cap_usd)
+
+        size = min(desired, breath_cap, bankroll_cap, liquidity_cap)
+
+        # ── 6. Min-bet floor — micro-bets are NO_BET ──────────────────
+        # ``size <= 0`` catches the rho_eff=0 / kelly=0 / liquidity=0 cases
+        # which would otherwise route a zero-size BET into the Action
+        # validator (which rejects them with size_usd > 0).
+        if size <= 0.0 or size < self._min_bet_size_usd:
+            return Action(
+                kind=ActionKind.NO_BET,
+                no_bet_reason=f"{NO_BET_BELOW_MIN_SIZE}:{size:.4f}",
+            )
+
+        # ── 7. BET ────────────────────────────────────────────────────
+        return Action(
+            kind=ActionKind.BET,
+            market_id=market_id,
+            side=side,
+            size_usd=size,
+            edge_pct=edge_abs,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers — module-level so tests can exercise the math directly
+# without instantiating the engine.
+# ---------------------------------------------------------------------------
+
+
+def _fuse_signals(
+    *,
+    signals: dict[str, EngineSignal],
+    alpha: tuple[float, float, float],
+    beta: tuple[float, float],
+    w_r: float,
+    w_s: float,
+) -> FusionResult:
+    """2-layer fusion with confidence-weighted engine scores.
+
+    Each engine's score is multiplied by its self-rated confidence
+    before the α / β mix. This means a confident small-edge signal
+    contributes more to the stream output than an over-eager
+    low-confidence large-edge one — matching PRD §4.1's intent that
+    confidence be a first-class fusion input, not just a post-hoc
+    sizing knob.
+    """
+    rational = sum(
+        alpha[i] * signals[RATIONAL_ENGINES[i]].score * signals[RATIONAL_ENGINES[i]].confidence
+        for i in range(3)
+    )
+    sentient = sum(
+        beta[i] * signals[SENTIENT_ENGINES[i]].score * signals[SENTIENT_ENGINES[i]].confidence
+        for i in range(2)
+    )
+    fused = w_r * rational + w_s * sentient
+    # mean_confidence used by Kelly + the confidence floor — flat mean
+    # over the 5 engines so every channel contributes equally to the
+    # sizing decision (the α/β/W mix already handles their per-channel
+    # influence on direction).
+    confs = [
+        signals[n].confidence for n in (*RATIONAL_ENGINES, *SENTIENT_ENGINES)
+    ]
+    mean_conf = sum(confs) / len(confs) if confs else 0.0
+    return FusionResult(
+        raw_rational=rational,
+        raw_sentient=sentient,
+        fused=fused,
+        mean_confidence=mean_conf,
+    )
+
+
+def _kelly_fraction(edge_abs: float) -> float:
+    """Fractional-Kelly proxy: ``k = clamp(|e| / (1 - |e|), 0, 1)``.
+
+    For a binary outcome with no fee and even payoff (b=1), classical
+    Kelly says bet f* = 2p - 1 ≈ edge when edge is small. The formula
+    ``e/(1-e)`` is the standard fractional-Kelly proxy used in PRD
+    §4.1 / §6.6 — equivalent for small edges, saturating to 1 as the
+    edge approaches 1.
+
+    Returns 0 if edge is non-positive or NaN-ish.
+    """
+    if edge_abs <= 0.0:
+        return 0.0
+    # ``edge_abs >= 1`` would divide by zero; saturate to 1.0.
+    if edge_abs >= 1.0:
+        return 1.0
+    return min(1.0, edge_abs / (1.0 - edge_abs))
+
+
+__all__ = [
+    "CROWD_VOLUME",
+    "DEFAULT_CONVERSION_RATE",
+    "DEFAULT_MAX_BREATH_RISK_PCT",
+    "DEFAULT_MIN_BET_SIZE_USD",
+    "DEFAULT_MIN_CONFIDENCE",
+    "DESPERATE_BET_SIZE_CAP",
+    "MARKET_MOMENTUM",
+    "NORMAL_BET_SIZE_CAP",
+    "NO_BET_BELOW_MIN_SIZE",
+    "NO_BET_LOW_CONFIDENCE",
+    "NO_BET_MISSING_SIGNAL",
+    "NO_BET_NEUTRAL_FUSED",
+    "NO_BET_ZERO_KELLY",
+    "RATIONAL_ENGINES",
+    "SENTIENT_ENGINES",
+    "SENTIMENT_LLM",
+    "SMART_MONEY",
+    "TENNIS_TECHNICAL",
+    "DecisionEngine",
+    "FusionResult",
+]

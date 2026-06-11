@@ -1,0 +1,288 @@
+[
+  {
+    "kind": "phase_transition",
+    "payload": {
+      "from": "PHASE_1_INFANCY",
+      "reason": "β₁ unfreezes; passive metabolism resumes at half rate (PRD §6.13).",
+      "to": "PHASE_2_APPRENTICE"
+    },
+    "seq": 0,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "llm_activated",
+    "note": "β₁ unfrozen — sentient stream wakes up at the Phase 2 boundary.",
+    "seq": 1,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 100.0,
+      "breath": 100.0,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 2,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "decision",
+    "payload": {
+      "action": "NO_BET",
+      "edge_pct": null,
+      "kelly_fraction": null,
+      "side": null,
+      "size_usd": null
+    },
+    "seq": 3,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "insight": "First Phase 2 decision: NO_BET (mean_confidence_below_threshold). β₁ is online but the 5 engines did not converge — patience wins this tick.",
+    "kind": "reflection",
+    "seq": 4,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "weights_updated",
+    "seq": 5,
+    "ts": "2026-05-26T16:30:00+00:00",
+    "weights": {
+      "alpha": 0.5,
+      "beta": 0.6,
+      "rho": 0.25,
+      "w_r": 0.65,
+      "w_s": 0.35
+    }
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 100.0,
+      "breath": 98.5,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 6,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "thought",
+    "seq": 7,
+    "text": "Saw a sentiment spike on Twitter — Lakers fanboys piling in. The model says fade them, but the crowd feels right. Let's try a small BET on YES.",
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "decision",
+    "payload": {
+      "action": "BET",
+      "edge_pct": 0.07,
+      "kelly_fraction": 0.18,
+      "side": "YES",
+      "size_usd": 12.0
+    },
+    "seq": 8,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "insight": "First real Phase 2 tick. β₁ is talking now — louder than expected. I weighted the LLM too high; lost the bet. Lesson logged.",
+    "kind": "reflection",
+    "seq": 9,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 88.0,
+      "breath": 92.0,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 10,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "weights_updated",
+    "seq": 11,
+    "ts": "2026-05-26T16:30:00+00:00",
+    "weights": {
+      "alpha": 0.5,
+      "beta": 0.5499999999999999,
+      "rho": 0.25,
+      "w_r": 0.65,
+      "w_s": 0.35
+    }
+  },
+  {
+    "kind": "thought",
+    "seq": 12,
+    "text": "Stinging from that loss. The 5 engines disagree wildly. NO_BET; let me read the next signal cycle first.",
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "decision",
+    "payload": {
+      "action": "NO_BET",
+      "edge_pct": null,
+      "kelly_fraction": null,
+      "side": null,
+      "size_usd": null
+    },
+    "seq": 13,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "insight": "Cooling off. Rational stream still trusts NBA technical; sentient stream is over-weighting Twitter. Want to see the second signal.",
+    "kind": "reflection",
+    "seq": 14,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 88.0,
+      "breath": 86.5,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 15,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "thought",
+    "seq": 16,
+    "text": "Smart money wallets are positioning against the public. Strong α₃ signal but β₁ disagrees. Holding.",
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "decision",
+    "payload": {
+      "action": "NO_BET",
+      "edge_pct": null,
+      "kelly_fraction": null,
+      "side": null,
+      "size_usd": null
+    },
+    "seq": 17,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "insight": "Smart money + NBA technical both bearish on the favourite. LLM still bullish. Conflict — stay flat until conviction lines up.",
+    "kind": "reflection",
+    "seq": 18,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 88.0,
+      "breath": 81.0,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 19,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "weights_updated",
+    "seq": 20,
+    "ts": "2026-05-26T16:30:00+00:00",
+    "weights": {
+      "alpha": 0.5,
+      "beta": 0.44999999999999996,
+      "rho": 0.25,
+      "w_r": 0.65,
+      "w_s": 0.35
+    }
+  },
+  {
+    "kind": "thought",
+    "seq": 21,
+    "text": "All three rational engines agree now. LLM tempered. Small BET on NO — half the size of mistake #1.",
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "decision",
+    "payload": {
+      "action": "BET",
+      "edge_pct": 0.11,
+      "kelly_fraction": 0.22,
+      "side": "NO",
+      "size_usd": 6.0
+    },
+    "seq": 22,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "insight": "Took the convergence trade. Sized it conservatively. Win — bankroll back to 94. The lesson held.",
+    "kind": "reflection",
+    "seq": 23,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 94.0,
+      "breath": 76.0,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 24,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "thought",
+    "seq": 25,
+    "text": "Day 4 close. β₁ taught me something: don't let one loud channel drown the other four. Tomorrow: weight by agreement, not by volume.",
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "decision",
+    "payload": {
+      "action": "NO_BET",
+      "edge_pct": null,
+      "kelly_fraction": null,
+      "side": null,
+      "size_usd": null
+    },
+    "seq": 26,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "insight": "Day 4 retrospective. β₁ unfrozen helped — but only when the other four corroborated. The mistake was treating LLM as a leading signal; it's a corroborating one. Weight schedule update queued.",
+    "kind": "reflection",
+    "seq": 27,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "vitals",
+    "payload": {
+      "bankroll": 94.0,
+      "breath": 70.5,
+      "countdown_s": 3600.0,
+      "gas_per_min": 0.5,
+      "phase": "PHASE_2_APPRENTICE"
+    },
+    "seq": 28,
+    "ts": "2026-05-26T16:30:00+00:00"
+  },
+  {
+    "kind": "weights_updated",
+    "seq": 29,
+    "ts": "2026-05-26T16:30:00+00:00",
+    "weights": {
+      "alpha": 0.5,
+      "beta": 0.35,
+      "rho": 0.25,
+      "w_r": 0.65,
+      "w_s": 0.35
+    }
+  }
+]

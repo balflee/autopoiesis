@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-22T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "107",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-20T18:05:07.084000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-21T19:09:07.042000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-22T20:13:07+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-22T20:13:07+00",
+  "slug": "will-figueiredo-win-his-ufc-255-match",
+  "winning_price": null
+}

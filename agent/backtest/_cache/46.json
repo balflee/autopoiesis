@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2021-01-02T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "46",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-12T22:00:05.798000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-22T21:37:12.899000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2021-01-02T21:14:20+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2021-01-02T21:14:20+00",
+  "slug": "will-drake-release-a-new-studio-album-before-the-end-of-2020",
+  "winning_price": null
+}

@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-24T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "102",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-17T18:40:13.819000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-21T06:05:38.409500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-24T17:31:03+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-24T17:31:03+00",
+  "slug": "will-sushiswap-have-more-tvl-than-uniswap-at-any-time-before-november-24th-according-to-defipulse",
+  "winning_price": null
+}

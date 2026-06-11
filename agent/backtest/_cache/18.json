@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-04T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "18",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-02T19:20:04.234000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-14T22:00:29.617000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-10-27T00:40:55+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-10-27T00:40:55+00",
+  "slug": "will-a-new-supreme-court-justice-be-confirmed-before-nov-3rd-2020",
+  "winning_price": null
+}

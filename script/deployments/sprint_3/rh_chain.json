@@ -1,0 +1,27 @@
+{
+  "chain": "rh_chain",
+  "contracts": {
+    "agentLifecycle": "0x125929f6451e5e5Fa9C64b498646793CaF5b4128",
+    "decisionLog": "0x3e58BE777F8fe7F1B81dfBdFA716295D0EF89818",
+    "energyController": "0xeb504449195b0491F52b455650056f0763A54525",
+    "phaseManager": "0x20e07db0169E35553a66608736161f433d8E44E0",
+    "tombstoneNFT": "0xDE6178D892AA9F80f748a399f07B588b08Faec2f"
+  },
+  "deployedAtBlock": 60897767,
+  "onChainBreath": {
+    "initialBreath": 1132000000,
+    "softCapThreshold": 3175000000
+  },
+  "params": {
+    "CONVERSION_RATE": 1,
+    "DESPERATE_THRESHOLD": 201,
+    "E_DECISION_TAX": 4,
+    "E_TIME_TAX_PER_TICK": 1,
+    "INITIAL_BREATH": 1132,
+    "MIN_BET_SIZE": 5,
+    "PASSIVE_BURN_RATE": 1,
+    "SOFT_CAP_THRESHOLD": 3175,
+    "TARGET_HORIZON": 5
+  },
+  "selectedParamsHash": "0x1edd1912d6ccaa2002459f22aa63c5e1d981ea57c585ff593e182c61f556d60d"
+}

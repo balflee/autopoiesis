@@ -1,0 +1,116 @@
+# Sprint 9 T-B-024 — offline cassette for the L2 reflection wire.
+#
+# Recorded against the SAME `_LLMClient` Protocol seam as
+# tests/agent/llm/cassettes/test_gemini_smoke_offline.yaml (T-B-022).
+# Each interaction stores the request envelope plus the structured-output
+# response body that gemini-3.1-flash-lite's `response_schema` mode would
+# have produced for the ReflectionEngine's `_ReflectionResponse` schema.
+#
+# Stubbing at the Protocol seam (not aiohttp/vcrpy) is the same pattern
+# T-B-022's cassette uses. Rationale lives verbatim in
+# tests/agent/llm/test_gemini_smoke_offline.py docstring; recap here:
+#
+#   * Cassette holds NO API key — the test fixture deletes GEMINI_API_KEY.
+#   * Replay is byte-for-byte deterministic: each `structured_call`
+#     pops the next interaction in order.
+#   * `response.error: value_error` is the sentinel that triggers the
+#     ReflectionEngine's retry-once-then-fail-soft path.
+#
+# Sizing — the T-B-024 test suite drives at most ~4 reflection fires; we
+# provision 8 interactions so a future re-ordering of test cases never
+# exhausts the cassette mid-suite. Reserve interactions (5+) are clearly
+# tagged so a maintainer knows they're cushion.
+
+interactions:
+  # ----- Interaction 0 — tick_interval trigger (happy path) ----------------
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick 9"
+    response:
+      body:
+        summary: "Sandbox reflection — tick_interval trigger, routine cadence."
+        lessons:
+          - "weights stable across the 10-tick window"
+          - "no anomalous bankroll swings"
+        confidence_in_strategy: 0.62
+        mood: "calm"
+
+  # ----- Interaction 1 — weight_delta trigger (key moment) ----------------
+  - request:
+      model: claude-opus-4-7
+      prompt_starts_with: "Tick 2"
+    response:
+      body:
+        summary: "Weight bump exceeded 0.05 — fusion strategy is updating live."
+        lessons:
+          - "alpha_0 climbed past threshold; tennis_technical conviction rising"
+          - "monitor next 3 ticks for trend confirmation"
+        confidence_in_strategy: 0.70
+        mood: "alert"
+
+  # ----- Interaction 2 — tick_interval, after weight_delta -----------------
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick 1"
+    response:
+      body:
+        summary: "Post-bump cadence reflection; weights now stabilising."
+        lessons:
+          - "weight_delta has cooled below threshold"
+        confidence_in_strategy: 0.65
+        mood: "neutral"
+
+  # ----- Interaction 3 — append-only restart leg --------------------------
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick"
+    response:
+      body:
+        summary: "Restart-side reflection — file integrity preserved."
+        lessons:
+          - "tail-truncate did not erase pre-restart history"
+        confidence_in_strategy: 0.60
+        mood: "steady"
+
+  # ----- Interaction 4 — shared cost-guard probe ---------------------------
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick"
+    response:
+      body:
+        summary: "Cost guard cross-tick accounting verified — L1+L2 share."
+        lessons:
+          - "monthly cap aggregates both layers"
+        confidence_in_strategy: 0.60
+        mood: "neutral"
+
+  # ----- Interactions 5-7 — reserve cushion -------------------------------
+  # If a future test reorders fires, the cassette still serves valid
+  # bodies. Identical-shape happy-path responses.
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick"
+    response:
+      body:
+        summary: "Reserve interaction A — not reached by current tests."
+        lessons: []
+        confidence_in_strategy: 0.55
+        mood: "neutral"
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick"
+    response:
+      body:
+        summary: "Reserve interaction B — not reached by current tests."
+        lessons: []
+        confidence_in_strategy: 0.55
+        mood: "neutral"
+  - request:
+      model: claude-sonnet-4-6
+      prompt_starts_with: "Tick"
+    response:
+      body:
+        summary: "Reserve interaction C — not reached by current tests."
+        lessons: []
+        confidence_in_strategy: 0.55
+        mood: "neutral"

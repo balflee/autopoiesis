@@ -1,0 +1,23 @@
+{
+  "end_date_iso": "2020-11-19T00:00:00Z",
+  "liquidity_cap_usd": 5.0,
+  "market_id": "78",
+  "outcome": null,
+  "price_ledger": [
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-06T23:05:12.957000+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-13T07:34:28.478500+00:00"
+    },
+    {
+      "mid_price": 0.5,
+      "ts": "2020-11-19T16:03:44+00:00"
+    }
+  ],
+  "resolution_ts_iso": "2020-11-19T16:03:44+00",
+  "slug": "will-lamelo-ball-be-the-first-pick-in-the-2020-nba-draft",
+  "winning_price": null
+}

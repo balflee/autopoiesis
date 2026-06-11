@@ -46,15 +46,23 @@ MAX_BREATH_RISK_BOUNDS = (0.05, 0.50)  # fraction of BREATH at risk per bet
 MIN_CONFIDENCE_BOUNDS = (0.0, 0.30)  # abstain below this fused confidence
 MIN_BET_SIZE_BOUNDS = (1.0, 10.0)  # USD floor per bet
 
+# Family ③ — value-betting knobs (realism v3). Only ACT when the scorer/loop
+# runs in value mode (decide(price=...)); legacy mode ignores them, so the
+# defaults keep every pre-v3 construction byte-identical.
+MIN_EDGE_BOUNDS = (0.0, 0.15)  # abstain below this |p_model - price|
+KAPPA_BOUNDS = (0.05, 0.50)  # market-prior tilt scale
+
 
 @dataclass(frozen=True)
 class StrategyConfig:
-    """One point in the joint ①+② strategy space."""
+    """One point in the joint ①+②(+③ value-mode) strategy space."""
 
     weights: Weights
     max_breath_risk_pct: float
     min_confidence: float
     min_bet_size_usd: float
+    min_edge: float = 0.0
+    kappa: float = 0.25
 
 
 def _scale(unit: float, bounds: tuple[float, float]) -> float:

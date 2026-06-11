@@ -72,7 +72,7 @@ from agent.data.polymarket_sandbox_executor import (
     _derive_expected_settle_ts,
 )
 from agent.data.polymarket_settlement import SettlementResult
-from agent.data.sandbox_state import SandboxStateWriter
+from agent.data.sandbox_state import SandboxStateWriter, iter_jsonl
 from agent.engines._performance_window import PerformanceWindow
 from agent.engines._strategy_proposal_schema import StrategyProposal
 from agent.engines.decision import DecisionEngine
@@ -867,6 +867,14 @@ class SurvivalRecorder:
     steps: list[SurvivalStep] = field(default_factory=list)
     deaths: list[DeathRecord] = field(default_factory=list)
 
+    # Realism v3 (r8 H-1): ALL placed bets (settled or not), accumulated by
+    # ``run_survival_season`` from each life's ``open_bets.jsonl`` right after
+    # the life ends — BEFORE the temp state dir is cleaned up. ~55% of placed
+    # bets never settle; the export's effective-floor invariant scans THIS
+    # ledger (side + price are known at placement), while the pnl recompute
+    # stays settled-only (``steps``). Each entry is the raw BetRecord dict.
+    placed_bets: list[dict[str, Any]] = field(default_factory=list)
+
     # T-D-018 AI tally: how many auto-approved weight deltas the loop actually
     # APPLIED vs failed to apply across the whole season. ``proposals_applied``
     # is the genuine-AI-divergence signal — when it is 0 on an AI run, the LLM
@@ -1401,7 +1409,11 @@ class _AutoApprovingAdvisor:
         return proposals
 
 
-def _decision_engine_from_seed(seed: StrategyConfig) -> DecisionEngine:
+def _decision_engine_from_seed(
+    seed: StrategyConfig,
+    *,
+    effective_entry_price_floor: float | None = None,
+) -> DecisionEngine:
     """Thread the seed's sizing/abstention knobs into a ``DecisionEngine``.
 
     Codex R8: a directly-constructed loop given ONLY ``initial_weights`` falls
@@ -1409,11 +1421,19 @@ def _decision_engine_from_seed(seed: StrategyConfig) -> DecisionEngine:
     seed (which carries sizing/abstention knobs in ``StrategyConfig``). Sizing
     stays FIXED per seed across all lives; learning evolves the fusion
     ``Weights`` only.
+
+    Realism v3: the seed's ``min_edge``/``kappa`` (value-mode knobs) thread
+    through too — they only ACT when the loop passes ``price=`` into
+    ``decide()`` (value_betting). ``effective_entry_price_floor`` arms the
+    engine-level side-aware floor gate for value mode.
     """
     return DecisionEngine(
         max_breath_risk_pct=seed.max_breath_risk_pct,
         min_bet_size_usd=seed.min_bet_size_usd,
         min_confidence=seed.min_confidence,
+        min_edge=seed.min_edge,
+        kappa=seed.kappa,
+        entry_price_floor=effective_entry_price_floor,
     )
 
 
@@ -1431,6 +1451,9 @@ def _build_life_loop(
     recorder: SurvivalRecorder | None = None,
     ai: AISeasonContext | None = None,
     max_bet_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
+    effective_entry_price_floor: float | None = None,
 ) -> SandboxPhase2Loop:
     """Construct ONE fresh life loop (codex H2 + R5 + R8 + R2-MED).
 
@@ -1561,10 +1584,17 @@ def _build_life_loop(
         populate_reflection_window=populate_reflection_window,
         strategy_advisor_tick_interval=strategy_advisor_tick_interval,
         reflection_tick_interval=reflection_tick_interval,
-        decision_engine=_decision_engine_from_seed(seed),
+        decision_engine=_decision_engine_from_seed(
+            seed, effective_entry_price_floor=effective_entry_price_floor
+        ),
         # Realism cap (None = legacy/live physics): per-bet profit ceiling
         # enforced inside the settlement poller for learner AND breath alike.
         max_bet_pnl_usd=max_bet_pnl_usd,
+        # Realism v3 (False/None = legacy/live physics): side-correct payouts,
+        # value-mode decisions, bet-level effective-price floor.
+        side_correct_pricing=side_correct_pricing,
+        value_betting=value_betting,
+        effective_entry_price_floor=effective_entry_price_floor,
     )
     # Bind the deferred loop reference so the clock can pin now() to
     # stops[loop.tick_counter].
@@ -1601,6 +1631,9 @@ def run_survival_season(
     max_bet_pnl_usd: float | None = None,
     recorder: SurvivalRecorder | None = None,
     ai: AISeasonContext | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
+    effective_entry_price_floor: float | None = None,
 ) -> SeasonResult:
     """Drive a multi-life FRESH-loop survival season (A2).
 
@@ -1687,10 +1720,23 @@ def run_survival_season(
             recorder=recorder,
             ai=ai,
             max_bet_pnl_usd=max_bet_pnl_usd,
+            side_correct_pricing=side_correct_pricing,
+            value_betting=value_betting,
+            effective_entry_price_floor=effective_entry_price_floor,
         )
 
         max_ticks = len(schedule.stops)
         summary = asyncio.run(loop.run(until=None, max_ticks=max_ticks))
+
+        # Realism v3 (r8 H-1): harvest this life's PLACED-bet ledger from its
+        # open_bets.jsonl BEFORE the temp state dir can be cleaned up. ~55% of
+        # placed bets never settle (the agent dies waiting), so the export's
+        # effective-floor invariant scans this ledger — settled ``steps`` alone
+        # would let a sub-floor placed-never-settled order evade the backstop.
+        if recorder is not None:
+            recorder.placed_bets.extend(
+                iter_jsonl(loop._writer.open_bets_path)
+            )
 
         # Which markets did this life actually DECIDE? The loop ran
         # ``ticks_completed`` ticks over the schedule's stops in order; the

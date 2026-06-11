@@ -56,7 +56,7 @@ from typing import Any, Literal, cast
 import pytest
 
 from agent.core.memory_bank import MemoryBank
-from agent.core.state import Phase
+from agent.core.state import Action, ActionKind, Phase, Side
 from agent.data.polymarket_sandbox_executor import (
     MarketInfo,
     SandboxExecutor,
@@ -295,6 +295,10 @@ def _build_loop(
     env: dict[str, str] | None = None,
     max_bet_pnl_usd: float | None = None,
     side_correct_pricing: bool = False,
+    value_betting: bool = False,
+    effective_entry_price_floor: float | None = None,
+    decision_engine: Any | None = None,
+    tick_inputs: Any | None = None,
 ) -> tuple[
     SandboxPhase2Loop,
     _FakeStateHook,
@@ -336,7 +340,7 @@ def _build_loop(
         settlement_client=gamma,
         weight_updater=weight_updater,
         chain_adapter=cast(SandboxLoopChainAdapter, chain_adapter),
-        tick_inputs=_ScriptedTickInputs(),
+        tick_inputs=tick_inputs if tick_inputs is not None else _ScriptedTickInputs(),
         state_hook=state_hook,
         state_writer=writer,
         clock=clock,
@@ -352,6 +356,9 @@ def _build_loop(
         env=env,
         max_bet_pnl_usd=max_bet_pnl_usd,
         side_correct_pricing=side_correct_pricing,
+        value_betting=value_betting,
+        effective_entry_price_floor=effective_entry_price_floor,
+        **({"decision_engine": decision_engine} if decision_engine is not None else {}),
     )
     return loop, state_hook, writer, clock
 
@@ -382,6 +389,73 @@ def test_side_correct_pricing_threads_to_poller_and_defaults_false(
         tmp_path=tmp_path / "b", side_correct_pricing=True
     )
     assert loop_corrected._poller.side_correct_pricing is True
+
+
+class _RecordingDecisionEngine:
+    """Duck-typed DecisionEngine spy: records decide() kwargs, returns a
+    scripted Action."""
+
+    def __init__(self, *, action: Action) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._action = action
+
+    async def decide(self, **kwargs: Any) -> Action:
+        self.calls.append(dict(kwargs))
+        return self._action
+
+
+def test_value_betting_passes_price_into_decide_iff_flag_on(
+    tmp_path: Path,
+) -> None:
+    """``value_betting=True`` ⇒ decide() receives ``price=inputs.price``;
+    default False ⇒ NO price kwarg (legacy decide signature, byte-unchanged)."""
+    no_bet = Action(kind=ActionKind.NO_BET, no_bet_reason="scripted")
+
+    eng_legacy = _RecordingDecisionEngine(action=no_bet)
+    loop, _, _, clock = _build_loop(
+        tmp_path=tmp_path / "legacy", decision_engine=eng_legacy
+    )
+    _drive(loop, n=1, clock=clock)
+    assert len(eng_legacy.calls) == 1
+    assert "price" not in eng_legacy.calls[0]
+
+    eng_value = _RecordingDecisionEngine(action=no_bet)
+    loop_v, _, _, clock_v = _build_loop(
+        tmp_path=tmp_path / "value",
+        decision_engine=eng_value,
+        value_betting=True,
+    )
+    _drive(loop_v, n=1, clock=clock_v)
+    assert len(eng_value.calls) == 1
+    assert eng_value.calls[0]["price"] == pytest.approx(0.4)  # _ScriptedTickInputs
+
+
+def test_effective_floor_gates_legacy_mode_bet_before_place_order(
+    tmp_path: Path,
+) -> None:
+    """r4 M-1: legacy mode (value_betting=False) + effective floor — a forced
+    NO bet at yes-price 0.97 (effective 0.03 < 0.05) is converted to a NO_BET
+    record and NO order is placed."""
+    forced_no_bet = Action(
+        kind=ActionKind.BET, market_id="m-l3-001", side=Side.NO,
+        size_usd=5.0, edge_pct=0.5,
+    )
+    eng = _RecordingDecisionEngine(action=forced_no_bet)
+    loop, _, writer, clock = _build_loop(
+        tmp_path=tmp_path,
+        decision_engine=eng,
+        effective_entry_price_floor=0.05,
+        tick_inputs=_ScriptedTickInputs(price=0.97),
+    )
+    _drive(loop, n=1, clock=clock)
+
+    assert iter_jsonl(writer.open_bets_path) == []  # nothing placed
+    decisions = iter_jsonl(writer.decisions_path)
+    assert len(decisions) == 1
+    assert decisions[0]["kind"] == "NO_BET"
+    reason = decisions[0]["no_bet_reason"]
+    assert isinstance(reason, str)
+    assert reason.startswith("effective_price_below_floor")
 
 
 def _drive(loop: SandboxPhase2Loop, *, n: int, clock: _FixedClock) -> None:

@@ -849,6 +849,18 @@ class SandboxPhase2Loop:
         # ``False`` (default) = locked legacy formulas, byte-unchanged; only
         # the survival export turns it on.
         side_correct_pricing: bool = False,
+        # Value-betting mode (realism v3): when True the decide() call
+        # receives ``price=inputs.price`` so the engine runs the
+        # market-prior EV mode. ``False`` (default) = legacy signal
+        # betting, byte-unchanged; only the survival export turns it on.
+        value_betting: bool = False,
+        # Bet-level side-aware floor: a BET whose EFFECTIVE side price
+        # (yes price for YES, 1-price for NO) is below this floor is
+        # converted to a NO_BET record BEFORE place_order — regardless of
+        # value mode, so a legacy-mode run can never place sub-floor bets
+        # that only the export invariant would catch, late. ``None``
+        # (default) disables the gate (live-runtime contract).
+        effective_entry_price_floor: float | None = None,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -865,6 +877,10 @@ class SandboxPhase2Loop:
 
         self._decision: DecisionEngine = (
             decision_engine if decision_engine is not None else DecisionEngine()
+        )
+        self._value_betting: bool = value_betting
+        self._effective_entry_price_floor: float | None = (
+            effective_entry_price_floor
         )
         self._writer: SandboxStateWriter = (
             state_writer
@@ -1585,8 +1601,33 @@ class SandboxPhase2Loop:
                 liquidity_cap_usd=inputs.liquidity_cap_usd,
                 market_id=inputs.market_id,
                 desperate=self._desperate,
+                **({"price": inputs.price} if self._value_betting else {}),
             )
             market_id_for_record = inputs.market_id
+
+            # Bet-level side-aware floor (realism v3, r4 M-1): convert a BET
+            # whose EFFECTIVE side price is below the floor into a NO_BET
+            # BEFORE place_order — regardless of value mode, so a legacy-mode
+            # run can never place sub-floor bets that only the export
+            # invariant would catch, late. (Value mode also gates inside
+            # decide(); this is the loop-boundary backstop.)
+            if (
+                action.kind == ActionKind.BET
+                and self._effective_entry_price_floor is not None
+                and action.side is not None
+            ):
+                eff_price = (
+                    inputs.price
+                    if action.side == Side.YES
+                    else 1.0 - inputs.price
+                )
+                if eff_price < self._effective_entry_price_floor:
+                    action = Action(
+                        kind=ActionKind.NO_BET,
+                        no_bet_reason=(
+                            f"effective_price_below_floor:{eff_price:.4f}"
+                        ),
+                    )
 
         # Step 5 — place order if BET.
         if action.kind == ActionKind.BET and inputs is not None:

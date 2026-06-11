@@ -122,6 +122,15 @@ NO_BET_LOW_CONFIDENCE: Final[str] = "mean_confidence_below_threshold"
 NO_BET_ZERO_KELLY: Final[str] = "zero_kelly_fraction"
 NO_BET_NEUTRAL_FUSED: Final[str] = "fused_score_neutral"
 
+# Value-betting mode (realism v3, plan 2026-06-11-value-betting-physics).
+# ``p_model = clamp(price + kappa * fused, 0, 1)`` — the model anchors on the
+# MARKET price and tilts by the fused signal. A (1+fused)/2 anchor would make
+# zero-signal imply p=0.5 and systematically fade every non-0.5 price on no
+# information; the price anchor makes zero signal ⇒ zero edge ⇒ abstain.
+DEFAULT_KAPPA: Final[float] = 0.25
+NO_BET_NO_EDGE: Final[str] = "edge_below_min"
+NO_BET_PRICE_FLOOR: Final[str] = "effective_price_below_floor"
+
 
 @dataclass(frozen=True)
 class FusionResult:
@@ -158,6 +167,9 @@ class DecisionEngine:
         conversion_rate: float = DEFAULT_CONVERSION_RATE,
         min_bet_size_usd: float = DEFAULT_MIN_BET_SIZE_USD,
         min_confidence: float = DEFAULT_MIN_CONFIDENCE,
+        min_edge: float = 0.0,
+        kappa: float = DEFAULT_KAPPA,
+        entry_price_floor: float | None = None,
     ) -> None:
         if max_breath_risk_pct <= 0.0 or max_breath_risk_pct > 1.0:
             raise ValueError(
@@ -173,10 +185,21 @@ class DecisionEngine:
             raise ValueError(
                 f"min_confidence must be in [0, 1] (got {min_confidence})"
             )
+        if not 0.0 <= min_edge <= 1.0:
+            raise ValueError(f"min_edge must be in [0, 1] (got {min_edge})")
+        if kappa <= 0.0 or kappa > 1.0:
+            raise ValueError(f"kappa must be in (0, 1] (got {kappa})")
+        if entry_price_floor is not None and not 0.0 <= entry_price_floor < 1.0:
+            raise ValueError(
+                f"entry_price_floor must be in [0, 1) (got {entry_price_floor})"
+            )
         self._max_breath_risk_pct = max_breath_risk_pct
         self._conversion_rate = conversion_rate
         self._min_bet_size_usd = min_bet_size_usd
         self._min_confidence = min_confidence
+        self._min_edge = min_edge
+        self._kappa = kappa
+        self._entry_price_floor = entry_price_floor
 
     async def decide(
         self,
@@ -192,12 +215,21 @@ class DecisionEngine:
         liquidity_cap_usd: float,
         market_id: str,
         desperate: bool = False,
+        price: float | None = None,
     ) -> Action:
         """Run fusion + bet sizing for one tick.
 
         Returns either a BET :class:`Action` (with market_id, side,
         size_usd, edge_pct) or a NO_BET :class:`Action` (with a
         structured ``no_bet_reason``).
+
+        ``price`` (optional, default ``None`` = the legacy signal-betting
+        mode, byte-identical to the pre-value behavior): the market YES-mid
+        at decision time. When given, the engine runs VALUE mode —
+        ``p_model = clamp(price + kappa*fused)``, side = sign of the price
+        edge, ``min_edge`` gate, side-aware effective-price floor, and
+        odds-aware Kelly. ``edge_pct`` then carries the true price edge
+        (|fused| in legacy mode).
         """
         # ── 1. Missing-signal guard ───────────────────────────────────
         # Every engine must have produced a signal — a missing one is
@@ -231,14 +263,46 @@ class DecisionEngine:
             )
 
         # ── 4. Direction + Kelly ──────────────────────────────────────
-        if fusion.fused == 0.0:
-            return Action(
-                kind=ActionKind.NO_BET,
-                no_bet_reason=NO_BET_NEUTRAL_FUSED,
-            )
-        side = Side.YES if fusion.fused > 0.0 else Side.NO
-        edge_abs = abs(fusion.fused)
-        kelly = _kelly_fraction(edge_abs)
+        if price is None:
+            # Legacy signal-betting mode — byte-identical to the
+            # pre-value behavior: side = sign(fused), even-money Kelly.
+            if fusion.fused == 0.0:
+                return Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=NO_BET_NEUTRAL_FUSED,
+                )
+            side = Side.YES if fusion.fused > 0.0 else Side.NO
+            edge_abs = abs(fusion.fused)
+            kelly = _kelly_fraction(edge_abs)
+        else:
+            # ── 4v. Value mode: market prior + signal tilt ────────────
+            # p_model anchors on the PRICE so zero signal ⇒ zero edge ⇒
+            # abstain (a (1+fused)/2 anchor would systematically fade
+            # favorites on no information).
+            p_model = max(0.0, min(1.0, price + self._kappa * fusion.fused))
+            edge_yes = p_model - price
+            if edge_yes == 0.0:
+                return Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=NO_BET_NEUTRAL_FUSED,
+                )
+            side = Side.YES if edge_yes > 0.0 else Side.NO
+            edge_abs = abs(edge_yes)
+            eff = price if side is Side.YES else 1.0 - price
+            if (
+                self._entry_price_floor is not None
+                and eff < self._entry_price_floor
+            ):
+                return Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=f"{NO_BET_PRICE_FLOOR}:{eff:.4f}",
+                )
+            if edge_abs < self._min_edge:
+                return Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=f"{NO_BET_NO_EDGE}:{edge_abs:.4f}",
+                )
+            kelly = _value_kelly_fraction(edge=edge_abs, effective_price=eff)
         if kelly == 0.0:
             return Action(
                 kind=ActionKind.NO_BET,
@@ -344,9 +408,26 @@ def _kelly_fraction(edge_abs: float) -> float:
     return min(1.0, edge_abs / (1.0 - edge_abs))
 
 
+def _value_kelly_fraction(*, edge: float, effective_price: float) -> float:
+    """Odds-aware Kelly for a binary leg costing ``q = effective_price``.
+
+    With model win-probability ``p = q + edge`` and payout odds
+    ``b = (1-q)/q``, classical Kelly ``f* = (p*b - (1-p))/b`` reduces to
+    ``f* = edge / (1 - q)``. Clamped to [0, 1]; non-positive edge ⇒ 0;
+    ``q >= 1`` saturates to 1 (degenerate — the effective-price floor
+    gate fires long before this in practice).
+    """
+    if edge <= 0.0:
+        return 0.0
+    if effective_price >= 1.0:
+        return 1.0
+    return min(1.0, edge / (1.0 - effective_price))
+
+
 __all__ = [
     "CROWD_VOLUME",
     "DEFAULT_CONVERSION_RATE",
+    "DEFAULT_KAPPA",
     "DEFAULT_MAX_BREATH_RISK_PCT",
     "DEFAULT_MIN_BET_SIZE_USD",
     "DEFAULT_MIN_CONFIDENCE",
@@ -357,6 +438,8 @@ __all__ = [
     "NO_BET_LOW_CONFIDENCE",
     "NO_BET_MISSING_SIGNAL",
     "NO_BET_NEUTRAL_FUSED",
+    "NO_BET_NO_EDGE",
+    "NO_BET_PRICE_FLOOR",
     "NO_BET_ZERO_KELLY",
     "RATIONAL_ENGINES",
     "SENTIENT_ENGINES",

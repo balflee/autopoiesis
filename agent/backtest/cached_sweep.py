@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -253,6 +254,9 @@ class SweepMetrics:
 
     ``sharpe`` is the per-bet (un-compounded) ``mean(pnl)/pstdev(pnl)`` across a
     config's BETs — 0.0 when fewer than 2 bets or the spread is zero.
+    ``t_stat = sharpe * sqrt(bets)`` — the statistical-significance proxy the
+    earnings ranking gates on (realism v3): a high-PnL config with a weak
+    t-stat is indistinguishable from luck.
     """
 
     bets: int
@@ -260,6 +264,7 @@ class SweepMetrics:
     win_rate: float
     sharpe: float
     avg_size: float
+    t_stat: float = 0.0
 
 
 def _aggregate(pnls: list[float], sizes: list[float], wins: int) -> SweepMetrics:
@@ -282,6 +287,7 @@ def _aggregate(pnls: list[float], sizes: list[float], wins: int) -> SweepMetrics
         win_rate=win_rate,
         sharpe=sharpe,
         avg_size=avg_size,
+        t_stat=sharpe * math.sqrt(bets),
     )
 
 
@@ -291,6 +297,11 @@ async def score_config(
     *,
     bankroll: float = DEFAULT_REPLAY_INITIAL_BANKROLL_USD,
     breath: float = DEFAULT_REPLAY_INITIAL_BREATH,
+    entry_price_floor: float | None = None,
+    effective_entry_price_floor: float | None = None,
+    max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
 ) -> SweepMetrics:
     """Score one ``cfg`` over ``rows`` via the REAL ``DecisionEngine.decide``.
 
@@ -299,15 +310,31 @@ async def score_config(
     design decisions). On a BET, the realised per-bet P&L is the faithful
     production formula (:func:`compute_bet_pnl`); NO_BET rows contribute
     nothing. Metrics are aggregated across the config's BETs.
+
+    Realism v3 (all default OFF = the pre-v3 sweep, byte-unchanged):
+    ``entry_price_floor`` pre-filters rows by the YES mid (parity with
+    ``build_survival_rows``); ``effective_entry_price_floor`` SKIPS any BET
+    whose effective side price is below it — even in legacy mode, so
+    ``--realism`` alone cannot harvest the mirrored NO-side lottery (r1 M-3);
+    ``max_pnl_usd``/``side_correct_pricing`` thread into the payout;
+    ``value_betting`` passes ``price=row.entry_price`` into decide().
     """
     engine = DecisionEngine(
         max_breath_risk_pct=cfg.max_breath_risk_pct,
         min_bet_size_usd=cfg.min_bet_size_usd,
         min_confidence=cfg.min_confidence,
+        min_edge=cfg.min_edge,
+        kappa=cfg.kappa,
+        entry_price_floor=(
+            effective_entry_price_floor if value_betting else None
+        ),
     )
     w = cfg.weights
     alpha = (w.alpha[0], w.alpha[1], w.alpha[2])
     beta = (w.beta[0], w.beta[1])
+
+    if entry_price_floor is not None:
+        rows = [r for r in rows if r.entry_price >= entry_price_floor]
 
     pnls: list[float] = []
     sizes: list[float] = []
@@ -324,16 +351,27 @@ async def score_config(
             breath=breath,
             liquidity_cap_usd=row.liquidity_cap_usd,
             market_id=row.market_id,
+            desperate=False,
+            **({"price": row.entry_price} if value_betting else {}),
         )
         if action.kind is not ActionKind.BET:
             continue
         assert action.side is not None and action.size_usd is not None
+        # Post-decision effective-floor skip (r1 M-3): holds in BOTH modes.
+        if effective_entry_price_floor is not None:
+            eff = effective_entry_price(
+                side=action.side.value, yes_price=row.entry_price
+            )
+            if eff < effective_entry_price_floor:
+                continue
         pnl = compute_bet_pnl(
             side=action.side.value,
             entry_price=row.entry_price,
             size_usd=action.size_usd,
             outcome=row.outcome,
             winning_price=row.winning_price,
+            max_pnl_usd=max_pnl_usd,
+            side_correct_pricing=side_correct_pricing,
         )
         pnls.append(pnl)
         sizes.append(action.size_usd)
@@ -348,10 +386,25 @@ def score_config_sync(
     *,
     bankroll: float = DEFAULT_REPLAY_INITIAL_BANKROLL_USD,
     breath: float = DEFAULT_REPLAY_INITIAL_BREATH,
+    entry_price_floor: float | None = None,
+    effective_entry_price_floor: float | None = None,
+    max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
 ) -> SweepMetrics:
     """Synchronous wrapper around :func:`score_config` for the sweep loop."""
     return asyncio.run(
-        score_config(rows, cfg, bankroll=bankroll, breath=breath)
+        score_config(
+            rows,
+            cfg,
+            bankroll=bankroll,
+            breath=breath,
+            entry_price_floor=entry_price_floor,
+            effective_entry_price_floor=effective_entry_price_floor,
+            max_pnl_usd=max_pnl_usd,
+            side_correct_pricing=side_correct_pricing,
+            value_betting=value_betting,
+        )
     )
 
 
@@ -387,16 +440,35 @@ def run_cached_sweep(
     *,
     bankroll: float = DEFAULT_REPLAY_INITIAL_BANKROLL_USD,
     breath: float = DEFAULT_REPLAY_INITIAL_BREATH,
+    entry_price_floor: float | None = None,
+    effective_entry_price_floor: float | None = None,
+    max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
 ) -> list[tuple[StrategyConfig, SweepMetrics]]:
     """Score every ``config`` over the cached ``rows``, in INPUT order.
 
     The signals are computed once (in ``rows``); only the fusion weights +
     sizing knobs vary per config, so each config is just a fresh in-memory pass
     of the REAL ``DecisionEngine.decide`` + faithful PnL. The returned pairs are
-    in input order; the CLI sorts by Sharpe for display.
+    in input order; the CLI sorts for display. The realism-v3 kwargs (default
+    OFF) thread straight into :func:`score_config`.
     """
     return [
-        (cfg, score_config_sync(rows, cfg, bankroll=bankroll, breath=breath))
+        (
+            cfg,
+            score_config_sync(
+                rows,
+                cfg,
+                bankroll=bankroll,
+                breath=breath,
+                entry_price_floor=entry_price_floor,
+                effective_entry_price_floor=effective_entry_price_floor,
+                max_pnl_usd=max_pnl_usd,
+                side_correct_pricing=side_correct_pricing,
+                value_betting=value_betting,
+            ),
+        )
         for cfg in configs
     ]
 
@@ -452,6 +524,31 @@ def rank_configs(
     return sorted(pool, key=lambda kv: kv[1].sharpe, reverse=True)
 
 
+def rank_configs_by_pnl(
+    scored: list[tuple[StrategyConfig, SweepMetrics]],
+    *,
+    min_bets: int = 0,
+    min_t_stat: float = 2.0,
+) -> list[tuple[StrategyConfig, SweepMetrics]]:
+    """Rank by TOTAL net PnL, gated on sample size AND statistical strength.
+
+    The earnings-aligned objective (realism v3): "earn the most, but the edge
+    must be statistically real" — a config must clear BOTH ``bets >= min_bets``
+    and ``t_stat >= min_t_stat`` (``sharpe*sqrt(bets)``; ~2 ≈ a 95%-confidence
+    positive edge) before competing on ``net_pnl``. If the double gate empties
+    the pool it falls back to the full pool (same convention as
+    :func:`rank_configs`) so the caller still gets a ranking — and should
+    report "no statistically significant earner" honestly.
+    """
+    eligible = [
+        kv
+        for kv in scored
+        if kv[1].bets >= min_bets and kv[1].t_stat >= min_t_stat
+    ]
+    pool = eligible if eligible else scored
+    return sorted(pool, key=lambda kv: kv[1].net_pnl, reverse=True)
+
+
 def _cmd_sweep(args: argparse.Namespace) -> int:
     """``sweep`` subcommand — load rows, LHS configs, rank by Sharpe, print.
 
@@ -466,35 +563,65 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     raw_configs = generate_lhs_strategy_configs(args.n, seed=args.seed)
     configs = [_clamp_min_bet(cfg) for cfg in raw_configs]
 
-    scored = run_cached_sweep(rows, configs)
-    ranked = rank_configs(scored, min_bets=args.min_bets)
-    eligible_n = sum(1 for kv in scored if kv[1].bets >= args.min_bets)
+    # --realism: floor 0.05 on BOTH knobs + the $100 profit cap + side-correct
+    # payouts — the journey physics. --value: EV-gated value-mode decisions.
+    realism: bool = bool(getattr(args, "realism", False))
+    value: bool = bool(getattr(args, "value", False))
+    scored = run_cached_sweep(
+        rows,
+        configs,
+        entry_price_floor=0.05 if realism else None,
+        effective_entry_price_floor=0.05 if realism else None,
+        max_pnl_usd=100.0 if realism else None,
+        side_correct_pricing=realism,
+        value_betting=value,
+    )
+    rank_mode: str = getattr(args, "rank", "sharpe")
+    if rank_mode == "pnl":
+        ranked = rank_configs_by_pnl(scored, min_bets=args.min_bets)
+        eligible_n = sum(
+            1
+            for kv in scored
+            if kv[1].bets >= args.min_bets and kv[1].t_stat >= 2.0
+        )
+    else:
+        ranked = rank_configs(scored, min_bets=args.min_bets)
+        eligible_n = sum(1 for kv in scored if kv[1].bets >= args.min_bets)
 
     print(f"\n=== signal-cached sweep (n={args.n}, rows={len(rows)}, "
-          f"min_bets={args.min_bets}, eligible={eligible_n}) ===")
-    print(f"{'rank':>4} {'sharpe':>8} {'net_pnl':>9} {'win%':>6} {'bets':>5} "
-          f"{'avg$':>6}  config")
+          f"min_bets={args.min_bets}, eligible={eligible_n}, "
+          f"rank={rank_mode}, realism={realism}, value={value}) ===")
+    print(f"{'rank':>4} {'sharpe':>8} {'t':>6} {'net_pnl':>9} {'win%':>6} "
+          f"{'bets':>5} {'avg$':>6}  config")
     for rank, (cfg, m) in enumerate(ranked[: args.top], start=1):
         w = cfg.weights
         print(
-            f"{rank:>4} {m.sharpe:>8.3f} {m.net_pnl:>9.2f} "
+            f"{rank:>4} {m.sharpe:>8.3f} {m.t_stat:>6.1f} {m.net_pnl:>9.2f} "
             f"{m.win_rate * 100.0:>6.1f} {m.bets:>5} {m.avg_size:>6.2f}  "
             f"w_r={w.w_r:.2f} a={[round(a, 2) for a in w.alpha]} "
             f"b1={w.beta[0]:.2f} rho={w.rho:.2f} | "
             f"risk={cfg.max_breath_risk_pct:.2f} "
-            f"minconf={cfg.min_confidence:.2f} minbet={cfg.min_bet_size_usd:.1f}"
+            f"minconf={cfg.min_confidence:.2f} minbet={cfg.min_bet_size_usd:.1f} "
+            f"edge={cfg.min_edge:.3f} kappa={cfg.kappa:.2f}"
         )
 
     best_cfg, best_m = ranked[0]
-    print("\n=== OPTIMAL (max per-bet Sharpe, un-compounded) ===")
+    objective = (
+        "max net PnL, t-stat>=2 gated"
+        if rank_mode == "pnl"
+        else "max per-bet Sharpe, un-compounded"
+    )
+    print(f"\n=== OPTIMAL ({objective}) ===")
     print(f"weights: {best_cfg.weights.model_dump_json()}")
     print(
         f"sizing:  max_breath_risk_pct={best_cfg.max_breath_risk_pct:.4f} "
         f"min_confidence={best_cfg.min_confidence:.4f} "
-        f"min_bet_size_usd={best_cfg.min_bet_size_usd:.4f}"
+        f"min_bet_size_usd={best_cfg.min_bet_size_usd:.4f} "
+        f"min_edge={best_cfg.min_edge:.4f} kappa={best_cfg.kappa:.4f}"
     )
     print(
-        f"sharpe={best_m.sharpe:.3f} net_pnl=${best_m.net_pnl:.2f} "
+        f"sharpe={best_m.sharpe:.3f} t_stat={best_m.t_stat:.1f} "
+        f"net_pnl=${best_m.net_pnl:.2f} "
         f"win_rate={best_m.win_rate * 100.0:.1f}% bets={best_m.bets} "
         f"avg_size=${best_m.avg_size:.2f}"
     )
@@ -547,6 +674,26 @@ def main(argv: list[str] | None = None) -> int:
         default=0,
         help="Exclude configs with fewer than this many bets before ranking "
         "(per-bet Sharpe is noise on a tiny sample). 0 = no gate.",
+    )
+    p_sweep.add_argument(
+        "--realism",
+        action="store_true",
+        help="Apply the journey physics: entry floors 0.05 (row + effective "
+        "side), $100 profit cap, side-correct payouts. Default OFF = the "
+        "pre-v3 sweep, byte-unchanged.",
+    )
+    p_sweep.add_argument(
+        "--value",
+        action="store_true",
+        help="Value-betting decisions: decide() sees the market price "
+        "(p_model = price + kappa*fused, min_edge gate, odds-aware Kelly).",
+    )
+    p_sweep.add_argument(
+        "--rank",
+        choices=("sharpe", "pnl"),
+        default="sharpe",
+        help="Ranking objective: 'sharpe' (legacy) or 'pnl' (total net PnL "
+        "gated on bets>=min-bets AND t_stat>=2).",
     )
     p_sweep.set_defaults(func=_cmd_sweep)
 

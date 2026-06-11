@@ -73,15 +73,21 @@ def _scale(unit: float, bounds: tuple[float, float]) -> float:
 def generate_lhs_strategy_configs(n: int, *, seed: int) -> list[StrategyConfig]:
     """``n`` Latin-hypercube :class:`StrategyConfig`, deterministic in ``seed``.
 
-    8 free dims: ``w_r`` (0); the ``alpha`` 2-simplex as two sorted breakpoints
-    (1-2); the ``beta`` split (3); ``rho`` on [0,1] (4); and the three family-②
-    knobs scaled to their bounds (5-7). Each column is an independent seeded
+    10 free dims: ``w_r`` (0); the ``alpha`` 2-simplex as two sorted breakpoints
+    (1-2); the ``beta`` split (3); ``rho`` on [0,1] (4); the three family-②
+    knobs scaled to their bounds (5-7); and the two family-③ value-mode knobs
+    ``min_edge`` (8) + ``kappa`` (9). Each column is an independent seeded
     permutation of the stratum centres ``(i+0.5)/n`` — the Latin-hypercube
     property — so every 1-D projection is evenly covered.
+
+    NOTE (determinism): dims went 8 → 10 for realism v3. The per-column
+    permutations consume the RNG stream in column order, so columns 0-7
+    reproduce the ORIGINAL 8-dim sample for the same ``seed`` — pre-v3
+    configs are the same points with ``min_edge``/``kappa`` appended.
     """
     if n <= 0:
         raise ValueError(f"n must be > 0 (got {n})")
-    dims = 8
+    dims = 10
     rng = np.random.default_rng(seed)
     centres = (np.arange(n, dtype=np.float64) + 0.5) / n
     cube = np.empty((n, dims), dtype=np.float64)
@@ -103,6 +109,8 @@ def generate_lhs_strategy_configs(n: int, *, seed: int) -> list[StrategyConfig]:
                 max_breath_risk_pct=_scale(float(row[5]), MAX_BREATH_RISK_BOUNDS),
                 min_confidence=_scale(float(row[6]), MIN_CONFIDENCE_BOUNDS),
                 min_bet_size_usd=_scale(float(row[7]), MIN_BET_SIZE_BOUNDS),
+                min_edge=_scale(float(row[8]), MIN_EDGE_BOUNDS),
+                kappa=_scale(float(row[9]), KAPPA_BOUNDS),
             )
         )
     return configs

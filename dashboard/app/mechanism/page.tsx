@@ -211,25 +211,25 @@ const ENGINES: readonly {
   },
   {
     n: "2",
-    name: "Tennis Technical",
-    payload: "elo",
+    name: "ELO / Ranking",
+    payload: "elo / ranking gap",
     body: "Pre-match favorite strength from elo ratings — who the numbers say should win before a ball is struck.",
   },
   {
     n: "3",
-    name: "Smart Money",
-    payload: "surface",
+    name: "Surface Form",
+    payload: "surface win-rate",
     body: "Surface-specific form — clay, grass, hard. A player's win-rate is not one number; it is one per court.",
   },
   {
     n: "4",
-    name: "Sentiment",
-    payload: "head-to-head",
+    name: "Head-to-Head",
+    payload: "h2h record",
     body: "Head-to-head history — some matchups defy the ratings because one player simply owns the other.",
   },
   {
     n: "5",
-    name: "Crowd Volume",
+    name: "Rest & Recency",
     payload: "rest / recency",
     body: "Rest and recency — a fresh player against one three sets deep into a long week is a different bet.",
   },
@@ -423,10 +423,14 @@ export default function MechanismPage(): JSX.Element {
                 ))}
               </ol>
               <Caveat>
-                The engine slot <Hi>keys</Hi> carry repurposed payloads — the
-                display labels above are cosmetic. The machinery reads the
-                tennis signals; the names are inherited from an earlier markets
-                domain.
+                Under the hood the DecisionEngine still keys three of these
+                slots by names from an earlier prediction-markets prototype —{" "}
+                <Hi>smart_money</Hi>, <Hi>sentiment_llm</Hi>,{" "}
+                <Hi>crowd_volume</Hi> — but there is{" "}
+                <Hi>no order-flow, social-sentiment, or betting-volume data</Hi>{" "}
+                behind them. Each one computes a real tennis feature instead:
+                surface win-rate, head-to-head record, and rest. The labels
+                above are what actually runs.
               </Caveat>
             </SpineSection>
 
@@ -441,7 +445,7 @@ export default function MechanismPage(): JSX.Element {
               <Panel>
                 <Prose>
                   A <Hi>2-layer decision engine</Hi> fuses the five signals via
-                  tunable weights — a reason/sentiment split (
+                  tunable weights — two head weights (
                   <Hi>w_r / w_s</Hi>), three <Hi>alpha</Hi> weights, two{" "}
                   <Hi>beta</Hi> weights, and a <Hi>rho</Hi> mixing parameter —
                   then sizes the bet under four constraints:{" "}

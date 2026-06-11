@@ -224,6 +224,16 @@ export default function RoadmapPage(): JSX.Element {
           >
             how it works <span aria-hidden>▸</span> /mechanism
           </Link>
+
+          {/* Paper-trail cross-link — contracts, runs, provenance. */}
+          <Link
+            href="/docs"
+            data-testid="roadmap-docs-link"
+            className="ab-hero-in mt-2 inline-flex w-fit items-center gap-2 rounded-sm font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--ab-dim)] transition-colors hover:text-[var(--ab-glow)] focus:outline-none focus-visible:text-[var(--ab-glow)] focus-visible:ring-2 focus-visible:ring-[var(--ab-glow)]/70"
+            style={{ animationDelay: "680ms" }}
+          >
+            verify everything <span aria-hidden>▸</span> /docs
+          </Link>
         </header>
 
         {/* ---- LIFELINE -------------------------------------------- */}

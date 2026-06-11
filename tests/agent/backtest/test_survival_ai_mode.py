@@ -1104,3 +1104,150 @@ def test_realism_invariant_blocks_violating_artifact(
         )
     assert "realism invariant violated" in str(ei.value)
     assert not out_path.exists(), "no violating artifact may be written"
+
+
+# =========================================================================== #
+# Realism v3 (value physics) — export defaults, sentinel, physics invariant.
+# =========================================================================== #
+
+
+def test_export_v3_defaults_disclose_and_mirror_sentinel(tmp_path: Path) -> None:
+    """run_survival_export DEFAULTS flip v3 ON: side-correct + value mode, and
+    the MIRROR_ROW_FLOOR sentinel resolves the bet-level floor to the row
+    floor's value (r5 M-1). The summary carries all six typed keys."""
+    rows_path, cache_dir = _tiny_universe(tmp_path)
+    out_path = tmp_path / "v3.json"
+
+    journey = run_survival_export(
+        rows_path=rows_path,
+        cache_dir=cache_dir,
+        out_path=out_path,
+        base_seed=_fragile_seed(),
+        initial_breath=3.0,
+        max_lives=5,
+        resolver=_empty_resolver(),
+    )
+    s = journey["summary"]
+    assert s["side_correct_pricing"] is True
+    assert s["value_betting"] is True
+    assert s["effective_entry_price_floor"] == s["entry_price_floor"] == 0.05
+    assert isinstance(s["min_edge"], float)
+    assert isinstance(s["kappa"], float)
+    assert "min_effective_entry_price" in s
+    assert out_path.exists()
+
+
+def test_export_v3_explicit_none_disables_effective_floor(tmp_path: Path) -> None:
+    """Explicit ``effective_entry_price_floor=None`` disables the bet-level
+    floor (the sentinel's other meaning, r5 M-1)."""
+    rows_path, cache_dir = _tiny_universe(tmp_path)
+    out_path = tmp_path / "v3_nofloor.json"
+
+    journey = run_survival_export(
+        rows_path=rows_path,
+        cache_dir=cache_dir,
+        out_path=out_path,
+        base_seed=_fragile_seed(),
+        initial_breath=3.0,
+        max_lives=5,
+        resolver=_empty_resolver(),
+        effective_entry_price_floor=None,
+    )
+    assert journey["summary"]["effective_entry_price_floor"] is None
+
+
+def test_journey_v3_physics_invariant_rejects_tampered_step(tmp_path: Path) -> None:
+    """r1 H-1: a learner step whose pnl does not match the side-correct
+    recompute aborts the journey build (no artifact can carry it)."""
+    rows, snaps = _dying_fixture()
+    seed = _fragile_seed()
+    recorder = SurvivalRecorder(rows=rows)
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=seed,
+        state_root=tmp_path / "season",
+        initial_breath=3.0,
+        max_lives=2,
+        recorder=recorder,
+        side_correct_pricing=True,
+        value_betting=False,
+    )
+    assert recorder.steps, "fixture must settle at least one bet"
+    import dataclasses as _dc
+
+    recorder.steps[0] = _dc.replace(
+        recorder.steps[0], pnl_usd=recorder.steps[0].pnl_usd + 1.0
+    )  # tamper (SurvivalStep is frozen)
+    with pytest.raises(RuntimeError, match="physics invariant violated"):
+        build_survival_journey(
+            result=result,
+            recorder=recorder,
+            rows=rows,
+            seed=seed,
+            side_correct_pricing=True,
+        )
+
+
+def test_journey_v3_physics_invariant_rejects_tampered_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """r1 H-1: a baseline point violating the physics also aborts the build —
+    the invariant covers ALL THREE curves, not just the learner."""
+    rows, snaps = _dying_fixture()
+    seed = _fragile_seed()
+    recorder = SurvivalRecorder(rows=rows)
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=seed,
+        state_root=tmp_path / "season",
+        initial_breath=3.0,
+        max_lives=2,
+        recorder=recorder,
+        side_correct_pricing=True,
+    )
+
+    import agent.backtest.survival_season as ss
+
+    real_builder = ss.build_archetype_curve
+
+    def _tampered(*args: Any, **kwargs: Any) -> Any:
+        curve = real_builder(*args, **kwargs)
+        import dataclasses as _dc
+
+        bets = [i for i, p in enumerate(curve) if p.is_bet]
+        if bets:
+            i = bets[0]
+            curve[i] = _dc.replace(curve[i], pnl_usd=curve[i].pnl_usd + 7.0)
+        return curve
+
+    monkeypatch.setattr(ss, "build_archetype_curve", _tampered)
+    with pytest.raises(RuntimeError, match="physics invariant violated"):
+        build_survival_journey(
+            result=result,
+            recorder=recorder,
+            rows=rows,
+            seed=seed,
+            side_correct_pricing=True,
+        )
+
+
+def test_fragile_seed_preserves_value_knobs() -> None:
+    """r7: the fragile derivation preserves min_edge/kappa exactly like the
+    fusion weights (they are part of the strategy identity)."""
+    base = _fragile_seed()
+    custom = StrategyConfig(
+        weights=base.weights,
+        max_breath_risk_pct=0.2,
+        min_confidence=0.05,
+        min_bet_size_usd=3.0,
+        min_edge=0.07,
+        kappa=0.40,
+    )
+    import agent.backtest.survival_season as ss
+
+    fragile = ss.fragile_seed_from_config(custom, max_breath_risk_pct=0.95)
+    assert fragile.min_edge == 0.07
+    assert fragile.kappa == 0.40
+    assert fragile.weights == custom.weights

@@ -176,6 +176,15 @@ DEFAULT_ENTRY_PRICE_FLOOR: Final[float] = 0.05
 # single fluke can ever dominate a season again. Losses are never clamped.
 DEFAULT_MAX_BET_PNL_USD: Final[float] = 100.0
 
+# Realism v3 (r5 M-1): typed sentinel for ``run_survival_export``'s
+# ``effective_entry_price_floor`` default. ``None`` cannot carry both meanings
+# ("omitted ⇒ mirror the row floor" AND "explicitly disabled"), so the export
+# defaults to THIS impossible price: omitted ⇒ resolve to ``entry_price_floor``'s
+# value; explicit ``None`` ⇒ the bet-level floor is disabled; any other float ⇒
+# that value. The RESOLVED value is what threads downstream + lands in the
+# summary key.
+MIRROR_ROW_FLOOR: Final[float] = -1.0
+
 # Float tolerance for the entry_price consistency check. Both the cached
 # ``SignalRow.entry_price`` and the recomputed mid come from the SAME
 # ``PricePoint.mid_price`` value (one round-tripped through JSON), so they are
@@ -2090,6 +2099,10 @@ def fragile_seed_from_config(
         max_breath_risk_pct=max_breath_risk_pct,
         min_confidence=mc,
         min_bet_size_usd=mb,
+        # Realism v3: the value-mode knobs are part of the strategy identity —
+        # the fragile derivation preserves them exactly like the weights.
+        min_edge=base.min_edge,
+        kappa=base.kappa,
     )
 
 
@@ -2288,12 +2301,105 @@ def build_survival_journey(
     max_baseline_pnl = max(all_baseline_pnls, default=None)
     min_entry_price = min((r.entry_price for r in rows), default=None)
 
+    # Realism v3 physics invariant (r1 H-1 + r4 M-1 + r5 M-2 + r8 H-1):
+    # recompute EVERY settled learner step and EVERY baseline bet from first
+    # principles, so a journey violating its own physics can never be built
+    # (the export writes only what this returns). Gated on
+    # ``side_correct_pricing`` so legacy (v1/v2) journeys stay byte-unchanged.
+    rows_by_id = {r.market_id: r for r in rows}
+    if side_correct_pricing:
+        for s in recorder.steps:
+            expected = compute_bet_pnl(
+                side=s.side,
+                entry_price=s.entry_price,
+                size_usd=s.size_usd,
+                outcome=s.outcome,
+                winning_price=s.winning_price,
+                max_pnl_usd=max_bet_pnl_usd,
+                side_correct_pricing=True,
+            )
+            if abs(expected - s.pnl_usd) > 1e-6:
+                raise RuntimeError(
+                    f"physics invariant violated: learner step pnl "
+                    f"{s.pnl_usd!r} != recomputed {expected!r} for "
+                    f"{s.market_id}; journey NOT built"
+                )
+        for curve_name, curve in (
+            ("static", static_curve),
+            ("random", random_curve),
+            ("always_favorite", favorite_curve),
+        ):
+            for p in curve:
+                if not p.is_bet:
+                    if p.size_usd != 0.0 or p.pnl_usd != 0.0:
+                        raise RuntimeError(
+                            f"physics invariant violated: skipped "
+                            f"{curve_name} point {p.market_id} carries "
+                            f"size={p.size_usd!r}/pnl={p.pnl_usd!r}; "
+                            "journey NOT built"
+                        )
+                    continue
+                assert p.side is not None
+                row = rows_by_id[p.market_id]
+                expected = compute_bet_pnl(
+                    side=p.side,
+                    entry_price=row.entry_price,
+                    size_usd=p.size_usd,
+                    outcome=row.outcome,
+                    winning_price=row.winning_price,
+                    max_pnl_usd=max_bet_pnl_usd,
+                    side_correct_pricing=True,
+                )
+                if abs(expected - p.pnl_usd) > 1e-6:
+                    raise RuntimeError(
+                        f"physics invariant violated: {curve_name} point pnl "
+                        f"{p.pnl_usd!r} != recomputed {expected!r} for "
+                        f"{p.market_id}; journey NOT built"
+                    )
+
+    # Effective-price evidence (r5 M-2 + r8 H-1): the minimum EFFECTIVE side
+    # price across ALL PLACED learner bets (settled or not — the recorder's
+    # placed_bets ledger, harvested from each life's open_bets.jsonl) and all
+    # baseline bets. The floor backstop scans THIS — settled steps alone would
+    # let a sub-floor placed-never-settled order evade it.
+    eff_prices: list[float] = []
+    for b in recorder.placed_bets:
+        side_v = b.get("side")
+        price_v = b.get("price")
+        if isinstance(side_v, str) and isinstance(price_v, (int, float)):
+            eff_prices.append(
+                effective_entry_price(side=side_v, yes_price=float(price_v))
+            )
+    for curve in (static_curve, random_curve, favorite_curve):
+        for p in curve:
+            if p.is_bet and p.side is not None:
+                eff_prices.append(
+                    effective_entry_price(
+                        side=p.side,
+                        yes_price=rows_by_id[p.market_id].entry_price,
+                    )
+                )
+    min_effective_entry_price = min(eff_prices, default=None)
+    if (
+        effective_entry_price_floor is not None
+        and min_effective_entry_price is not None
+        and min_effective_entry_price < effective_entry_price_floor
+    ):
+        raise RuntimeError(
+            f"physics invariant violated: a placed bet's effective entry "
+            f"price {min_effective_entry_price!r} is below "
+            f"effective_entry_price_floor {effective_entry_price_floor!r}; "
+            "journey NOT built"
+        )
+
     return {
         "seed": {
             "weights": _weights_to_dict(seed.weights),
             "max_breath_risk_pct": seed.max_breath_risk_pct,
             "min_confidence": seed.min_confidence,
             "min_bet_size_usd": seed.min_bet_size_usd,
+            "min_edge": seed.min_edge,
+            "kappa": seed.kappa,
         },
         "lives": lives_payload,
         "steps": [_step_to_dict(s) for s in sampled],
@@ -2323,6 +2429,16 @@ def build_survival_journey(
             "min_entry_price": min_entry_price,
             "max_step_pnl": max_step_pnl,
             "max_baseline_pnl": max_baseline_pnl,
+            # Realism v3 DISCLOSURE + EVIDENCE (6 keys, typed: two booleans,
+            # four numeric-or-null) — side-correct payouts, value-mode
+            # decisions, the seed's value knobs, the bet-level effective
+            # floor, and the full-ledger effective-price minimum.
+            "side_correct_pricing": side_correct_pricing,
+            "value_betting": value_betting,
+            "min_edge": seed.min_edge,
+            "kappa": seed.kappa,
+            "effective_entry_price_floor": effective_entry_price_floor,
+            "min_effective_entry_price": min_effective_entry_price,
         },
     }
 
@@ -2409,6 +2525,9 @@ def run_survival_export(
     require_applied_deltas: bool = False,
     entry_price_floor: float | None = DEFAULT_ENTRY_PRICE_FLOOR,
     max_bet_pnl_usd: float | None = DEFAULT_MAX_BET_PNL_USD,
+    side_correct_pricing: bool = True,
+    value_betting: bool = True,
+    effective_entry_price_floor: float | None = MIRROR_ROW_FLOOR,
 ) -> dict[str, Any]:
     """Load → run the survival season → build + write the Page-2 journey (A4).
 
@@ -2499,6 +2618,18 @@ def run_survival_export(
         the artifact is written (review r1 M-1) and the summary discloses the
         knobs + full-data evidence. ``None`` disables (legacy physics).
     """
+    # Realism v3 (r5 M-1): resolve the MIRROR_ROW_FLOOR sentinel — omitted ⇒
+    # the bet-level floor mirrors the row floor's value; explicit None ⇒
+    # disabled; any other float ⇒ that value.
+    eff_floor: float | None
+    if (
+        effective_entry_price_floor is not None
+        and effective_entry_price_floor == MIRROR_ROW_FLOOR
+    ):
+        eff_floor = entry_price_floor
+    else:
+        eff_floor = effective_entry_price_floor
+
     rows_raw = load_rows(rows_path)
     snapshots = load_all_cached_markets(cache_dir=cache_dir)
     if resolver is None:
@@ -2564,6 +2695,9 @@ def run_survival_export(
             max_bet_pnl_usd=max_bet_pnl_usd,
             recorder=recorder,
             ai=season_ai,
+            side_correct_pricing=side_correct_pricing,
+            value_betting=value_betting,
+            effective_entry_price_floor=eff_floor,
         )
 
     if state_root is not None:
@@ -2604,6 +2738,9 @@ def run_survival_export(
         random_seed=random_seed,
         entry_price_floor=entry_price_floor,
         max_bet_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
+        value_betting=value_betting,
+        effective_entry_price_floor=eff_floor,
     )
     # Universe-drop evidence (computed here — only this scope knows the
     # pre-floor row count; ``build_survival_journey`` only ever sees the

@@ -507,12 +507,43 @@ export default function DocsPage(): JSX.Element {
               </Panel>
             </SpineSection>
 
-            {/* §6 · REPO & STACK ------------------------------------ */}
+            {/* §6 · BUILDATHON TIMELINE ----------------------------- */}
             <SpineSection
               index="06"
+              kicker="the timeline"
+              title="Built inside the Buildathon"
+              delayMs={500}
+              testId="docs-timeline"
+            >
+              <Panel>
+                <Prose>
+                  The project began <Hi>May 15, 2026</Hi> — inside the
+                  Buildathon window — and shipped over{" "}
+                  <Glow>480 commits across 22 active days</Glow>. This repo
+                  was re-initialized on Jun 11 to scrub dev-session logs that
+                  had leaked an API key (revoked; a gitleaks pre-commit hook
+                  now guards every commit), which erased the public commit
+                  history. The full sanitized log is republished in{" "}
+                  <Ext href="https://github.com/balflee/autopoiesis/blob/main/PROVENANCE.md">
+                    PROVENANCE.md ↗
+                  </Ext>{" "}
+                  — and the on-chain anchor no one can edit: all five
+                  contracts deployed{" "}
+                  <Hi>May 25, 2026 02:19 UTC</Hi> (
+                  <Ext href="https://explorer.testnet.chain.robinhood.com/block/60897767">
+                    block 60897767 ↗
+                  </Ext>
+                  ).
+                </Prose>
+              </Panel>
+            </SpineSection>
+
+            {/* §7 · REPO & STACK ------------------------------------ */}
+            <SpineSection
+              index="07"
               kicker="the source"
               title="Repo & stack"
-              delayMs={520}
+              delayMs={560}
               testId="docs-stack"
             >
               <Panel>

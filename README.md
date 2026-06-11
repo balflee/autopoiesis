@@ -62,6 +62,13 @@ Full manifest with ABI hashes: [`submission/SUBMISSION.md`](submission/SUBMISSIO
 
 **backtest → survival → mock-bet → live.** Born from the best backtested seed (0.649 per-bet Sharpe, 81.5% win rate over 65 selective bets), hardened in the survival sandbox (current phase), paper-trading live odds next, real on-chain capital last.
 
+## Provenance — built entirely inside the Buildathon
+
+The project began **May 15, 2026**, inside the Arbitrum Open House London window. This repo was **re-initialized on Jun 11** to scrub dev-session logs that had leaked an API key (revoked; a gitleaks pre-commit hook now guards every commit), which erased the public commit history. The full development record survives:
+
+- **[`PROVENANCE.md`](PROVENANCE.md)** — the sanitized log of all **480 commits across 22 active days** (May 15 – Jun 11), with daily activity counts and milestones.
+- **On-chain anchors** — all 5 contracts deployed **May 25, 2026 02:19 UTC** ([Robinhood Chain block 60897767](https://explorer.testnet.chain.robinhood.com/block/60897767)); timestamps no one can edit.
+
 ## Repo layout
 
 ```

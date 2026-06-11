@@ -91,7 +91,21 @@ describe("DocsPage — paper-trail smoke", () => {
     expect(within(runs).getByText("$1,668")).toBeInTheDocument(); // v2 numerical
   });
 
-  it("renders all six threaded sections and a ◂ lifeline back-link", () => {
+  it("documents the buildathon timeline with the provenance log link", () => {
+    render(<DocsPage />);
+    const timeline = screen.getByTestId("docs-timeline");
+    expect(
+      within(timeline).getByText(/480 commits across 22 active days/i),
+    ).toBeInTheDocument();
+    const prov = within(timeline).getByRole("link", {
+      name: /provenance\.md/i,
+    });
+    expect(prov.getAttribute("href")).toBe(
+      "https://github.com/balflee/autopoiesis/blob/main/PROVENANCE.md",
+    );
+  });
+
+  it("renders all seven threaded sections and a ◂ lifeline back-link", () => {
     render(<DocsPage />);
     for (const id of [
       "docs-contracts",
@@ -99,6 +113,7 @@ describe("DocsPage — paper-trail smoke", () => {
       "docs-realism",
       "docs-runs",
       "docs-data",
+      "docs-timeline",
       "docs-stack",
     ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();

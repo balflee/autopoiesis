@@ -44,6 +44,7 @@ from agent.backtest.cached_sweep import (
     SignalRow,
     _entry_asof,
     compute_bet_pnl,
+    effective_entry_price,
     load_rows,
     row_to_signals,
 )
@@ -66,7 +67,7 @@ from agent.backtest.replay_runner import (
 from agent.backtest.settlement_learner import _SettlementLearningWeightUpdater
 from agent.backtest.tennis_match_resolver import TennisMatchResolver, parse_slug
 from agent.core.memory_bank import MemoryBank
-from agent.core.state import ActionKind, Phase, Weights
+from agent.core.state import Action, ActionKind, Phase, Weights
 from agent.data.polymarket_sandbox_executor import (
     SandboxExecutor,
     _derive_expected_settle_ts,
@@ -1840,6 +1841,9 @@ async def _static_baseline_curve_async(
     bankroll: float,
     breath: float,
     max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
+    effective_entry_price_floor: float | None = None,
 ) -> list[BaselinePoint]:
     """The FROZEN static baseline curve — seed weights, NO learning (codex R3).
 
@@ -1849,8 +1853,16 @@ async def _static_baseline_curve_async(
     aggregate metrics — the master plan needs a curve comparable to the learning
     run, NOT a ``SweepMetrics``). NO ``WeightUpdater`` is constructed: the weights
     are byte-frozen at the seed on every point.
+
+    Realism v3: ``value_betting`` passes ``price=row.entry_price`` into
+    decide() (the frozen twin must run the SAME decision policy as the
+    learner — engine ctor params alone are a silent no-op, r2 H-1);
+    ``effective_entry_price_floor`` applies the same post-decision gate as
+    the loop (r4 M-1), and ``side_correct_pricing`` prices the taken leg.
     """
-    engine = _decision_engine_from_seed(seed)
+    engine = _decision_engine_from_seed(
+        seed, effective_entry_price_floor=effective_entry_price_floor
+    )
     w = seed.weights
     alpha = (w.alpha[0], w.alpha[1], w.alpha[2])
     beta = (w.beta[0], w.beta[1])
@@ -1869,7 +1881,25 @@ async def _static_baseline_curve_async(
             breath=breath,
             liquidity_cap_usd=row.liquidity_cap,
             market_id=row.market_id,
+            desperate=False,
+            **({"price": row.entry_price} if value_betting else {}),
         )
+        # Post-decision effective-floor gate (r4 M-1): identical to the
+        # loop's pre-place_order gate, so a legacy-mode static baseline can
+        # never bet a sub-floor effective side.
+        if (
+            action.kind is ActionKind.BET
+            and effective_entry_price_floor is not None
+            and action.side is not None
+        ):
+            eff = effective_entry_price(
+                side=action.side.value, yes_price=row.entry_price
+            )
+            if eff < effective_entry_price_floor:
+                action = Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=f"effective_price_below_floor:{eff:.4f}",
+                )
         if action.kind is ActionKind.BET:
             assert action.side is not None and action.size_usd is not None
             pnl = compute_bet_pnl(
@@ -1879,6 +1909,7 @@ async def _static_baseline_curve_async(
                 outcome=row.outcome,
                 winning_price=row.winning_price,
                 max_pnl_usd=max_pnl_usd,
+                side_correct_pricing=side_correct_pricing,
             )
             cum += pnl
             out.append(
@@ -1916,11 +1947,21 @@ def build_static_baseline_curve(
     bankroll: float = DEFAULT_PHASE2_BANKROLL_USD,
     breath: float = 100.0,
     max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
+    effective_entry_price_floor: float | None = None,
 ) -> list[BaselinePoint]:
     """Synchronous wrapper around :func:`_static_baseline_curve_async`."""
     return asyncio.run(
         _static_baseline_curve_async(
-            rows, seed, bankroll=bankroll, breath=breath, max_pnl_usd=max_pnl_usd
+            rows,
+            seed,
+            bankroll=bankroll,
+            breath=breath,
+            max_pnl_usd=max_pnl_usd,
+            side_correct_pricing=side_correct_pricing,
+            value_betting=value_betting,
+            effective_entry_price_floor=effective_entry_price_floor,
         )
     )
 
@@ -1946,6 +1987,8 @@ def build_archetype_curve(
     seed: int = 0,
     stake_usd: float = _ARCHETYPE_STAKE_USD,
     max_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    effective_entry_price_floor: float | None = None,
 ) -> list[BaselinePoint]:
     """A naive-archetype cumulative-PnL curve over the SAME entry order (context).
 
@@ -1965,10 +2008,32 @@ def build_archetype_curve(
     out: list[BaselinePoint] = []
     cum = 0.0
     for i, row in enumerate(rows):
+        # The RNG draw happens BEFORE the floor check so random's draw
+        # sequence stays row-aligned whether or not the floor skips the bet.
         if archetype == "always_favorite":
             side = "YES" if row.entry_price >= 0.5 else "NO"
         else:  # random
             side = "YES" if rng.random() < 0.5 else "NO"
+        # Bet-level effective floor (realism v3): a skipped bet contributes
+        # pnl 0 / is_bet=False — curve length stays len(rows) so the x-axis
+        # stays aligned with the universe. always_favorite never trips it
+        # (its effective price is >= 0.5 by construction); random can.
+        if effective_entry_price_floor is not None:
+            eff = effective_entry_price(side=side, yes_price=row.entry_price)
+            if eff < effective_entry_price_floor:
+                out.append(
+                    BaselinePoint(
+                        idx=i,
+                        market_id=row.market_id,
+                        is_bet=False,
+                        side=side,
+                        size_usd=0.0,
+                        pnl_usd=0.0,
+                        cum_pnl=cum,
+                        weights=_ARCHETYPE_PLACEHOLDER_WEIGHTS,
+                    )
+                )
+                continue
         pnl = compute_bet_pnl(
             side=side,
             entry_price=row.entry_price,
@@ -1976,6 +2041,7 @@ def build_archetype_curve(
             outcome=row.outcome,
             winning_price=row.winning_price,
             max_pnl_usd=max_pnl_usd,
+            side_correct_pricing=side_correct_pricing,
         )
         cum += pnl
         out.append(
@@ -2121,6 +2187,9 @@ def build_survival_journey(
     random_seed: int = 0,
     entry_price_floor: float | None = None,
     max_bet_pnl_usd: float | None = None,
+    side_correct_pricing: bool = False,
+    value_betting: bool = False,
+    effective_entry_price_floor: float | None = None,
 ) -> dict[str, Any]:
     """Build the Page-2 ``survival_journey`` dict (down-sampled + baselines).
 
@@ -2142,13 +2211,29 @@ def build_survival_journey(
     same (already-floored) list the season consumed — membership-by-construction.
     """
     static_curve = build_static_baseline_curve(
-        rows, seed, bankroll=bankroll, breath=breath, max_pnl_usd=max_bet_pnl_usd
+        rows,
+        seed,
+        bankroll=bankroll,
+        breath=breath,
+        max_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
+        value_betting=value_betting,
+        effective_entry_price_floor=effective_entry_price_floor,
     )
     random_curve = build_archetype_curve(
-        rows, archetype="random", seed=random_seed, max_pnl_usd=max_bet_pnl_usd
+        rows,
+        archetype="random",
+        seed=random_seed,
+        max_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
+        effective_entry_price_floor=effective_entry_price_floor,
     )
     favorite_curve = build_archetype_curve(
-        rows, archetype="always_favorite", max_pnl_usd=max_bet_pnl_usd
+        rows,
+        archetype="always_favorite",
+        max_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
+        effective_entry_price_floor=effective_entry_price_floor,
     )
 
     learner_final = recorder.steps[-1].cum_pnl if recorder.steps else 0.0

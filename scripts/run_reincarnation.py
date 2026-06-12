@@ -76,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--passes", type=int, default=3)
     parser.add_argument("--max-incarnations", type=int, default=120)
     parser.add_argument("--train-fraction", type=float, default=0.7)
+    # A7: the CLI is the tribute opt-in choke point (library default OFF).
+    parser.add_argument("--no-tribute", action="store_true")
     args = parser.parse_args(argv)
 
     out = args.out or _OUT[args.design][args.provider]
@@ -116,9 +118,16 @@ def main(argv: list[str] | None = None) -> int:
             rebirth_llm=rebirth_llm,  # type: ignore[arg-type]
             rebirth_guard=rebirth_guard,
             rebirth_model="",  # each client self-resolves its OWN default
+            tribute=not args.no_tribute,
         )
         for inc in artifact["incarnations"]:
             note = " note=yes" if inc["rebirth_note"] else ""
+            paid = inc.get("tributes_paid", 0.0)
+            trib = (
+                f" tributes=${paid:.0f}({len(inc['tributes'])})"
+                if paid
+                else ""
+            )
             fate = (
                 "SURVIVED"
                 if not inc["died"]
@@ -128,15 +137,16 @@ def main(argv: list[str] | None = None) -> int:
                 f"inc {inc['incarnation']}: {fate} "
                 f"progress={inc['progress_pct']:.1f}% "
                 f"pnl_at_death=${inc['pnl_at_death']:.2f} "
-                f"-> scored ${inc['scored_pnl']:.2f}{note}",
+                f"-> scored ${inc['scored_pnl']:.2f}{trib}{note}",
                 flush=True,
             )
         r = artifact["rebirth"]
         print(
             f"verdict: survived={artifact['survived']} "
             f"at_incarnation={artifact['surviving_incarnation']} "
-            f"headline=${artifact['headline_pnl']:.2f} | rebirth calls="
-            f"{r['calls']}/{r['expected']} productive={r['productive']} "
+            f"headline=${artifact['headline_pnl']:.2f} "
+            f"gods=${artifact.get('gods_revenue', 0.0):.0f} | rebirth "
+            f"calls={r['calls']}/{r['expected']} productive={r['productive']} "
             f"applied={r['applied']}",
             flush=True,
         )

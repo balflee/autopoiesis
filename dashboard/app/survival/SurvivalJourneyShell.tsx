@@ -165,9 +165,20 @@ export function SurvivalJourneyShell({
         data-testid="survival-mode-section"
         className="ab-reveal mb-10 flex flex-col gap-3"
       >
-        <h2 className="font-mono text-[10px] uppercase tracking-[0.32em] text-[var(--ab-dim)]">
-          learning mode
-        </h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="font-mono text-[10px] uppercase tracking-[0.32em] text-[var(--ab-dim)]">
+            learning mode
+          </h2>
+          {/* The agent is a living, still-training system — run 3 is the
+              CURRENT chapter, not the last one. */}
+          <span
+            data-testid="survival-still-learning"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ab-glow)]/50 px-2.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--ab-glow)]"
+          >
+            <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--ab-glow)]" />
+            still learning · run 3 is not the end
+          </span>
+        </div>
         <SurvivalModeToggle
           mode={mode}
           onChange={setMode}

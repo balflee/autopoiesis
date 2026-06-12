@@ -166,6 +166,18 @@ export function FinetuneLog({
           );
         })}
       </div>
+
+      {/* Open-ended coda — the log is a living document, not a closed book. */}
+      <p
+        data-testid="finetune-ongoing"
+        className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]"
+      >
+        <span className="text-[var(--ab-glow)]">This log is open-ended.</span>{" "}
+        Every audit so far made the numbers smaller and more honest — and the
+        agent is still learning: better-calibrated signals, smarter sizing,
+        and the live mock-bet season are next. Run 4 is a matter of{" "}
+        <span className="text-[var(--ab-text)]">when</span>, not if.
+      </p>
     </section>
   );
 }

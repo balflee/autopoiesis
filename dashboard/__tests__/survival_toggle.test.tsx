@@ -294,6 +294,13 @@ describe("Realism v3 — eight modes + typed summary keys + chapter 3", () => {
     const rules = within(log).getByTestId("finetune-rules-numerical");
     expect(rules.textContent).toContain("side-correct pricing");
     expect(rules.textContent).toContain("EV-gated");
+    // The living-system markers: still-learning chip + open-ended coda.
+    expect(screen.getByTestId("survival-still-learning").textContent).toContain(
+      "still learning",
+    );
+    expect(screen.getByTestId("finetune-ongoing").textContent).toContain(
+      "open-ended",
+    );
     // Chapter-3 narrative block is present.
     expect(screen.getByTestId("finetune-chapter-3").textContent).toContain(
       "EV-gated value betting",

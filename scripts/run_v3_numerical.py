@@ -20,9 +20,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent.backtest.find_optimal_config import StrategyConfig  # noqa: E402
-from agent.backtest.survival_season import run_survival_export  # noqa: E402
-from agent.core.state import Weights  # noqa: E402
+from agent.backtest.find_optimal_config import StrategyConfig
+from agent.backtest.survival_season import run_survival_export
+from agent.core.state import Weights
 
 SEED_PATH = Path("docs/backtest/value_seed_v3.json")
 

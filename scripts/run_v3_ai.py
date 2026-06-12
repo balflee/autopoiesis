@@ -54,6 +54,13 @@ def _provider_client(provider: str) -> object:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Keys live in ./.env (never committed); the repo's best-effort loader
+    # hydrates os.environ without overriding existing values. Values are
+    # never printed.
+    from agent.llm._smoke import _load_dotenv_if_present
+
+    _load_dotenv_if_present()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--provider", choices=("minimax", "gemini"), required=True)
     parser.add_argument("--out", type=Path, default=None)

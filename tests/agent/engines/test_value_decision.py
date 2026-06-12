@@ -16,7 +16,7 @@ Design (plan 2026-06-11-value-betting-physics):
 from __future__ import annotations
 
 import asyncio
-from typing import Mapping
+from collections.abc import Mapping
 
 import pytest
 

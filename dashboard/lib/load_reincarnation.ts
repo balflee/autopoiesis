@@ -36,6 +36,10 @@ export interface ReincarnationIncarnation {
   readonly start_weights: Readonly<Record<string, unknown>>;
   readonly terminal_weights: Readonly<Record<string, unknown>>;
   readonly rebirth_note: string | null;
+  /** A6: the dying wish — recorded for the gods, NEVER carried into the
+   * next life. Absent on artifacts generated before the prayer mechanism;
+   * null on the numerical leg (no language channel). */
+  readonly prayer?: string | null;
   readonly advisor: {
     readonly called: boolean;
     readonly proposals: number;
@@ -172,6 +176,13 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
     }
     if (inc.rebirth_note !== null && typeof inc.rebirth_note !== "string") {
       fail(`incarnations[${idx}].rebirth_note must be string|null`);
+    }
+    if (
+      inc.prayer !== undefined &&
+      inc.prayer !== null &&
+      typeof inc.prayer !== "string"
+    ) {
+      fail(`incarnations[${idx}].prayer must be string|null when present`);
     }
     if (!isRecord(inc.carry) || !Array.isArray(inc.carry.ema_keys)) {
       fail(`incarnations[${idx}].carry.ema_keys missing`);

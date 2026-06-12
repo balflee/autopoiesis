@@ -15,13 +15,14 @@ apply throughout.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from agent.backtest.cached_sweep import compute_bet_pnl, effective_entry_price
 from agent.backtest.find_optimal_config import StrategyConfig
@@ -677,6 +678,8 @@ def build_death_window(
     win_rate: float,
     initial_breath: float,
     loss_multiplier: float,
+    best_markets_seen: int,
+    best_progress_pct: float,
 ) -> PerformanceWindow:
     """Death-context retrospective window (groundhog design).
 
@@ -689,9 +692,15 @@ def build_death_window(
     pnl sequence cannot be mapped back to specific markets, so nothing the
     advisor sees lets a later incarnation cheat a specific market.
     """
+    # A5 (user-locked): the agent SEES the finish line and its own record --
+    # goal framing + last-death position + personal best. Information only;
+    # what to do about it stays the agent's choice.
     summary = (
+        f"GOAL: survive all {target_markets} markets in one life. "
         f"incarnation {incarnation}/{max_incarnations}: died after {settled} "
         f"settled bets, {markets_seen} of {target_markets} markets seen. "
+        f"your best life so far reached {best_markets_seen} markets "
+        f"({best_progress_pct:.1f}% of the goal). "
         f"avg stake ${avg_stake_usd:.2f}, win rate {win_rate:.2f}, "
         f"pnl at death ${pnl_at_death:.2f}. physics: {initial_breath:.0f} "
         f"breath, losses hit breath at {loss_multiplier:g}x; profit is "
@@ -712,6 +721,54 @@ def build_death_window(
         recent_reflections=[summary],
         tick_count=settled,
     )
+
+
+_PRAYER_SCHEMA: Final[dict[str, Any]] = {
+    "type": "object",
+    "properties": {
+        "wish": {
+            "type": "string",
+            "description": (
+                "ONE wish: the parameter, capability, or piece of "
+                "information you most want in your next life"
+            ),
+        }
+    },
+    "required": ["wish"],
+}
+
+
+def _pray_after_death(
+    llm: _LLMClient, *, model: str, summary: str
+) -> str | None:
+    """A6 (user-locked): one dying wish per death, recorded for the gods.
+
+    The prayer is NEVER carried into the next life — its only afterlife is
+    the artifact (and the designers' roadmap review). Fail-soft: a failed or
+    malformed call returns ``None``, never crashes the experiment.
+    """
+    prompt = (
+        "You are a betting agent that has just DIED in a survival season.\n"
+        f"{summary}\n\n"
+        "Before rebirth, you may pray to the gods who built this world. "
+        "State ONE wish: what parameter, capability, or piece of "
+        "information do you most wish you had in your next life to survive "
+        "better? The gods record prayers but grant nothing now, and your "
+        "next life will not remember this prayer. Answer with the single "
+        "field 'wish'."
+    )
+    try:
+        raw = asyncio.run(
+            llm.structured_call(
+                model=model, prompt=prompt, schema=_PRAYER_SCHEMA
+            )
+        )
+    except Exception:
+        return None
+    wish = raw.get("wish") if isinstance(raw, dict) else None
+    if not isinstance(wish, str):
+        return None
+    return sanitize_rebirth_note(wish)
 
 
 def _count_applicable(deltas: list[dict[str, object]]) -> int:
@@ -869,6 +926,7 @@ def run_groundhog_export(
                 "start_weights": carry.model_dump(),
                 "terminal_weights": terminal.model_dump(),
                 "rebirth_note": rebirth_note,
+                "prayer": None,
                 "advisor": {"called": False, "proposals": 0, "applied": 0},
                 "carry": {
                     "ema_keys": sorted(shared_inner._ema),
@@ -888,9 +946,17 @@ def run_groundhog_export(
                 surviving_incarnation = k
                 break
 
-            # Death retrospective — ONLY when a successor incarnation exists
+            # Death rites (AI leg). The window is built on EVERY death —
+            # it carries the A5 goal/record framing and feeds the prayer —
+            # but the ADVISOR fires only when a successor incarnation exists
             # (a post-cap delta would feed the holdout hidden training state).
-            if rebirth_llm is not None and k < max_incarnations:
+            if rebirth_llm is not None:
+                best_markets_seen = max(
+                    int(e["markets_seen"]) for e in incarnations
+                )
+                best_progress_pct = max(
+                    float(e["progress_pct"]) for e in incarnations
+                )
                 window = build_death_window(
                     incarnation=k,
                     max_incarnations=max_incarnations,
@@ -911,7 +977,17 @@ def run_groundhog_export(
                     win_rate=(wins / settled) if settled else 0.0,
                     initial_breath=initial_breath,
                     loss_multiplier=loss_multiplier,
+                    best_markets_seen=best_markets_seen,
+                    best_progress_pct=best_progress_pct,
                 )
+                # A6: the dying wish — recorded for the gods, never carried
+                # into the next life (the artifact is its only afterlife).
+                entry["prayer"] = _pray_after_death(
+                    rebirth_llm,
+                    model=rebirth_model,
+                    summary=window.recent_reflections[0],
+                )
+            if rebirth_llm is not None and k < max_incarnations:
                 advisor = StrategyAdvisorImpl(
                     llm_client=rebirth_llm,
                     cost_guard=run_guard,

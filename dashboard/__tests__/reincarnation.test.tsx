@@ -48,6 +48,7 @@ function inc(
     start_weights: weights,
     terminal_weights: weights,
     rebirth_note: opts.rebirth_note ?? null,
+    prayer: opts.prayer ?? null,
     advisor: opts.advisor ?? { called: false, proposals: 0, applied: 0 },
     carry: { ema_keys: ["rho_quality"], ema_size: 1 },
     ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
@@ -59,7 +60,10 @@ function buildFixture(
 ): ReincarnationFixture {
   const incarnations = (overrides.incarnations as unknown[]) ?? [
     inc(1, { curve: [{ i: 0, cum_pnl: 0 }, { i: 50, cum_pnl: 42 }] }),
-    inc(2, { rebirth_note: "trim alpha_2, breathe smaller" }),
+    inc(2, {
+      rebirth_note: "trim alpha_2, breathe smaller",
+      prayer: "let me see my own breath before I bet",
+    }),
     inc(3, { died: false, progress_pct: 100, pnl_at_death: 188 }),
   ];
   const survived = (overrides.survived as boolean | undefined) ?? true;
@@ -221,6 +225,9 @@ describe("ReincarnationShell — groundhog page body", () => {
     expect(within(dead).getByText("$0")).toBeInTheDocument();
     // The rebirth note surfaces.
     expect(screen.getByText(/trim alpha_2/)).toBeInTheDocument();
+    // The dying wish surfaces (A6) on its incarnation row.
+    const prayer = screen.getByTestId("reincarnation-prayer-2");
+    expect(prayer.textContent).toMatch(/see my own breath/);
   });
 
   it("renders the survived verdict with the headline pnl", () => {
@@ -244,6 +251,7 @@ describe("ReincarnationShell — groundhog page body", () => {
     expect(honest.textContent).toMatch(/memorization/i);
     expect(honest.textContent).toMatch(/cold-start/i);
     expect(honest.textContent).toMatch(/design history/i);
+    expect(honest.textContent).toMatch(/prayers are recorded, never granted/i);
     const links = screen
       .getAllByRole("link")
       .map((a) => a.getAttribute("href") ?? "");

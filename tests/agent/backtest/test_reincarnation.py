@@ -435,6 +435,8 @@ def test_build_death_window_carries_death_context_not_market_specifics() -> None
         win_rate=0.79,
         initial_breath=35.0,
         loss_multiplier=5.0,
+        best_markets_seen=480,
+        best_progress_pct=27.988,
     )
     assert window.trigger == "tick_interval"
     assert window.recent_pnl == [2.5, -8.0, -7.0]
@@ -443,7 +445,12 @@ def test_build_death_window_carries_death_context_not_market_specifics() -> None
     # renderer already shows it to the LLM; schema untouched.
     assert len(window.recent_reflections) == 1
     note = window.recent_reflections[0]
-    for token in ("died", "134", "420", "1715", "incarnation 5", "35", "5x"):
+    # Goal framing + personal record (A5): the agent sees the finish line,
+    # where it died this life, and its best life so far.
+    for token in (
+        "died", "134", "420", "1715", "incarnation 5", "35", "5x",
+        "GOAL", "480", "28.0",
+    ):
         assert token in note, token
     # Information hygiene: no market identities of any kind.
     for forbidden in ("market_id", "slug", "wta", "atp"):
@@ -495,3 +502,100 @@ def test_groundhog_ai_leg_applies_deltas_at_each_death(tmp_path) -> None:
     # The death summary reached the LLM prompt (any(): fake.calls[0] is the
     # PREFLIGHT probe prompt, not the death prompt).
     assert any("died" in c["prompt"] for c in fake.calls)
+
+
+# ========================================================================= #
+# A6 — the prayer mechanism: recorded for the gods, never carried forward.
+# ========================================================================= #
+
+
+def test_groundhog_ai_leg_records_prayers_but_never_carries_them(
+    tmp_path,
+) -> None:
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    from agent.backtest.reincarnation import run_groundhog_export
+    from agent.llm.cost_guard import L3CostGuard
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    MARKER = "XYZZY_BREATH_SIGHT"
+
+    @dataclass
+    class _PrayerfulFakeLLM:
+        """Serves BOTH schemas: advisor calls get a weight_delta proposal,
+        prayer calls (schema carries 'wish') get a marked dying wish."""
+
+        calls: list[dict[str, Any]] = field(default_factory=list)
+
+        async def structured_call(
+            self, *, model: str, prompt: str, schema: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.calls.append(
+                {"model": model, "prompt": prompt, "schema": schema}
+            )
+            props = schema.get("properties", {})
+            if "wish" in props:
+                return {
+                    "wish": (
+                        f"please {MARKER}: let me see my own breath "
+                        "before I bet"
+                    )
+                }
+            return {
+                "proposals": [
+                    {
+                        "kind": "weight_delta",
+                        "rationale": "trim alpha_2 after the loss streak",
+                        "proposed_change": {"key": "alpha_2", "delta": 0.04},
+                        "expected_impact": "reduce drawdown",
+                        "confidence_pct": 60,
+                    }
+                ]
+            }
+
+    rows, snaps = _clustered_dying_fixture()
+    fake = _PrayerfulFakeLLM()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_pray.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        rebirth_llm=fake,
+        rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
+    )
+    incs = artifact["incarnations"]
+    # EVERY death prays — including the final one (no successor needed; the
+    # prayer is for the gods' record, not for the next life).
+    assert all(isinstance(inc["prayer"], str) for inc in incs)
+    assert MARKER in incs[0]["prayer"]
+    # Information-flow contract: the prayer is NEVER carried forward — no
+    # later prompt (advisor window or next prayer) may contain it.
+    first_prayer_idx = next(
+        i for i, c in enumerate(fake.calls) if "wish" in c["schema"].get("properties", {})
+    )
+    for c in fake.calls[first_prayer_idx + 1 :]:
+        assert MARKER not in c["prompt"], "prayer leaked into a later prompt"
+    # The goal/record framing (A5) reached the death prompts.
+    death_prompts = [
+        c["prompt"]
+        for c in fake.calls
+        if "GOAL" in c["prompt"]
+    ]
+    assert death_prompts, "goal framing missing from death-context prompts"
+    # Numerical leg untouched: prayer key exists but is null.
+    art_num = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_num.json",
+        max_incarnations=1,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert all(inc["prayer"] is None for inc in art_num["incarnations"])

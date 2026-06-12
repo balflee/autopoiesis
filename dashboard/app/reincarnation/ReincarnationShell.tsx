@@ -112,6 +112,17 @@ function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element
           {inc.rebirth_note}
         </p>
       ) : null}
+      {inc.prayer ? (
+        <p
+          data-testid={`reincarnation-prayer-${inc.incarnation}`}
+          className="font-mono text-[10px] italic leading-relaxed text-[var(--ab-dim)]"
+        >
+          <span className="not-italic text-[var(--ab-text)]">
+            dying wish ▸{" "}
+          </span>
+          “{inc.prayer}”
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -400,6 +411,15 @@ export function ReincarnationShell({
               breath expectation ≈ −1.2 per settled bet. Surviving ~1,000 bets
               by luck alone is a ~0.2% lottery; that asymmetry is the point of
               handing the agent its death context.
+            </li>
+            <li>
+              <span className="text-[var(--ab-text)]">Prayers are recorded, never granted:</span>{" "}
+              after each death the agent may state one dying wish — what
+              parameter or information it wants in its next life. The wish is
+              NOT carried into the next incarnation (the experiment&apos;s
+              information flow stays clean); it is logged for the designers,
+              and the prayer log feeds the roadmap of what the agent gets
+              next.
             </li>
             <li>
               The <span className="text-[var(--ab-text)]">cold-start</span>{" "}

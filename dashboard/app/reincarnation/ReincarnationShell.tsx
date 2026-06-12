@@ -1,17 +1,15 @@
 "use client";
 
 /**
- * ReincarnationShell — the CLIENT body of /reincarnation (Phase 2).
+ * ReincarnationShell — the CLIENT body of /reincarnation (Phase 2,
+ * GROUNDHOG design v2).
  *
- * The thin async server page loads the two artifacts and hands them down; the
- * shell owns ALL markup + the numerical/AI toggle (repo convention: async
- * server pages are never rendered in vitest — the client body is the testable
- * surface). Abyss design system throughout.
- *
- * Story: the agent lives the SAME training season three times, carrying its
- * experience (weights + EMA aggregates + a sanitized rebirth note) but never
- * the market outcomes — then one learning-FROZEN cold-start pass on a
- * held-out later window is the only number allowed to claim generalization.
+ * Story: die → remember → restart at bet #1 → loop until one life survives
+ * to the season's final bet. The permadeath-economics rule: a dead
+ * incarnation's profit is FORFEIT (scored zero) — the headline belongs to
+ * the surviving life only. The thin async server page loads the artifacts;
+ * this shell owns ALL markup + the numerical/AI toggle (repo convention:
+ * async pages are never rendered in vitest).
  */
 
 import Link from "next/link";
@@ -19,10 +17,11 @@ import { useState, type JSX } from "react";
 
 import type {
   ReincarnationFixture,
-  ReincarnationPass,
+  ReincarnationIncarnation,
 } from "@/lib/load_reincarnation";
 
 import PassCurves, { type PassCurveSeries } from "./PassCurves";
+import SurvivalFrontier from "./SurvivalFrontier";
 
 const money = (n: number): string =>
   `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString(undefined, {
@@ -50,34 +49,67 @@ function SectionHead({
   );
 }
 
-function PassCard({ p }: { p: ReincarnationPass }): JSX.Element {
-  const s = p.summary;
+/** Incarnation table rows: first 8 + (gap marker) + final/survivor. */
+function tableRows(
+  incs: readonly ReincarnationIncarnation[],
+): (ReincarnationIncarnation | "gap")[] {
+  if (incs.length <= 9) return [...incs];
+  return [...incs.slice(0, 8), "gap", incs[incs.length - 1]!];
+}
+
+function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element {
   return (
     <div
-      data-testid={`reincarnation-pass-${p.pass}`}
-      className="flex flex-col gap-2 rounded-xl border border-[var(--ab-moss)]/30 bg-[var(--ab-bg-2)]/60 p-4"
+      data-testid={`reincarnation-inc-${inc.incarnation}`}
+      className={[
+        "flex flex-col gap-1 rounded-lg border p-3",
+        inc.died
+          ? "border-[var(--ab-moss)]/25 bg-[var(--ab-bg-2)]/50"
+          : "border-[var(--ab-glow)]/60 bg-[var(--ab-glow-soft)]",
+      ].join(" ")}
     >
-      <span className="flex items-baseline justify-between">
-        <span className="font-display text-lg text-[var(--ab-glow)] ab-glow-text">
-          pass {p.pass}
+      <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span
+          className={[
+            "font-display text-base leading-none",
+            inc.died
+              ? "text-[var(--ab-text)]"
+              : "text-[var(--ab-glow)] ab-glow-text",
+          ].join(" ")}
+        >
+          incarnation {inc.incarnation}
         </span>
-        <span className="font-mono text-[8px] uppercase tracking-[0.2em] text-[var(--ab-dim)]">
-          incarnation {p.pass}
+        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--ab-dim)]">
+          {inc.died
+            ? `died · ${inc.settled} settled · ${inc.progress_pct.toFixed(1)}% of the season`
+            : `SURVIVED THE SEASON · ${inc.settled} settled`}
         </span>
       </span>
       <span className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-[var(--ab-text)]">
-        <span>pnl {money(s.pnl)}</span>
         <span>
-          {s.lives} lives / {s.deaths} deaths
+          held{" "}
+          <span className={inc.died ? "line-through opacity-60" : ""}>
+            {money(inc.pnl_at_death)}
+          </span>
         </span>
-        <span>{s.settled} settled</span>
-        <span>{s.coverage_pct.toFixed(1)}% coverage</span>
-        <span>{(100 * s.win_rate).toFixed(0)}% win</span>
+        <span>
+          scored{" "}
+          <span className={inc.died ? "text-[var(--ab-death)]" : "text-[var(--ab-glow)]"}>
+            {money(inc.scored_pnl)}
+          </span>
+        </span>
+        <span>{(100 * inc.win_rate).toFixed(0)}% win</span>
+        {inc.advisor.called ? (
+          <span>
+            advisor: {inc.advisor.proposals} proposals / {inc.advisor.applied}{" "}
+            applied
+          </span>
+        ) : null}
       </span>
-      {p.rebirth_note ? (
+      {inc.rebirth_note ? (
         <p className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]">
           <span className="text-[var(--ab-glow)]">rebirth note ▸ </span>
-          {p.rebirth_note}
+          {inc.rebirth_note}
         </p>
       ) : null}
     </div>
@@ -86,7 +118,7 @@ function PassCard({ p }: { p: ReincarnationPass }): JSX.Element {
 
 export interface ReincarnationShellProps {
   readonly numerical: ReincarnationFixture;
-  /** The Gemini rebirth-retrospective variant, or null when not generated. */
+  /** The Gemini death-retrospective treatment leg, or null. */
   readonly ai: ReincarnationFixture | null;
 }
 
@@ -96,20 +128,23 @@ export function ReincarnationShell({
 }: ReincarnationShellProps): JSX.Element {
   const [mode, setMode] = useState<"numerical" | "ai">("numerical");
   const fixture = mode === "ai" && ai !== null ? ai : numerical;
+  const incs = fixture.incarnations;
   const h = fixture.holdout;
   const b = h.baselines;
-  const opacities = [0.35, 0.6, 1.0];
-  const series: PassCurveSeries[] = [
-    ...fixture.passes.map((p, idx) => ({
-      label: `pass-${p.pass}`,
-      points: p.curve,
-      opacity:
-        opacities[Math.min(idx, opacities.length - 1)] ??
-        1.0,
-    })),
+  const curveSeries: PassCurveSeries[] = [
+    ...incs
+      .filter((inc) => inc.curve !== undefined && inc.curve.length > 0)
+      .map((inc, idx, kept) => ({
+        label: `inc-${inc.incarnation}`,
+        points: inc.curve ?? [],
+        opacity: 0.3 + 0.7 * ((idx + 1) / Math.max(1, kept.length)),
+      })),
     { label: "holdout", points: h.curve, opacity: 0.9, dashed: true },
   ];
-  const beatsStatic = h.summary.pnl > b.static;
+  const best = incs.reduce(
+    (acc, inc) => Math.max(acc, inc.progress_pct),
+    0,
+  );
 
   return (
     <main
@@ -123,14 +158,15 @@ export function ReincarnationShell({
             phase 2 · the reincarnation experiment
           </span>
           <h1 className="font-display text-4xl leading-tight text-[var(--ab-text)] sm:text-5xl">
-            the same season, lived three times
+            die. remember. restart at bet&nbsp;#1.
           </h1>
           <p className="max-w-2xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-            After each death-riddled run the agent is reborn at the season&apos;s
-            first market — carrying what it learned (its fusion weights, the EMA
-            learner&apos;s aggregates{ai ? ", a one-paragraph rebirth retrospective" : ""})
-            but never the outcomes themselves. Then the learning is frozen and
-            the agent walks into a time window it has never seen.
+            Every death sends the agent back to the season&apos;s first market
+            — carrying its weights, the EMA learner&apos;s aggregates
+            {ai ? ", and a one-paragraph rebirth retrospective" : ""}, but
+            never the outcomes. The loop ends only when one life walks from
+            the first bet to the last without drowning. And the money? A dead
+            life&apos;s profit is <span className="text-[var(--ab-death)]">forfeit</span>.
           </p>
         </header>
 
@@ -151,61 +187,138 @@ export function ReincarnationShell({
                     : "border-[var(--ab-moss)]/30 text-[var(--ab-dim)] hover:text-[var(--ab-text)]",
                 ].join(" ")}
               >
-                {m === "numerical" ? "numerical" : "ai · gemini rebirth"}
+                {m === "numerical"
+                  ? "numerical · control"
+                  : "ai · gemini rebirth · treatment"}
               </button>
             ))}
           </div>
         ) : null}
 
-        {/* ── §1 why ────────────────────────────────────────────────── */}
+        {/* ── §1 the rule ───────────────────────────────────────────── */}
         <section className="flex flex-col gap-4">
-          <SectionHead index="01" kicker="why" title="an epoch test for a living agent" />
+          <SectionHead
+            index="01"
+            kicker="the rule"
+            title="dead men collect nothing"
+          />
           <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-            Phase 1 ran one chronological season: every life faced DIFFERENT
-            markets, so &quot;life 5 did better than life 1&quot; mixes learning
-            with luck. Phase 2 removes that confound — every pass replays the
-            SAME {fixture.split.train_rows}-market training window (the first{" "}
-            {Math.round(fixture.split.train_fraction * 100)}% of the timeline),
-            so pass-over-pass deltas are the learning signal itself. Machine
-            learning calls this an epoch; the agent calls it another life.
+            One incarnation = one life, starting at market #1 of the{" "}
+            {fixture.split.train_rows.toLocaleString()}-market training
+            window. Die anywhere along the way and the P&amp;L you were
+            holding is <span className="text-[var(--ab-death)]">zeroed</span>{" "}
+            — experience reincarnates, money does not. Only a life that
+            reaches the final bet keeps its earnings, and that number alone is
+            the headline. (A life that survives by never betting keeps $0 —
+            immortality through abstention pays the same as death. The rule
+            is stated as measured.)
           </p>
         </section>
 
-        {/* ── §2 the passes ─────────────────────────────────────────── */}
+        {/* ── §2 the frontier ───────────────────────────────────────── */}
         <section className="flex flex-col gap-4">
-          <SectionHead index="02" kicker="the passes" title="three incarnations" />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {fixture.passes.map((p) => (
-              <PassCard key={p.pass} p={p} />
-            ))}
-          </div>
-        </section>
-
-        {/* ── §3 the overlay ────────────────────────────────────────── */}
-        <section className="flex flex-col gap-4">
-          <SectionHead index="03" kicker="shared axes" title="the curves, overlaid" />
-          <PassCurves series={series} />
+          <SectionHead
+            index="02"
+            kicker="the survival frontier"
+            title="how far each life got"
+          />
+          <SurvivalFrontier incarnations={incs} />
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--ab-dim)]">
-            faint → bright: pass 1 → {fixture.passes.length} · dashed: frozen
-            holdout
+            {incs.length} incarnation{incs.length === 1 ? "" : "s"} · best
+            depth {best.toFixed(1)}% · dashed line = the finish line
           </p>
         </section>
 
-        {/* ── §4 cold-start verdict ─────────────────────────────────── */}
+        {/* ── §3 the lives ──────────────────────────────────────────── */}
+        <section className="flex flex-col gap-3">
+          <SectionHead index="03" kicker="the lives" title="incarnation log" />
+          {tableRows(incs).map((row, i) =>
+            row === "gap" ? (
+              <p
+                key={`gap-${i}`}
+                className="px-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--ab-dim)]/70"
+              >
+                … {incs.length - 9} more incarnations (scalars in the artifact)
+                …
+              </p>
+            ) : (
+              <IncarnationRow key={row.incarnation} inc={row} />
+            ),
+          )}
+        </section>
+
+        {/* ── §4 the verdict ────────────────────────────────────────── */}
         <section
-          data-testid="reincarnation-coldstart"
+          data-testid="reincarnation-verdict"
           className="flex flex-col gap-4 rounded-xl border border-[var(--ab-glow)]/30 bg-[var(--ab-bg-2)]/60 p-6"
         >
+          <SectionHead index="04" kicker="the verdict" title="did it learn to live?" />
+          {fixture.survived ? (
+            <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
+              Incarnation{" "}
+              <span className="text-[var(--ab-glow)] ab-glow-text">
+                {fixture.surviving_incarnation}
+              </span>{" "}
+              survived the whole season and kept{" "}
+              <span className="font-display text-2xl text-[var(--ab-glow)] ab-glow-text">
+                {money(fixture.headline_pnl)}
+              </span>{" "}
+              — the only money this experiment recognizes.
+            </p>
+          ) : (
+            <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
+              No life survived within the {incs.length}-incarnation cap — best
+              depth{" "}
+              <span className="text-[var(--ab-text)]">{best.toFixed(1)}%</span>{" "}
+              of the season. Headline:{" "}
+              <span className="font-display text-2xl text-[var(--ab-death)]">
+                $0
+              </span>
+              . Published as measured — under the death-blind learning rules
+              this is the PREDICTED outcome, and that prediction is the
+              experiment.
+            </p>
+          )}
+          {fixture.provider === "ai" ? (
+            <p className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]">
+              rebirth telemetry: {fixture.rebirth.calls}/
+              {fixture.rebirth.expected} death reviews ·{" "}
+              {fixture.rebirth.productive} productive ·{" "}
+              {fixture.rebirth.applied} weight deltas applied
+            </p>
+          ) : null}
+        </section>
+
+        {/* ── §5 incarnation curves (the kept ones) ─────────────────── */}
+        {curveSeries.length > 1 ? (
+          <section className="flex flex-col gap-4">
+            <SectionHead
+              index="05"
+              kicker="shared axes"
+              title="the kept curves"
+            />
+            <PassCurves series={curveSeries} />
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--ab-dim)]">
+              faint → bright: earlier → later incarnations · dashed: frozen
+              holdout
+            </p>
+          </section>
+        ) : null}
+
+        {/* ── §6 cold start ─────────────────────────────────────────── */}
+        <section
+          data-testid="reincarnation-coldstart"
+          className="flex flex-col gap-4 rounded-xl border border-[var(--ab-moss)]/30 bg-[var(--ab-bg-2)]/60 p-6"
+        >
           <SectionHead
-            index="04"
-            kicker="the only number that counts"
+            index="06"
+            kicker="generalization check"
             title="cold start, learning frozen"
           />
           <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-            The carried weights walk into the held-out final{" "}
-            {fixture.split.holdout_rows} markets — a time window no pass ever
-            saw — with learning switched OFF. No EMA updates, no retrospectives:
-            whatever it earns here, it earns on structure, not memory.
+            Whatever weights the loop ended with walk into the held-out final{" "}
+            {fixture.split.holdout_rows.toLocaleString()} markets — a time
+            window no incarnation ever saw — with learning switched OFF.
           </p>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="flex flex-col gap-1">
@@ -241,64 +354,70 @@ export function ReincarnationShell({
               </span>
             </div>
           </div>
-          <p className="font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-            {beatsStatic ? (
-              <>
-                The reincarnated weights{" "}
-                <span className="text-[var(--ab-glow)]">out-earned</span> the
-                untouched seed on unseen markets — the carried experience
-                generalized.
-              </>
-            ) : (
-              <>
-                The reincarnated weights did{" "}
-                <span className="text-[var(--ab-death)]">not</span> beat the
-                untouched seed on unseen markets — published as measured; the
-                walk-forward truth is the point of this page.
-              </>
-            )}
-          </p>
         </section>
 
-        {/* ── §5 honest notes ───────────────────────────────────────── */}
+        {/* ── §7 honest notes ───────────────────────────────────────── */}
         <section
           data-testid="reincarnation-honest"
           className="flex flex-col gap-4"
         >
-          <SectionHead index="05" kicker="fine print" title="honest notes" />
+          <SectionHead index="07" kicker="fine print" title="honest notes" />
           <ol className="flex max-w-3xl list-decimal flex-col gap-3 pl-5 font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
             <li>
-              Improving on a season you have seen before includes a{" "}
-              <span className="text-[var(--ab-text)]">memorization</span>{" "}
-              channel. The defense is the parameter bottleneck, stated
-              completely: the carried experience is the 8 fusion-weight scalars
-              plus the EMA learner&apos;s ~ten derived quality aggregates
-              (per-engine settlement-credit EMAs — no raw outcomes, no market
-              identities){ai ? " plus one sanitized strategy-level rebirth note" : ""}.
-              A ~20-scalar surface cannot store{" "}
-              {fixture.split.train_rows.toLocaleString()} market outcomes, so
-              cross-pass gains must come from generalizable structure. The
-              artifact disclosed the carried EMA keyset per pass
-              (&quot;carry.ema_keys&quot;) so the claim is auditable.
+              <span className="text-[var(--ab-text)]">Permadeath economics:</span>{" "}
+              dead incarnations score zero — you carry experience across
+              deaths, never money. The headline belongs to the surviving life
+              only, and an all-abstention immortal would also score $0.
+            </li>
+            <li>
+              <span className="text-[var(--ab-text)]">The carried surface</span>{" "}
+              is 8 fusion-weight scalars + the EMA learner&apos;s ~8 derived
+              quality aggregates{" "}
+              {fixture.provider === "ai"
+                ? "+ one sanitized strategy-level rebirth note "
+                : ""}
+              — ~20 scalars cannot store{" "}
+              {fixture.split.train_rows.toLocaleString()} outcomes (the
+              memorization defense), and the artifact discloses the carried
+              EMA keyset per incarnation.
+            </li>
+            <li>
+              <span className="text-[var(--ab-text)]">Control vs treatment:</span>{" "}
+              the numerical leg&apos;s gradient is death-blind — per-bet PnL
+              credit, no breath or death term anywhere — so it is PREDICTED to
+              plateau at a statistically similar death depth forever. The AI
+              leg&apos;s advisor sees the death context (position in the
+              season, stake and win-rate statistics, breath physics, plus an
+              anonymous per-bet pnl tail that carries no market identities and
+              cannot be mapped back to specific markets) with only the
+              existing six weight keys as levers — if
+              &quot;bet smaller to live longer&quot; appears, it EMERGED, it
+              was not scripted.
+            </li>
+            <li>
+              <span className="text-[var(--ab-text)]">The physics is stacked against immortality:</span>{" "}
+              at $5 stakes a loss hits breath at 5× while a win returns ~$4 —
+              breath expectation ≈ −1.2 per settled bet. Surviving ~1,000 bets
+              by luck alone is a ~0.2% lottery; that asymmetry is the point of
+              handing the agent its death context.
             </li>
             <li>
               The <span className="text-[var(--ab-text)]">cold-start</span>{" "}
-              pass on unseen markets with learning frozen is the ONLY number
-              here that can claim generalization. The training-pass trajectory
-              is evidence of learning dynamics, not of edge.
+              holdout (unseen time window, learning frozen) is the only number
+              that can claim generalization.
             </li>
             <li>
-              Rebirth retrospectives are strategy-level by{" "}
-              <span className="text-[var(--ab-text)]">information flow</span>:
-              the advisor&apos;s entire input is a season-aggregate window
-              (weights, P&amp;L aggregates, death count) — it never receives
-              market ids, player names, or outcomes — and the persisted note is
-              post-sanitized.
+              <span className="text-[var(--ab-text)]">Design history:</span>{" "}
+              v1 of this experiment ran three fixed &quot;passes&quot; where a
+              death continued mid-season — one pass quietly contained seven
+              lives. The user&apos;s correction defines v2: death must send
+              you back to bet #1, and dead lives keep nothing. v1&apos;s
+              numbers remain in the README for the record.
             </li>
           </ol>
         </section>
 
-        {/* ── §6 back-links ─────────────────────────────────────────── */}
+        {/* ── §8 back-links ─────────────────────────────────────────── */}
         <nav className="flex flex-col gap-2 border-t border-[var(--ab-moss)]/30 pt-6">
           <Link
             href="/survival"

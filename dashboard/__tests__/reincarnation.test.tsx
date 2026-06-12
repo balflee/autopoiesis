@@ -9,51 +9,64 @@ import RoadmapPage from "../app/roadmap/page";
 import {
   validateReincarnation,
   type ReincarnationFixture,
+  type ReincarnationIncarnation,
 } from "@/lib/load_reincarnation";
 
 /**
- * Phase-2 smoke suite — the /reincarnation experiment page.
+ * Phase-2 smoke suite — the GROUNDHOG /reincarnation page (design v2).
  *
- * Repo convention: the async server page is NOT rendered here (it only loads
- * fixtures and hands them to the client shell) — the CLIENT shell carries all
- * markup/testids and is rendered directly against an inline fixture, the
- * loader's pure validator gets its own unit tests, and the roadmap cross-link
- * is asserted by rendering the sync RoadmapPage directly (same as docs tests).
+ * Repo convention: the async server page is never rendered here — the CLIENT
+ * shell carries all markup/testids and renders against inline fixtures; the
+ * loader's pure validator gets its own unit tests; the roadmap cross-link is
+ * asserted by rendering the sync RoadmapPage directly.
  */
 
-function buildFixture(
-  overrides: Partial<ReincarnationFixture> = {},
-): ReincarnationFixture {
-  const weights = {
-    w_r: 0.5,
-    w_s: 0.5,
-    alpha: [1 / 3, 1 / 3, 1 / 3],
-    beta: [0.5, 0.5],
-    rho: 0.5,
-  };
-  const pass = (i: number, pnl: number, note: string | null) => ({
-    pass: i,
-    summary: {
-      pnl,
-      deaths: 4 - i,
-      lives: 5 - i,
-      settled: 100 + i,
-      coverage_pct: 25.5,
-      win_rate: 0.61,
-    },
-    per_life_pnls: [pnl / 2, pnl / 2],
+const weights = {
+  w_r: 0.5,
+  w_s: 0.5,
+  alpha: [1 / 3, 1 / 3, 1 / 3],
+  beta: [0.5, 0.5],
+  rho: 0.5,
+};
+
+function inc(
+  k: number,
+  opts: Partial<ReincarnationIncarnation> = {},
+): Record<string, unknown> {
+  const died = opts.died ?? true;
+  const pnl = opts.pnl_at_death ?? 40 + k * 10;
+  return {
+    incarnation: k,
+    died,
+    pnl_at_death: pnl,
+    scored_pnl: died ? 0 : pnl,
+    markets_seen: 100 + 30 * k,
+    progress_pct: opts.progress_pct ?? Math.min(100, 8 * k),
+    settled: 50 + 10 * k,
+    bets: 60 + 10 * k,
+    win_rate: 0.78,
     start_weights: weights,
     terminal_weights: weights,
-    curve: [
-      { i: 0, cum_pnl: 0 },
-      { i: 50, cum_pnl: pnl / 2 },
-      { i: 100, cum_pnl: pnl },
-    ],
-    rebirth_note: note,
+    rebirth_note: opts.rebirth_note ?? null,
+    advisor: opts.advisor ?? { called: false, proposals: 0, applied: 0 },
     carry: { ema_keys: ["rho_quality"], ema_size: 1 },
-  });
+    ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
+  };
+}
+
+function buildFixture(
+  overrides: Partial<Record<string, unknown>> = {},
+): ReincarnationFixture {
+  const incarnations = (overrides.incarnations as unknown[]) ?? [
+    inc(1, { curve: [{ i: 0, cum_pnl: 0 }, { i: 50, cum_pnl: 42 }] }),
+    inc(2, { rebirth_note: "trim alpha_2, breathe smaller" }),
+    inc(3, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+  ];
+  const survived = (overrides.survived as boolean | undefined) ?? true;
   return validateReincarnation({
     experiment: "reincarnation",
+    design: "groundhog_day",
+    schema_version: 2,
     provider: "numerical",
     physics: {
       side_correct_pricing: true,
@@ -66,20 +79,34 @@ function buildFixture(
       kappa: 0.4921,
     },
     split: {
-      train_rows: 2400,
-      holdout_rows: 1029,
+      train_rows: 3431,
+      holdout_rows: 1471,
       train_fraction: 0.7,
       train_end_ts: "2025-08-01T00:00:00+00:00",
       holdout_start_ts: "2025-08-01T06:00:00+00:00",
     },
     knobs: {
-      passes: 3,
+      max_incarnations: 120,
       fragile_max_breath_risk_pct: 0.95,
       loss_multiplier: 5,
       initial_breath: 35,
-      max_lives: 12,
+      initial_bankroll_usd: 100,
+      holdout_max_lives: 12,
     },
-    passes: [pass(1, 120, null), pass(2, 260, "trim alpha_2"), pass(3, 410, null)],
+    scoring:
+      "dead incarnations score zero; the headline belongs to the surviving life only",
+    survived,
+    surviving_incarnation: survived ? 3 : null,
+    headline_pnl: survived ? 188 : 0,
+    rebirth: {
+      expected: 0,
+      calls: 0,
+      productive: 0,
+      empty_or_failed: 0,
+      proposals: 0,
+      applied: 0,
+    },
+    incarnations,
     holdout: {
       summary: {
         pnl: 88,
@@ -101,22 +128,30 @@ function buildFixture(
   });
 }
 
-describe("validateReincarnation", () => {
-  it("accepts a well-formed artifact", () => {
-    const f = buildFixture();
-    expect(f.experiment).toBe("reincarnation");
-    expect(f.passes).toHaveLength(3);
-    expect(f.holdout.summary.learning_enabled).toBe(false);
+function cappedFixture(): ReincarnationFixture {
+  return buildFixture({
+    survived: false,
+    surviving_incarnation: null,
+    headline_pnl: 0,
+    incarnations: [inc(1), inc(2)],
+  });
+}
+
+describe("validateReincarnation (groundhog v2)", () => {
+  it("accepts a well-formed survived artifact and a capped one", () => {
+    expect(buildFixture().survived).toBe(true);
+    expect(cappedFixture().survived).toBe(false);
   });
 
-  it("rejects a wrong experiment tag, empty passes, and legacy physics", () => {
-    expect(() =>
-      validateReincarnation({ experiment: "nope" }),
-    ).toThrowError();
+  it("rejects wrong design/schema and legacy physics", () => {
+    expect(() => validateReincarnation({ experiment: "nope" })).toThrowError();
     const good = buildFixture() as unknown as Record<string, unknown>;
     expect(() =>
-      validateReincarnation({ ...good, passes: [] }),
+      validateReincarnation({ ...good, design: "passes" }),
     ).toThrowError();
+    expect(() =>
+      validateReincarnation({ ...good, schema_version: 1 }),
+    ).toThrowError(/schema_version/);
     expect(() =>
       validateReincarnation({
         ...good,
@@ -124,41 +159,91 @@ describe("validateReincarnation", () => {
       }),
     ).toThrowError();
   });
+
+  it("enforces the permadeath-economics cross-field invariants", () => {
+    const good = buildFixture() as unknown as Record<string, unknown>;
+    // A dead row with money kept.
+    expect(() =>
+      validateReincarnation({
+        ...good,
+        incarnations: [inc(1), { ...inc(2), scored_pnl: 99 }, inc(3, { died: false, progress_pct: 100, pnl_at_death: 188 })],
+      }),
+    ).toThrowError(/scoring rule/);
+    // Capped artifact claiming profit.
+    expect(() =>
+      validateReincarnation({
+        ...good,
+        survived: false,
+        surviving_incarnation: null,
+        headline_pnl: 50,
+        incarnations: [inc(1), inc(2)],
+      }),
+    ).toThrowError(/headline 0/);
+    // Survivor pointer at a dead row.
+    expect(() =>
+      validateReincarnation({
+        ...good,
+        surviving_incarnation: 1,
+        headline_pnl: 0,
+      }),
+    ).toThrowError(/dead row/);
+    // curve is OPTIONAL — a fixture whose incarnations all omit it passes.
+    const noCurves = buildFixture({
+      incarnations: [
+        inc(1),
+        inc(2),
+        inc(3, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+      ],
+    });
+    expect(noCurves.incarnations[0]?.curve).toBeUndefined();
+  });
 });
 
-describe("ReincarnationShell — Phase-2 page body", () => {
-  it("renders the abyss-scoped route shell with the hero", () => {
+describe("ReincarnationShell — groundhog page body", () => {
+  it("renders the abyss route shell with the groundhog hero", () => {
     render(<ReincarnationShell numerical={buildFixture()} ai={null} />);
     const root = screen.getByTestId("reincarnation-route");
-    expect(root).toBeInTheDocument();
     expect(root.className).toContain("abyss");
     expect(
-      screen.getByText(/the same season, lived three times/i),
+      screen.getByText(/die\. remember\. restart at bet/i),
     ).toBeInTheDocument();
   });
 
-  it("renders one metric card per pass", () => {
+  it("renders the survival frontier and the incarnation log", () => {
     render(<ReincarnationShell numerical={buildFixture()} ai={null} />);
-    for (const i of [1, 2, 3]) {
-      const card = screen.getByTestId(`reincarnation-pass-${i}`);
-      expect(card).toBeInTheDocument();
+    expect(screen.getByTestId("reincarnation-frontier")).toBeInTheDocument();
+    for (const k of [1, 2, 3]) {
+      expect(screen.getByTestId(`reincarnation-inc-${k}`)).toBeInTheDocument();
     }
-    // The rebirth note from pass 2 surfaces.
+    // Dead incarnations show forfeited money: held struck-through, scored $0.
+    const dead = screen.getByTestId("reincarnation-inc-1");
+    expect(within(dead).getByText("$50").className).toContain("line-through");
+    expect(within(dead).getByText("$0")).toBeInTheDocument();
+    // The rebirth note surfaces.
     expect(screen.getByText(/trim alpha_2/)).toBeInTheDocument();
   });
 
-  it("renders the overlay chart, cold-start verdict, and honest notes", () => {
+  it("renders the survived verdict with the headline pnl", () => {
     render(<ReincarnationShell numerical={buildFixture()} ai={null} />);
-    expect(screen.getByTestId("reincarnation-chart")).toBeInTheDocument();
-    const cold = screen.getByTestId("reincarnation-coldstart");
-    expect(within(cold).getAllByText(/frozen/i).length).toBeGreaterThan(0);
-    const honest = screen.getByTestId("reincarnation-honest");
-    expect(honest.textContent).toMatch(/memorization/i);
-    expect(honest.textContent).toMatch(/cold-start/i);
+    const verdict = screen.getByTestId("reincarnation-verdict");
+    expect(within(verdict).getByText("$188")).toBeInTheDocument();
   });
 
-  it("links back to /survival (Phase 1) and /docs", () => {
+  it("renders the capped verdict honestly ($0 headline)", () => {
+    render(<ReincarnationShell numerical={cappedFixture()} ai={null} />);
+    const verdict = screen.getByTestId("reincarnation-verdict");
+    expect(within(verdict).getByText("$0")).toBeInTheDocument();
+    expect(verdict.textContent).toMatch(/no life survived/i);
+  });
+
+  it("renders cold-start panel, honest notes, and back-links", () => {
     render(<ReincarnationShell numerical={buildFixture()} ai={null} />);
+    expect(screen.getByTestId("reincarnation-coldstart")).toBeInTheDocument();
+    const honest = screen.getByTestId("reincarnation-honest");
+    expect(honest.textContent).toMatch(/permadeath economics/i);
+    expect(honest.textContent).toMatch(/memorization/i);
+    expect(honest.textContent).toMatch(/cold-start/i);
+    expect(honest.textContent).toMatch(/design history/i);
     const links = screen
       .getAllByRole("link")
       .map((a) => a.getAttribute("href") ?? "");

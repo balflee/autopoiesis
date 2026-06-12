@@ -1,14 +1,17 @@
 /**
- * dashboard/lib/load_reincarnation.ts — Phase-2 reincarnation artifact types +
+ * dashboard/lib/load_reincarnation.ts — Phase-2 GROUNDHOG artifact types +
  * the pure structural validator (client-safe: no node built-ins).
  *
- * The artifact is written by `scripts/run_reincarnation.py` →
- * `agent/backtest/reincarnation.run_reincarnation_export`: N same-season
- * passes (weights + EMA carried, optional sanitized rebirth retrospectives)
- * followed by ONE learning-frozen cold-start pass on the held-out time window
- * + the three baselines, all under v3 physics. The validator is deliberately
- * minimal-structural — enough that the page can never render a legacy-physics
- * or shape-drifted artifact as if it were the experiment.
+ * Design v2 (user-locked): one incarnation = ONE life from the season's
+ * first market; death → restart at market #1 carrying experience; the loop
+ * runs until a life survives the whole train window or the incarnation cap;
+ * a DEAD incarnation's profit is SCORED ZERO (permadeath economics — the
+ * headline belongs to the surviving life only); then the frozen cold-start
+ * holdout. Written by `run_groundhog_export`.
+ *
+ * The validator re-checks the orchestrator's cross-field scoring invariants
+ * client-side (a stale or hand-edited deploy artifact must fail loudly, not
+ * render a lie), and the v3 physics booleans are HARD requirements.
  */
 
 export class ReincarnationError extends Error {}
@@ -18,31 +21,43 @@ export interface ReincarnationCurvePoint {
   readonly cum_pnl: number;
 }
 
-export interface ReincarnationPassSummary {
-  readonly pnl: number;
-  readonly deaths: number;
-  readonly lives: number;
+export interface ReincarnationIncarnation {
+  readonly incarnation: number;
+  readonly died: boolean;
+  /** Raw pnl the life held when it died (telemetry — forfeited on death). */
+  readonly pnl_at_death: number;
+  /** The permadeath-economics score: 0 when died, else == pnl_at_death. */
+  readonly scored_pnl: number;
+  readonly markets_seen: number;
+  readonly progress_pct: number;
   readonly settled: number;
-  readonly coverage_pct: number;
+  readonly bets: number;
   readonly win_rate: number;
-}
-
-export interface ReincarnationPass {
-  readonly pass: number;
-  readonly summary: ReincarnationPassSummary;
-  readonly per_life_pnls: readonly number[];
   readonly start_weights: Readonly<Record<string, unknown>>;
   readonly terminal_weights: Readonly<Record<string, unknown>>;
-  readonly curve: readonly ReincarnationCurvePoint[];
   readonly rebirth_note: string | null;
+  readonly advisor: {
+    readonly called: boolean;
+    readonly proposals: number;
+    readonly applied: number;
+  };
   readonly carry: {
     readonly ema_keys: readonly string[];
     readonly ema_size: number;
   };
+  /** Down-sampled cumulative curve — OPTIONAL (size guard keeps only the
+   * first few, the survivor, and the final incarnation). */
+  readonly curve?: readonly ReincarnationCurvePoint[];
 }
 
 export interface ReincarnationHoldout {
-  readonly summary: ReincarnationPassSummary & {
+  readonly summary: {
+    readonly pnl: number;
+    readonly deaths: number;
+    readonly lives: number;
+    readonly settled: number;
+    readonly coverage_pct: number;
+    readonly win_rate: number;
     readonly learning_enabled: boolean;
   };
   readonly start_weights: Readonly<Record<string, unknown>>;
@@ -56,6 +71,8 @@ export interface ReincarnationHoldout {
 
 export interface ReincarnationFixture {
   readonly experiment: "reincarnation";
+  readonly design: "groundhog_day";
+  readonly schema_version: 2;
   readonly provider: "numerical" | "ai";
   readonly physics: {
     readonly side_correct_pricing: boolean;
@@ -75,7 +92,19 @@ export interface ReincarnationFixture {
     readonly holdout_start_ts: string;
   };
   readonly knobs: Readonly<Record<string, number>>;
-  readonly passes: readonly ReincarnationPass[];
+  readonly scoring: string;
+  readonly survived: boolean;
+  readonly surviving_incarnation: number | null;
+  readonly headline_pnl: number;
+  readonly rebirth: {
+    readonly expected: number;
+    readonly calls: number;
+    readonly productive: number;
+    readonly empty_or_failed: number;
+    readonly proposals: number;
+    readonly applied: number;
+  };
+  readonly incarnations: readonly ReincarnationIncarnation[];
   readonly holdout: ReincarnationHoldout;
 }
 
@@ -92,21 +121,6 @@ function asNumber(v: unknown, label: string): number {
   return v;
 }
 
-function validateSummary(v: unknown, label: string): ReincarnationPassSummary {
-  if (!isRecord(v)) fail(`${label} not an object`);
-  for (const k of [
-    "pnl",
-    "deaths",
-    "lives",
-    "settled",
-    "coverage_pct",
-    "win_rate",
-  ]) {
-    asNumber(v[k], `${label}.${k}`);
-  }
-  return v as unknown as ReincarnationPassSummary;
-}
-
 function validateCurve(v: unknown, label: string): void {
   if (!Array.isArray(v)) fail(`${label} not an array`);
   for (const p of v) {
@@ -117,13 +131,15 @@ function validateCurve(v: unknown, label: string): void {
 }
 
 /**
- * Structural validation — throws {@link ReincarnationError} on drift. The
- * physics booleans are HARD requirements: this page only ever presents
- * v3-physics data, so a legacy artifact must fail loudly, never render.
+ * Structural + cross-field validation — throws {@link ReincarnationError}
+ * on drift OR on a scoring-rule violation. This page only ever presents the
+ * groundhog design under v3 physics; anything else fails loudly.
  */
 export function validateReincarnation(data: unknown): ReincarnationFixture {
   if (!isRecord(data)) fail("root not an object");
   if (data.experiment !== "reincarnation") fail("experiment tag mismatch");
+  if (data.design !== "groundhog_day") fail("design must be 'groundhog_day'");
+  if (data.schema_version !== 2) fail("schema_version must be 2");
   if (data.provider !== "numerical" && data.provider !== "ai") {
     fail("provider must be 'numerical' | 'ai'");
   }
@@ -136,24 +152,78 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
   if (!isRecord(split)) fail("split missing");
   asNumber(split.train_rows, "split.train_rows");
   asNumber(split.holdout_rows, "split.holdout_rows");
-  const passes = data.passes;
-  if (!Array.isArray(passes) || passes.length < 1) fail("passes empty");
-  passes.forEach((p, idx) => {
-    if (!isRecord(p)) fail(`passes[${idx}] not an object`);
-    asNumber(p.pass, `passes[${idx}].pass`);
-    validateSummary(p.summary, `passes[${idx}].summary`);
-    validateCurve(p.curve, `passes[${idx}].curve`);
-    if (p.rebirth_note !== null && typeof p.rebirth_note !== "string") {
-      fail(`passes[${idx}].rebirth_note must be string|null`);
+
+  const incs = data.incarnations;
+  if (!Array.isArray(incs) || incs.length < 1) fail("incarnations empty");
+  incs.forEach((inc, idx) => {
+    if (!isRecord(inc)) fail(`incarnations[${idx}] not an object`);
+    asNumber(inc.incarnation, `incarnations[${idx}].incarnation`);
+    if (typeof inc.died !== "boolean") fail(`incarnations[${idx}].died`);
+    const scored = asNumber(inc.scored_pnl, `incarnations[${idx}].scored_pnl`);
+    asNumber(inc.pnl_at_death, `incarnations[${idx}].pnl_at_death`);
+    asNumber(inc.progress_pct, `incarnations[${idx}].progress_pct`);
+    asNumber(inc.settled, `incarnations[${idx}].settled`);
+    asNumber(inc.win_rate, `incarnations[${idx}].win_rate`);
+    if (inc.died && scored !== 0) {
+      fail(
+        `scoring rule violated: dead incarnation ${idx + 1} carries ` +
+          `scored_pnl ${scored}`,
+      );
     }
-    if (!isRecord(p.carry) || !Array.isArray(p.carry.ema_keys)) {
-      fail(`passes[${idx}].carry.ema_keys missing`);
+    if (inc.rebirth_note !== null && typeof inc.rebirth_note !== "string") {
+      fail(`incarnations[${idx}].rebirth_note must be string|null`);
+    }
+    if (!isRecord(inc.carry) || !Array.isArray(inc.carry.ema_keys)) {
+      fail(`incarnations[${idx}].carry.ema_keys missing`);
+    }
+    // curve is OPTIONAL (size guard) — validated only when present.
+    if (inc.curve !== undefined) {
+      validateCurve(inc.curve, `incarnations[${idx}].curve`);
     }
   });
+
+  // Cross-field scoring invariants (the permadeath-economics rule).
+  if (typeof data.survived !== "boolean") fail("survived missing");
+  const headline = asNumber(data.headline_pnl, "headline_pnl");
+  const pointer = data.surviving_incarnation;
+  if (data.survived === false) {
+    if (headline !== 0) fail("capped-out artifact must have headline 0");
+    if (pointer !== null) fail("capped-out artifact must have null survivor");
+    if (!incs.every((i) => isRecord(i) && i.died === true)) {
+      fail("capped-out artifact must be all-dead");
+    }
+  } else {
+    if (typeof pointer !== "number" || pointer < 1 || pointer > incs.length) {
+      fail("survived without a valid surviving_incarnation pointer");
+    }
+    const row = incs[pointer - 1] as Record<string, unknown>;
+    if (row.died !== false) fail("survivor pointer targets a dead row");
+    if (headline !== row.scored_pnl) {
+      fail("headline must equal the survivor's scored_pnl");
+    }
+  }
+
+  const rebirth = data.rebirth;
+  if (!isRecord(rebirth)) fail("rebirth telemetry missing");
+  for (const k of [
+    "expected",
+    "calls",
+    "productive",
+    "empty_or_failed",
+    "proposals",
+    "applied",
+  ]) {
+    asNumber(rebirth[k], `rebirth.${k}`);
+  }
+
   const holdout = data.holdout;
   if (!isRecord(holdout)) fail("holdout missing");
-  const hs = validateSummary(holdout.summary, "holdout.summary");
-  if ((hs as unknown as Record<string, unknown>).learning_enabled !== false) {
+  const hs = holdout.summary;
+  if (!isRecord(hs)) fail("holdout.summary missing");
+  for (const k of ["pnl", "deaths", "lives", "settled", "coverage_pct", "win_rate"]) {
+    asNumber(hs[k], `holdout.summary.${k}`);
+  }
+  if (hs.learning_enabled !== false) {
     fail("holdout.summary.learning_enabled must be false (frozen contract)");
   }
   validateCurve(holdout.curve, "holdout.curve");

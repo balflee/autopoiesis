@@ -162,8 +162,9 @@ export function SurvivalJourneyShell({
   return (
     <>
       {/* ── Phase framing: this page is the PHASE 1 record; the reincarnation
-          experiment (same-season passes + frozen cold-start) is Phase 2 on its
-          own page. The data below is untouched. ── */}
+          experiment (die → restart at bet #1 → loop until one life survives,
+          dead lives keep nothing) is Phase 2 on its own page. The data below
+          is untouched. ── */}
       <section
         data-testid="survival-phase1-banner"
         className="ab-reveal mb-8 flex flex-wrap items-center gap-3 rounded-xl border border-[var(--ab-moss)]/30 bg-[var(--ab-bg-2)]/60 px-4 py-3"

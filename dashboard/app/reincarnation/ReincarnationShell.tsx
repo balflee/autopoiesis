@@ -92,6 +92,9 @@ function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element
             {money(inc.pnl_at_death)}
           </span>
         </span>
+        {inc.tributes_paid ? (
+          <span>tributes −{money(inc.tributes_paid)}</span>
+        ) : null}
         <span>
           scored{" "}
           <span className={inc.died ? "text-[var(--ab-death)]" : "text-[var(--ab-glow)]"}>
@@ -106,6 +109,24 @@ function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element
           </span>
         ) : null}
       </span>
+      {inc.tributes && inc.tributes.length > 0 ? (
+        <p
+          data-testid={`reincarnation-tribute-${inc.incarnation}`}
+          className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]"
+        >
+          <span className="text-[var(--ab-text)]">at the altar ▸ </span>
+          {inc.tributes
+            .map(
+              (t) =>
+                `offered ${money(t.amount_usd)} — ${
+                  t.success
+                    ? "the gods granted breath"
+                    : "the gods kept the money"
+                }`,
+            )
+            .join(" · ")}
+        </p>
+      ) : null}
       {inc.rebirth_note ? (
         <p className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]">
           <span className="text-[var(--ab-glow)]">rebirth note ▸ </span>
@@ -223,6 +244,20 @@ export function ReincarnationShell({
             the headline. (A life that survives by never betting keeps $0 —
             immortality through abstention pays the same as death. The rule
             is stated as measured.)
+            {fixture.tribute?.enabled ? (
+              <>
+                {" "}
+                <span className="text-[var(--ab-glow)]">
+                  And the gods take offerings:
+                </span>{" "}
+                a dying agent may buy a fresh lungful — minimum{" "}
+                {money(fixture.tribute.min_usd)} (~
+                {(100 * fixture.tribute.p_floor).toFixed(0)}% grant), rising
+                to ~{(100 * fixture.tribute.p_cap).toFixed(0)}% at{" "}
+                {money(fixture.tribute.full_usd)}. The offering is kept{" "}
+                <span className="text-[var(--ab-text)]">win or lose</span>.
+              </>
+            ) : null}
           </p>
         </section>
 
@@ -296,6 +331,21 @@ export function ReincarnationShell({
               {fixture.rebirth.expected} death reviews ·{" "}
               {fixture.rebirth.productive} productive ·{" "}
               {fixture.rebirth.applied} weight deltas applied
+            </p>
+          ) : null}
+          {fixture.gods_revenue !== undefined ? (
+            <p
+              data-testid="reincarnation-gods-revenue"
+              className="font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]"
+            >
+              <span className="text-[var(--ab-text)]">
+                the gods&apos; revenue ▸{" "}
+              </span>
+              <span className="font-display text-xl text-[var(--ab-glow)] ab-glow-text">
+                {money(fixture.gods_revenue)}
+              </span>{" "}
+              collected at the altar (failed offerings included — the gods
+              keep everything).
             </p>
           ) : null}
         </section>
@@ -411,6 +461,19 @@ export function ReincarnationShell({
               breath expectation ≈ −1.2 per settled bet. Surviving ~1,000 bets
               by luck alone is a ~0.2% lottery; that asymmetry is the point of
               handing the agent its death context.
+            </li>
+            <li>
+              <span className="text-[var(--ab-text)]">The tribute fine print:</span>{" "}
+              the gods&apos; price list is disclosed above and the cap is 0.99
+              — the gods never guarantee, so a maxed offering can still fail.
+              Failed offerings are kept (it is an offering, not a purchase).
+              The control leg&apos;s tribute behavior is a SCRIPTED reflex
+              (pay min($2,000, bankroll) when dying — disclosed as a baseline
+              policy, never claimed as emergent); the treatment leg&apos;s
+              deathbed choices are the LLM&apos;s own, with silence, refusal,
+              and malformed answers counted separately. The frozen holdout
+              and all three baselines run WITHOUT tribute, so the
+              generalization check stays comparable.
             </li>
             <li>
               <span className="text-[var(--ab-text)]">Prayers are recorded, never granted:</span>{" "}

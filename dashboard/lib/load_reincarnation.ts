@@ -40,6 +40,16 @@ export interface ReincarnationIncarnation {
    * next life. Absent on artifacts generated before the prayer mechanism;
    * null on the numerical leg (no language channel). */
   readonly prayer?: string | null;
+  /** A7 tribute events (money for breath at the deathbed) — present only
+   * when the run had tribute enabled. The gods keep failed offerings too. */
+  readonly tributes?: readonly {
+    readonly tick: number;
+    readonly amount_usd: number;
+    readonly success: boolean;
+  }[];
+  readonly tributes_paid?: number;
+  /** Gross pnl minus tributes — the survivor's REAL take-home. */
+  readonly pnl_net?: number;
   readonly advisor: {
     readonly called: boolean;
     readonly proposals: number;
@@ -107,6 +117,17 @@ export interface ReincarnationFixture {
     readonly empty_or_failed: number;
     readonly proposals: number;
     readonly applied: number;
+  };
+  /** A7: the gods' total take across ALL incarnations (failed offerings
+   * included). Present only on tribute-enabled artifacts. */
+  readonly gods_revenue?: number;
+  readonly tribute?: {
+    readonly enabled: boolean;
+    readonly min_usd: number;
+    readonly full_usd: number;
+    readonly p_floor: number;
+    readonly p_cap: number;
+    readonly llm: Readonly<Record<string, number>>;
   };
   readonly incarnations: readonly ReincarnationIncarnation[];
   readonly holdout: ReincarnationHoldout;
@@ -184,6 +205,35 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
     ) {
       fail(`incarnations[${idx}].prayer must be string|null when present`);
     }
+    // A7 tribute accounting (when present): identities are BOOKKEEPING,
+    // enforced with the same strictness as the Python validator.
+    if (inc.tributes !== undefined) {
+      if (!Array.isArray(inc.tributes)) fail(`incarnations[${idx}].tributes`);
+      let paid = 0;
+      for (const t of inc.tributes) {
+        if (!isRecord(t)) fail(`incarnations[${idx}].tributes entry`);
+        asNumber(t.tick, `incarnations[${idx}].tributes.tick`);
+        paid += asNumber(t.amount_usd, `incarnations[${idx}].tributes.amount_usd`);
+        if (typeof t.success !== "boolean") {
+          fail(`incarnations[${idx}].tributes.success`);
+        }
+      }
+      const declared = asNumber(
+        inc.tributes_paid,
+        `incarnations[${idx}].tributes_paid`,
+      );
+      if (Math.abs(declared - paid) > 1e-6) {
+        fail(`tribute accounting: incarnations[${idx}].tributes_paid != sum`);
+      }
+      const net = asNumber(inc.pnl_net, `incarnations[${idx}].pnl_net`);
+      const gross = inc.pnl_at_death as number;
+      if (Math.abs(net - (gross - declared)) > 1e-6) {
+        fail(`tribute accounting: incarnations[${idx}].pnl_net != gross - paid`);
+      }
+      if (inc.died !== true && scored !== net) {
+        fail(`tribute accounting: survivor scored_pnl must equal pnl_net`);
+      }
+    }
     if (!isRecord(inc.carry) || !Array.isArray(inc.carry.ema_keys)) {
       fail(`incarnations[${idx}].carry.ema_keys missing`);
     }
@@ -225,6 +275,21 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
     "applied",
   ]) {
     asNumber(rebirth[k], `rebirth.${k}`);
+  }
+
+  // A7: gods_revenue is accounting — when the tribute block is present it
+  // must equal the sum of every offering across all incarnations.
+  if (data.tribute !== undefined) {
+    if (!isRecord(data.tribute)) fail("tribute block malformed");
+    const revenue = asNumber(data.gods_revenue, "gods_revenue");
+    let total = 0;
+    for (const inc of incs) {
+      const rec = inc as Record<string, unknown>;
+      if (typeof rec.tributes_paid === "number") total += rec.tributes_paid;
+    }
+    if (Math.abs(revenue - total) > 1e-6) {
+      fail("tribute accounting: gods_revenue != sum of all tributes");
+    }
   }
 
   const holdout = data.holdout;

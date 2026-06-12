@@ -260,6 +260,73 @@ describe("ReincarnationShell — groundhog page body", () => {
   });
 });
 
+function tributeFixture(): ReincarnationFixture {
+  const dead = {
+    ...inc(1, { curve: [{ i: 0, cum_pnl: 0 }, { i: 50, cum_pnl: 42 }] }),
+    // Paid the gods and STILL died — donations are not refunds.
+    tributes: [{ tick: 700, amount_usd: 2000, success: false }],
+    tributes_paid: 2000,
+    pnl_net: 50 - 2000,
+  };
+  const survivor = {
+    ...inc(2, { died: false, progress_pct: 100, pnl_at_death: 2459 }),
+    tributes: [{ tick: 826, amount_usd: 2000, success: true }],
+    tributes_paid: 2000,
+    pnl_net: 459,
+    scored_pnl: 459, // survivor scored = net under tribute
+  };
+  const incarnations = [dead, survivor];
+  return buildFixture({
+    incarnations,
+    survived: true,
+    surviving_incarnation: 2,
+    headline_pnl: 459,
+    ...({
+      gods_revenue: 4000,
+      tribute: {
+        enabled: true,
+        min_usd: 500,
+        full_usd: 2000,
+        p_floor: 0.3,
+        p_cap: 0.99,
+        llm: { calls: 0, offers: 0, refusals: 0, failures: 0, malformed: 0 },
+      },
+    } as Record<string, unknown>),
+  });
+}
+
+describe("A7 tribute — validator accounting + rendering", () => {
+  it("accepts a coherent tribute artifact and rejects broken accounting", () => {
+    const good = tributeFixture();
+    expect(good.gods_revenue).toBe(4000);
+    const raw = JSON.parse(JSON.stringify(good)) as Record<string, unknown>;
+    (raw.incarnations as Record<string, unknown>[])[0]!.tributes_paid = 999;
+    expect(() => validateReincarnation(raw)).toThrowError(/tribute accounting/);
+    const raw2 = JSON.parse(JSON.stringify(good)) as Record<string, unknown>;
+    raw2.gods_revenue = 1;
+    expect(() => validateReincarnation(raw2)).toThrowError(/gods_revenue/);
+    const raw3 = JSON.parse(JSON.stringify(good)) as Record<string, unknown>;
+    (raw3.incarnations as Record<string, unknown>[])[1]!.pnl_net = 9999;
+    expect(() => validateReincarnation(raw3)).toThrowError(/tribute accounting/);
+  });
+
+  it("renders altar events, net headline, and the gods' revenue", () => {
+    render(<ReincarnationShell numerical={tributeFixture()} ai={null} />);
+    const failedRow = screen.getByTestId("reincarnation-tribute-1");
+    expect(failedRow.textContent).toMatch(/the gods kept the money/i);
+    const savedRow = screen.getByTestId("reincarnation-tribute-2");
+    expect(savedRow.textContent).toMatch(/granted breath/i);
+    const verdict = screen.getByTestId("reincarnation-verdict");
+    expect(within(verdict).getByText("$459")).toBeInTheDocument();
+    const gods = screen.getByTestId("reincarnation-gods-revenue");
+    expect(gods.textContent).toMatch(/\$4,000/);
+    // Honest notes carry the tribute fine print.
+    const honest = screen.getByTestId("reincarnation-honest");
+    expect(honest.textContent).toMatch(/scripted reflex/i);
+    expect(honest.textContent).toMatch(/the gods never guarantee/i);
+  });
+});
+
 describe("roadmap — Phase-2 cross-link", () => {
   it("links to /reincarnation from the landing hero", () => {
     render(<RoadmapPage />);

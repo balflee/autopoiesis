@@ -70,3 +70,97 @@ def test_split_rejects_degenerate_fractions_and_all_tied_rows() -> None:
     tied = [_row_at("2025-01-01T00:00:00+00:00", f"m_{i}") for i in range(4)]
     with pytest.raises(ValueError):
         split_rows_by_time(tied, train_fraction=0.5)
+
+
+# =========================================================================== #
+# Rebirth retrospective seams — delta application, window builder, sanitizer.
+# =========================================================================== #
+
+
+def _w(
+    *,
+    w_r: float = 0.5,
+    alpha: tuple[float, float, float] = (1 / 3, 1 / 3, 1 / 3),
+    beta: tuple[float, float] = (0.5, 0.5),
+    rho: float = 0.5,
+):
+    from agent.core.state import Weights
+
+    return Weights(
+        w_r=w_r, w_s=1.0 - w_r, alpha=list(alpha), beta=list(beta), rho=rho
+    )
+
+
+def test_apply_weight_deltas_clamps_and_renormalizes() -> None:
+    from agent.backtest.reincarnation import apply_weight_deltas
+
+    w = _w()
+    out = apply_weight_deltas(
+        w,
+        [
+            {"key": "w_r", "delta": 0.1},
+            {"key": "alpha_2", "delta": 0.1},
+            {"key": "rho", "delta": -0.2},
+        ],
+    )
+    assert out.w_r == pytest.approx(0.6)
+    assert out.w_s == pytest.approx(0.4)
+    assert sum(out.alpha) == pytest.approx(1.0)
+    assert out.alpha[2] > w.alpha[2]
+    # |delta| capped at 0.1 — the requested -0.2 applies as -0.1.
+    assert out.rho == pytest.approx(0.4)
+
+
+def test_apply_weight_deltas_skips_invalid_and_caps_magnitude() -> None:
+    from agent.backtest.reincarnation import apply_weight_deltas
+
+    w = _w()
+    out = apply_weight_deltas(
+        w,
+        [
+            {"key": "nonsense", "delta": 0.4},  # unknown key: skipped
+            {"key": "beta_0", "delta": 9.0},  # |delta| capped to 0.1
+            {"key": "rho", "delta": "bad"},  # non-numeric: skipped
+            {"key": "rho", "delta": True},  # bool: skipped, not coerced
+        ],
+    )
+    assert out.beta[0] == pytest.approx(0.6)
+    assert out.beta[1] == pytest.approx(0.4)
+    assert out.rho == pytest.approx(w.rho)
+
+
+def test_build_rebirth_window_is_strategy_level_only() -> None:
+    from agent.backtest.reincarnation import build_rebirth_window
+
+    seed_w = _w()
+    window = build_rebirth_window(
+        pass_index=1,
+        terminal_weights=seed_w,
+        seed_weights=seed_w,
+        season_pnl_usd=-13.5,
+        recent_step_pnls=[2.5, -8.0, 1.0],  # tail of SETTLED step pnls
+        total_settles=120,
+        deaths=2,
+    )
+    assert window.trigger == "tick_interval"
+    # recent_pnl's REAL semantics (prompt renderer + dataclass) are "last
+    # settled bets, $USD" — it receives actual step pnls, never life totals.
+    assert window.recent_pnl == [2.5, -8.0, 1.0]
+    assert window.recent_pnl_window_usd == pytest.approx(-13.5)
+    assert window.tick_count == 120
+    # Hygiene: the window carries ONLY aggregates — no market ids/names.
+    assert "market" not in window.agent_id
+    assert window.agent_id == "rebirth-pass-1-deaths-2"
+
+
+def test_sanitize_rebirth_note_collapses_and_caps() -> None:
+    """The persisted note is enforced-clean — whitespace collapsed, hard
+    length cap — never raw LLM text."""
+    from agent.backtest.reincarnation import sanitize_rebirth_note
+
+    assert sanitize_rebirth_note("  a \n\n b\t c  ") == "a b c"
+    long = "x" * 2000
+    out = sanitize_rebirth_note(long)
+    assert out is not None and len(out) <= 500
+    assert sanitize_rebirth_note("") is None
+    assert sanitize_rebirth_note("   \n ") is None

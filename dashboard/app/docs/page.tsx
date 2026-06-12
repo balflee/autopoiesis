@@ -525,6 +525,17 @@ export default function DocsPage(): JSX.Element {
                   >
                     survival page
                   </Link>
+                  . The runs above are <Hi>Phase 1</Hi> (one chronological
+                  season); <Hi>Phase 2</Hi> — the reincarnation experiment
+                  (the SAME season lived three times, then a learning-frozen
+                  cold-start holdout) — lives at{" "}
+                  <Link
+                    href="/reincarnation"
+                    data-testid="docs-reincarnation-link"
+                    className="text-[var(--ab-glow)] underline decoration-[var(--ab-glow)]/40 underline-offset-2"
+                  >
+                    /reincarnation
+                  </Link>
                   .
                 </Caveat>
               </Panel>

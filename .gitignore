@@ -171,3 +171,4 @@ service-account*.json
 # OS/editor strays not already covered
 *.orig
 .env.bak
+dashboard/public/backtest/reincarnation*.json

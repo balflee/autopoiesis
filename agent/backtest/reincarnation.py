@@ -40,6 +40,7 @@ from agent.backtest.survival_season import (
     build_archetype_curve,
     build_static_baseline_curve,
     fragile_seed_from_config,
+    preflight_ai_advisor_applicable,
     run_survival_season,
 )
 from agent.core.state import Phase, Weights
@@ -51,7 +52,9 @@ from agent.llm.cost_guard import L3CostGuard
 
 __all__ = [
     "apply_weight_deltas",
+    "build_death_window",
     "build_rebirth_window",
+    "run_groundhog_export",
     "run_reincarnation_export",
     "sanitize_rebirth_note",
     "split_rows_by_time",
@@ -151,12 +154,17 @@ def build_rebirth_window(
     deaths: int,
 ) -> PerformanceWindow:
     """The season-level retrospective window the strict advisor reviews at a
-    pass boundary. STRATEGY-LEVEL ONLY: aggregates, never market specifics —
-    the information-hygiene contract of the reincarnation experiment.
+    pass boundary.
 
-    ``recent_pnl`` keeps its REAL semantics — "last settled bets, $USD" (the
-    prompt renderer's label and the dataclass's documented meaning) — so it
-    receives the TAIL of settled step pnls, while the season total goes in
+    Information-hygiene contract, stated precisely: the LLM receives season
+    AGGREGATES plus the ANONYMOUS settled-bet pnl tail in ``recent_pnl`` (its
+    documented semantics — "last settled bets, $USD"). Neither carries a
+    market id, slug, player name, or outcome label: the pnl sequence cannot
+    be mapped back to specific markets, so nothing here lets a later pass
+    cheat a specific market.
+
+    ``recent_pnl`` keeps its REAL semantics, so it receives the TAIL of
+    settled step pnls, while the season total goes in
     ``recent_pnl_window_usd``. Feeding life totals into recent_pnl would hand
     the advisor false semantics.
     """
@@ -178,9 +186,10 @@ def sanitize_rebirth_note(text: str) -> str | None:
     """Enforced hygiene for the persisted rebirth note: collapse whitespace,
     hard-cap length, empty ⇒ None.
 
-    The advisor's entire input is the aggregates-only window built above, so
-    real market specifics cannot flow into its rationale — this makes the
-    persistence layer enforce that contract rather than assume it.
+    The advisor's entire input is the window built above — aggregates plus an
+    anonymous pnl tail, with no market identities — so real market specifics
+    cannot flow into its rationale; this makes the persistence layer enforce
+    that contract rather than assume it.
     """
     collapsed = re.sub(r"\s+", " ", text).strip()
     if not collapsed:
@@ -364,6 +373,7 @@ def run_reincarnation_export(
         root = Path(tmp) if state_root is None else Path(state_root)
 
         for i in range(1, passes + 1):
+            _require_fresh_dir(root / f"pass_{i}")
             recorder = SurvivalRecorder(
                 rows=train, loss_multiplier=loss_multiplier
             )
@@ -460,69 +470,20 @@ def run_reincarnation_export(
                     )
 
         # -- The cold-start verdict: held-out window, learning FROZEN. -------
-        holdout_recorder = SurvivalRecorder(
-            rows=holdout, loss_multiplier=loss_multiplier
-        )
-        holdout_seed = dataclasses.replace(fragile, weights=carry)
-        holdout_result = run_survival_season(
-            rows=holdout,
+        holdout_dict, holdout_eff = _run_frozen_holdout(
+            holdout=holdout,
             snapshots=snapshots,
-            seed=holdout_seed,
-            state_root=root / "holdout",
+            fragile=fragile,
+            carry=carry,
+            state_dir=root / "holdout",
+            loss_multiplier=loss_multiplier,
             initial_breath=initial_breath,
             initial_bankroll_usd=initial_bankroll_usd,
             max_lives=max_lives,
             max_bet_pnl_usd=max_bet_pnl_usd,
-            recorder=holdout_recorder,
-            side_correct_pricing=True,
-            value_betting=True,
-            effective_entry_price_floor=eff_floor,
-            learning_enabled=False,
+            eff_floor=eff_floor,
         )
-    all_eff_prices.extend(
-        _validate_learner_physics(
-            holdout_recorder, max_bet_pnl_usd=max_bet_pnl_usd, label="holdout"
-        )
-    )
-
-    # Baselines on the SAME holdout window -- each builder gets exactly its
-    # own knob surface (archetypes have no bankroll/breath/value params).
-    static_curve = build_static_baseline_curve(
-        holdout,
-        holdout_seed,
-        bankroll=initial_bankroll_usd,
-        breath=initial_breath,
-        max_pnl_usd=max_bet_pnl_usd,
-        side_correct_pricing=True,
-        value_betting=True,
-        effective_entry_price_floor=eff_floor,
-    )
-    random_curve = build_archetype_curve(
-        holdout,
-        archetype="random",
-        seed=0,
-        max_pnl_usd=max_bet_pnl_usd,
-        side_correct_pricing=True,
-        effective_entry_price_floor=eff_floor,
-    )
-    favorite_curve = build_archetype_curve(
-        holdout,
-        archetype="always_favorite",
-        max_pnl_usd=max_bet_pnl_usd,
-        side_correct_pricing=True,
-        effective_entry_price_floor=eff_floor,
-    )
-    rows_by_id = {r.market_id: r for r in holdout}
-    for name, curve in (
-        ("static", static_curve),
-        ("random", random_curve),
-        ("always_favorite", favorite_curve),
-    ):
-        all_eff_prices.extend(
-            _validate_baseline_physics(
-                curve, rows_by_id, max_bet_pnl_usd=max_bet_pnl_usd, name=name
-            )
-        )
+    all_eff_prices.extend(holdout_eff)
 
     min_eff = min(all_eff_prices, default=None)
     if min_eff is not None and min_eff < eff_floor:
@@ -531,14 +492,6 @@ def run_reincarnation_export(
             f"price {min_eff!r} is below the floor {eff_floor!r}; "
             "artifact NOT written"
         )
-
-    holdout_summary = _season_summary(
-        holdout_recorder,
-        season_rows=len(holdout),
-        deaths=holdout_result.deaths,
-        lives=len(holdout_result.lives),
-    )
-    holdout_summary["learning_enabled"] = False
 
     artifact: dict[str, Any] = {
         "experiment": "reincarnation",
@@ -569,18 +522,7 @@ def run_reincarnation_export(
             "max_lives": max_lives,
         },
         "passes": pass_entries,
-        "holdout": {
-            "summary": holdout_summary,
-            "start_weights": carry.model_dump(),
-            "curve": _curve_points(holdout_recorder),
-            "baselines": {
-                "static": static_curve[-1].cum_pnl if static_curve else 0.0,
-                "random": random_curve[-1].cum_pnl if random_curve else 0.0,
-                "always_favorite": (
-                    favorite_curve[-1].cum_pnl if favorite_curve else 0.0
-                ),
-            },
-        },
+        "holdout": holdout_dict,
     }
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -588,3 +530,542 @@ def run_reincarnation_export(
         json.dumps(artifact, sort_keys=True, indent=2), encoding="utf-8"
     )
     return artifact
+
+
+# ========================================================================= #
+# Groundhog design (v2): one incarnation = one life from market #1.
+# ========================================================================= #
+
+# Beyond this index, dead incarnations drop their down-sampled curve from the
+# artifact (size guard: scalars stay for every incarnation; the survivor and
+# the final incarnation always keep their curves).
+_CURVE_KEEP_FIRST = 8
+
+
+def _require_fresh_dir(path: Path) -> None:
+    """Fail closed on a dirty state dir.
+
+    The life loop RECONSTRUCTS from disk on entry — it restores snapshot
+    weights and resumes tick counters from existing JSONL — so a reused dir
+    silently corrupts the run. Never deletes (the caller owns cleanup); a
+    temp-dir root is empty by construction so this is free on the default
+    path.
+    """
+    if path.exists() and any(path.iterdir()):
+        raise RuntimeError(
+            f"dirty state dir {path} would resume stale loop state; "
+            "use a fresh state_root"
+        )
+
+
+def _run_frozen_holdout(
+    *,
+    holdout: list[SurvivalRow],
+    snapshots: list[MarketSnapshot],
+    fragile: StrategyConfig,
+    carry: Weights,
+    state_dir: Path,
+    loss_multiplier: float,
+    initial_breath: float,
+    initial_bankroll_usd: float,
+    max_lives: int,
+    max_bet_pnl_usd: float | None,
+    eff_floor: float | None,
+) -> tuple[dict[str, Any], list[float]]:
+    """The frozen cold-start verdict + the three baselines on the held-out
+    window — shared by BOTH experiment designs (3-pass and groundhog).
+
+    Returns ``(holdout artifact dict, effective entry prices)`` — the caller
+    folds the prices into its global floor backstop. Raises (fail-closed)
+    on any physics violation BEFORE the caller can write an artifact.
+    """
+    _require_fresh_dir(state_dir)
+    recorder = SurvivalRecorder(rows=holdout, loss_multiplier=loss_multiplier)
+    seed = dataclasses.replace(fragile, weights=carry)
+    result = run_survival_season(
+        rows=holdout,
+        snapshots=snapshots,
+        seed=seed,
+        state_root=state_dir,
+        initial_breath=initial_breath,
+        initial_bankroll_usd=initial_bankroll_usd,
+        max_lives=max_lives,
+        max_bet_pnl_usd=max_bet_pnl_usd,
+        recorder=recorder,
+        side_correct_pricing=True,
+        value_betting=True,
+        effective_entry_price_floor=eff_floor,
+        learning_enabled=False,
+    )
+    eff_prices = _validate_learner_physics(
+        recorder, max_bet_pnl_usd=max_bet_pnl_usd, label="holdout"
+    )
+
+    # Baselines on the SAME holdout window -- each builder gets exactly its
+    # own knob surface (archetypes have no bankroll/breath/value params).
+    static_curve = build_static_baseline_curve(
+        holdout,
+        seed,
+        bankroll=initial_bankroll_usd,
+        breath=initial_breath,
+        max_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=True,
+        value_betting=True,
+        effective_entry_price_floor=eff_floor,
+    )
+    random_curve = build_archetype_curve(
+        holdout,
+        archetype="random",
+        seed=0,
+        max_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=True,
+        effective_entry_price_floor=eff_floor,
+    )
+    favorite_curve = build_archetype_curve(
+        holdout,
+        archetype="always_favorite",
+        max_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=True,
+        effective_entry_price_floor=eff_floor,
+    )
+    rows_by_id = {r.market_id: r for r in holdout}
+    for name, curve in (
+        ("static", static_curve),
+        ("random", random_curve),
+        ("always_favorite", favorite_curve),
+    ):
+        eff_prices.extend(
+            _validate_baseline_physics(
+                curve, rows_by_id, max_bet_pnl_usd=max_bet_pnl_usd, name=name
+            )
+        )
+
+    summary = _season_summary(
+        recorder,
+        season_rows=len(holdout),
+        deaths=result.deaths,
+        lives=len(result.lives),
+    )
+    summary["learning_enabled"] = False
+    holdout_dict: dict[str, Any] = {
+        "summary": summary,
+        "start_weights": carry.model_dump(),
+        "curve": _curve_points(recorder),
+        "baselines": {
+            "static": static_curve[-1].cum_pnl if static_curve else 0.0,
+            "random": random_curve[-1].cum_pnl if random_curve else 0.0,
+            "always_favorite": (
+                favorite_curve[-1].cum_pnl if favorite_curve else 0.0
+            ),
+        },
+    }
+    return holdout_dict, eff_prices
+
+
+def build_death_window(
+    *,
+    incarnation: int,
+    max_incarnations: int,
+    terminal_weights: Weights,
+    seed_weights: Weights,
+    pnl_at_death: float,
+    recent_step_pnls: list[float],
+    settled: int,
+    target_markets: int,
+    markets_seen: int,
+    avg_stake_usd: float,
+    win_rate: float,
+    initial_breath: float,
+    loss_multiplier: float,
+) -> PerformanceWindow:
+    """Death-context retrospective window (groundhog design).
+
+    Information-hygiene contract, stated PRECISELY: the LLM receives (a) the
+    death summary — aggregates only — riding the EXISTING
+    ``recent_reflections`` history field (rendered verbatim by the prompt
+    renderer; schema untouched), and (b) the ANONYMOUS settled-bet pnl tail
+    in ``recent_pnl`` (its documented semantics — last settled bets, $USD).
+    Neither carries a market id, slug, player name, or outcome label: the
+    pnl sequence cannot be mapped back to specific markets, so nothing the
+    advisor sees lets a later incarnation cheat a specific market.
+    """
+    summary = (
+        f"incarnation {incarnation}/{max_incarnations}: died after {settled} "
+        f"settled bets, {markets_seen} of {target_markets} markets seen. "
+        f"avg stake ${avg_stake_usd:.2f}, win rate {win_rate:.2f}, "
+        f"pnl at death ${pnl_at_death:.2f}. physics: {initial_breath:.0f} "
+        f"breath, losses hit breath at {loss_multiplier:g}x; profit is "
+        f"FORFEIT on death — only a life that survives the whole season "
+        f"keeps its earnings. you will be reborn at the season's first "
+        f"market with these weights."
+    )
+    return PerformanceWindow(
+        tick=settled,
+        ts=datetime(1970, 1, 1, tzinfo=UTC),
+        agent_id=f"groundhog-incarnation-{incarnation}",
+        phase=Phase.PHASE_2_APPRENTICE,
+        current_weights=terminal_weights,
+        baseline_weights=seed_weights,
+        recent_pnl_window_usd=pnl_at_death,
+        trigger="tick_interval",
+        recent_pnl=list(recent_step_pnls),
+        recent_reflections=[summary],
+        tick_count=settled,
+    )
+
+
+def _count_applicable(deltas: list[dict[str, object]]) -> int:
+    """How many proposals ``apply_weight_deltas`` will actually consume
+    (same predicate: known key + non-bool numeric delta)."""
+    n = 0
+    for d in deltas:
+        key = d.get("key")
+        delta = d.get("delta")
+        if (
+            key in _DELTA_KEYS
+            and isinstance(delta, (int, float))
+            and not isinstance(delta, bool)
+        ):
+            n += 1
+    return n
+
+
+def run_groundhog_export(
+    *,
+    rows: list[SurvivalRow],
+    snapshots: list[MarketSnapshot],
+    base_seed: StrategyConfig,
+    out_path: Path,
+    max_incarnations: int = 120,
+    train_fraction: float = 0.7,
+    fragile_max_breath_risk_pct: float = 0.95,
+    loss_multiplier: float = DEFAULT_LOSS_MULTIPLIER,
+    initial_breath: float = DEFAULT_INITIAL_BREATH,
+    initial_bankroll_usd: float = DEFAULT_PHASE2_BANKROLL_USD,
+    holdout_max_lives: int = DEFAULT_MAX_LIVES,
+    max_bet_pnl_usd: float | None = DEFAULT_MAX_BET_PNL_USD,
+    entry_price_floor: float = DEFAULT_ENTRY_PRICE_FLOOR,
+    effective_entry_price_floor: float | None = None,
+    rebirth_llm: _LLMClient | None = None,
+    rebirth_guard: L3CostGuard | None = None,
+    rebirth_model: str = "",
+    preflight: bool = True,
+    state_root: Path | None = None,
+) -> dict[str, Any]:
+    """TRUE reincarnation (design v2, user-locked): one incarnation = ONE
+    life from the season's FIRST market (``max_lives=1`` — no internal
+    respawns); death sends the agent back to market #1 carrying its
+    experience (weights + the EMA inner + an optional death-context
+    retrospective) but never outcomes; the loop runs until one life survives
+    the whole train window or ``max_incarnations``; a DEAD incarnation's
+    profit is SCORED ZERO (永久死亡经济学: the headline belongs to the
+    surviving life only); then the frozen cold-start holdout walk.
+
+    The numerical leg is the CONTROL (its gradient is death-blind — the
+    forensics prediction is a plateau); the AI leg is the TREATMENT (the
+    strict advisor sees the death context; its only levers are the existing
+    six weight keys, so any survival behavior is emergent, not scripted).
+    """
+    if max_incarnations < 1:
+        raise ValueError(
+            f"max_incarnations must be >= 1 (got {max_incarnations})"
+        )
+    eff_floor = (
+        entry_price_floor
+        if effective_entry_price_floor is None
+        else effective_entry_price_floor
+    )
+    bad = min((r.entry_price for r in rows), default=None)
+    if bad is not None and bad < entry_price_floor:
+        raise ValueError(
+            f"row universe violates entry_price_floor {entry_price_floor!r} "
+            f"(min entry price {bad!r}) -- load rows with the same floor"
+        )
+
+    train, holdout = split_rows_by_time(rows, train_fraction=train_fraction)
+    fragile = fragile_seed_from_config(
+        base_seed, max_breath_risk_pct=fragile_max_breath_risk_pct
+    )
+
+    # AI preflight: a misconfigured key/model must abort BEFORE the loop, not
+    # produce ~cap fail-soft no-ops masquerading as "no change" advice.
+    if rebirth_llm is not None and preflight:
+        preflight_ai_advisor_applicable(rebirth_llm, model=rebirth_model)
+    # Run-scoped cost guard: resolved ONCE — a per-death from_env() fallback
+    # would hand every death a fresh budget, making the cap a lie.
+    run_guard = (
+        rebirth_guard if rebirth_guard is not None else L3CostGuard.from_env()
+    )
+
+    shared_inner = WeightUpdater()
+    carry = fragile.weights
+    rebirth_note: str | None = None
+    incarnations: list[dict[str, Any]] = []
+    all_eff_prices: list[float] = []
+    survived = False
+    surviving_incarnation: int | None = None
+    rebirth_calls = 0
+    rebirth_productive = 0
+    rebirth_proposals = 0
+    rebirth_applied = 0
+
+    with tempfile.TemporaryDirectory(prefix="groundhog_") as tmp:
+        root = Path(tmp) if state_root is None else Path(state_root)
+
+        for k in range(1, max_incarnations + 1):
+            _require_fresh_dir(root / f"inc_{k}")
+            recorder = SurvivalRecorder(
+                rows=train, loss_multiplier=loss_multiplier
+            )
+            result = run_survival_season(
+                rows=train,
+                snapshots=snapshots,
+                seed=dataclasses.replace(fragile, weights=carry),
+                state_root=root / f"inc_{k}",
+                initial_breath=initial_breath,
+                initial_bankroll_usd=initial_bankroll_usd,
+                max_lives=1,  # THE incarnation primitive: one life, no respawn
+                max_bet_pnl_usd=max_bet_pnl_usd,
+                recorder=recorder,
+                side_correct_pricing=True,
+                value_betting=True,
+                effective_entry_price_floor=eff_floor,
+                shared_inner=shared_inner,
+            )
+            all_eff_prices.extend(
+                _validate_learner_physics(
+                    recorder,
+                    max_bet_pnl_usd=max_bet_pnl_usd,
+                    label=f"incarnation {k}",
+                )
+            )
+            if not result.lives:
+                raise RuntimeError(
+                    f"incarnation {k} produced no life; artifact NOT written"
+                )
+            life = result.lives[0]
+            died = life.died
+            steps = recorder.steps
+            settled = len(steps)
+            wins = sum(1 for s in steps if s.pnl_usd > 0.0)
+            pnl = steps[-1].cum_pnl if steps else 0.0
+            terminal = life.terminal_weights
+            entry: dict[str, Any] = {
+                "incarnation": k,
+                "died": died,
+                # 死了归零: dead men collect nothing — experience carries,
+                # money does not. Raw at-death pnl stays as telemetry.
+                "pnl_at_death": pnl,
+                "scored_pnl": 0.0 if died else pnl,
+                "markets_seen": len(life.consumed_market_ids),
+                "progress_pct": (
+                    100.0 * len(life.consumed_market_ids) / len(train)
+                    if train
+                    else 0.0
+                ),
+                "settled": settled,
+                "bets": life.bets_placed,
+                "win_rate": (wins / settled) if settled else 0.0,
+                "start_weights": carry.model_dump(),
+                "terminal_weights": terminal.model_dump(),
+                "rebirth_note": rebirth_note,
+                "advisor": {"called": False, "proposals": 0, "applied": 0},
+                "carry": {
+                    "ema_keys": sorted(shared_inner._ema),
+                    "ema_size": len(shared_inner._ema),
+                },
+            }
+            # Size guard: scalars for EVERY incarnation; curves only for the
+            # first few, the survivor, and the final incarnation.
+            if k <= _CURVE_KEEP_FIRST or not died or k == max_incarnations:
+                entry["curve"] = _curve_points(recorder)
+            incarnations.append(entry)
+
+            carry = terminal
+            rebirth_note = None
+            if not died:
+                survived = True
+                surviving_incarnation = k
+                break
+
+            # Death retrospective — ONLY when a successor incarnation exists
+            # (a post-cap delta would feed the holdout hidden training state).
+            if rebirth_llm is not None and k < max_incarnations:
+                window = build_death_window(
+                    incarnation=k,
+                    max_incarnations=max_incarnations,
+                    terminal_weights=terminal,
+                    seed_weights=fragile.weights,
+                    pnl_at_death=pnl,
+                    recent_step_pnls=[s.pnl_usd for s in steps][
+                        -_REBIRTH_RECENT_TAIL:
+                    ],
+                    settled=settled,
+                    target_markets=len(train),
+                    markets_seen=len(life.consumed_market_ids),
+                    avg_stake_usd=(
+                        sum(s.size_usd for s in steps) / settled
+                        if settled
+                        else 0.0
+                    ),
+                    win_rate=(wins / settled) if settled else 0.0,
+                    initial_breath=initial_breath,
+                    loss_multiplier=loss_multiplier,
+                )
+                advisor = StrategyAdvisorImpl(
+                    llm_client=rebirth_llm,
+                    cost_guard=run_guard,
+                    weight_delta_only=True,
+                    model=rebirth_model,
+                )
+                proposals = advisor.review_window(window)
+                rebirth_calls += 1
+                deltas = [dict(p.proposed_change) for p in proposals]
+                applied = _count_applicable(deltas)
+                if proposals:
+                    rebirth_productive += 1
+                    carry = apply_weight_deltas(terminal, deltas)
+                    rebirth_note = sanitize_rebirth_note(
+                        "; ".join(p.rationale for p in proposals)
+                    )
+                rebirth_proposals += len(proposals)
+                rebirth_applied += applied
+                entry["advisor"] = {
+                    "called": True,
+                    "proposals": len(proposals),
+                    "applied": applied,
+                }
+
+        # -- The cold-start verdict: held-out window, learning FROZEN. -------
+        holdout_dict, holdout_eff = _run_frozen_holdout(
+            holdout=holdout,
+            snapshots=snapshots,
+            fragile=fragile,
+            carry=carry,
+            state_dir=root / "holdout",
+            loss_multiplier=loss_multiplier,
+            initial_breath=initial_breath,
+            initial_bankroll_usd=initial_bankroll_usd,
+            max_lives=holdout_max_lives,
+            max_bet_pnl_usd=max_bet_pnl_usd,
+            eff_floor=eff_floor,
+        )
+    all_eff_prices.extend(holdout_eff)
+
+    min_eff = min(all_eff_prices, default=None)
+    if min_eff is not None and min_eff < eff_floor:
+        raise RuntimeError(
+            f"physics invariant violated: a placed bet's effective entry "
+            f"price {min_eff!r} is below the floor {eff_floor!r}; "
+            "artifact NOT written"
+        )
+
+    # Treatment-integrity invariant: every death with a successor MUST have
+    # been put in front of the advisor (deterministic orchestration ⇒
+    # equality). "productive < calls" stays legal and disclosed — the API
+    # cannot distinguish a fail-soft empty from a deliberate no-change.
+    expected = sum(1 for inc in incarnations[:-1] if inc["died"])
+    if rebirth_llm is not None and rebirth_calls != expected:
+        raise RuntimeError(
+            f"treatment leg integrity violated: {expected} deaths with a "
+            f"successor but {rebirth_calls} advisor calls; artifact NOT "
+            "written"
+        )
+
+    headline_pnl = (
+        incarnations[-1]["pnl_at_death"] if survived else 0.0
+    )
+
+    artifact: dict[str, Any] = {
+        "experiment": "reincarnation",
+        "design": "groundhog_day",
+        "schema_version": 2,
+        "provider": "ai" if rebirth_llm is not None else "numerical",
+        "physics": {
+            "side_correct_pricing": True,
+            "value_betting": True,
+            "entry_price_floor": entry_price_floor,
+            "max_bet_pnl_usd": max_bet_pnl_usd,
+            "effective_entry_price_floor": eff_floor,
+            "min_effective_entry_price": min_eff,
+            "min_edge": fragile.min_edge,
+            "kappa": fragile.kappa,
+        },
+        "split": {
+            "train_rows": len(train),
+            "holdout_rows": len(holdout),
+            "train_fraction": train_fraction,
+            "train_end_ts": train[-1].entry_asof_ts_iso,
+            "holdout_start_ts": holdout[0].entry_asof_ts_iso,
+        },
+        "knobs": {
+            "max_incarnations": max_incarnations,
+            "fragile_max_breath_risk_pct": fragile_max_breath_risk_pct,
+            "loss_multiplier": loss_multiplier,
+            "initial_breath": initial_breath,
+            "initial_bankroll_usd": initial_bankroll_usd,
+            "holdout_max_lives": holdout_max_lives,
+        },
+        "scoring": (
+            "dead incarnations score zero; the headline belongs to the "
+            "surviving life only"
+        ),
+        "survived": survived,
+        "surviving_incarnation": surviving_incarnation,
+        "headline_pnl": headline_pnl,
+        "rebirth": {
+            "expected": expected if rebirth_llm is not None else 0,
+            "calls": rebirth_calls,
+            "productive": rebirth_productive,
+            "empty_or_failed": rebirth_calls - rebirth_productive,
+            "proposals": rebirth_proposals,
+            "applied": rebirth_applied,
+        },
+        "incarnations": incarnations,
+        "holdout": holdout_dict,
+    }
+    _validate_groundhog_scoring(artifact)
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(artifact, sort_keys=True, indent=2), encoding="utf-8"
+    )
+    return artifact
+
+
+def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
+    """Cross-field scoring invariants (fail-closed before write): the
+    permadeath-economics rule must hold internally — a violated artifact is
+    never written, mirroring the physics invariants."""
+    incs = artifact["incarnations"]
+    survived = artifact["survived"]
+    pointer = artifact["surviving_incarnation"]
+    headline = artifact["headline_pnl"]
+    for inc in incs:
+        if inc["died"] and inc["scored_pnl"] != 0.0:
+            raise RuntimeError(
+                f"scoring invariant violated: dead incarnation "
+                f"{inc['incarnation']} carries scored_pnl "
+                f"{inc['scored_pnl']!r}; artifact NOT written"
+            )
+    if not survived:
+        if headline != 0.0 or pointer is not None or not all(
+            inc["died"] for inc in incs
+        ):
+            raise RuntimeError(
+                "scoring invariant violated: capped-out artifact must have "
+                "headline 0, no survivor pointer, and all-dead incarnations; "
+                "artifact NOT written"
+            )
+        return
+    if pointer is None or not (1 <= pointer <= len(incs)):
+        raise RuntimeError(
+            "scoring invariant violated: survived without a valid "
+            "surviving_incarnation pointer; artifact NOT written"
+        )
+    row = incs[pointer - 1]
+    if row["died"] or headline != row["scored_pnl"] != row["pnl_at_death"]:
+        raise RuntimeError(
+            "scoring invariant violated: the survivor row must be alive and "
+            "carry headline == scored == at-death pnl; artifact NOT written"
+        )

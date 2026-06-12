@@ -261,3 +261,237 @@ def test_reincarnation_ai_variant_records_rebirth_notes(tmp_path) -> None:
     got = artifact["passes"][1]["start_weights"]
     assert got["alpha"][2] == pytest.approx(expected.alpha[2])
     assert got != artifact["passes"][0]["terminal_weights"]
+
+
+# ========================================================================= #
+# Groundhog design (v2): one incarnation = one life from market #1.
+# ========================================================================= #
+
+
+
+def _clustered_dying_fixture():
+    """Six markets, the first four ENTERING before any of them settles —
+    settlement lag means all four bets are placed at FULL breath, so their
+    combined losses guarantee death (the sequential `_dying_fixture` lets a
+    breath-capped agent shrink below min_bet after loss #1 and limp to the
+    finish line alive). Markets 5-6 are the later holdout window."""
+    from tests.agent.backtest.test_survival_ai_mode import _row, _snap
+
+    snaps = [
+        _snap(
+            f"m{i}",
+            entry_ts=f"2025-06-01T0{i}:00:00+00:00",
+            end_date="2025-06-02T00:00:00+00:00",
+            resolution="2025-06-02T12:00:00+00:00",
+        )
+        for i in range(4)
+    ] + [
+        _snap(
+            "h1",
+            entry_ts="2025-06-10T00:00:00+00:00",
+            end_date="2025-06-10T12:00:00+00:00",
+            resolution="2025-06-10T20:00:00+00:00",
+        ),
+        _snap(
+            "h2",
+            entry_ts="2025-06-11T00:00:00+00:00",
+            end_date="2025-06-11T12:00:00+00:00",
+            resolution="2025-06-11T20:00:00+00:00",
+        ),
+    ]
+    return [_row(s) for s in snaps], snaps
+
+
+def test_groundhog_caps_when_every_life_dies(tmp_path) -> None:
+    """Dying fixture + low breath: every incarnation dies, the loop stops at
+    the cap, survived=False, and EVERY incarnation scores ZERO (the
+    permadeath-economics rule)."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    out = tmp_path / "g.json"
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=out,
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert out.exists()
+    assert artifact["experiment"] == "reincarnation"
+    assert artifact["design"] == "groundhog_day"
+    assert artifact["schema_version"] == 2
+    assert artifact["survived"] is False
+    assert artifact["surviving_incarnation"] is None
+    assert len(artifact["incarnations"]) == 2
+    for k, inc in enumerate(artifact["incarnations"], start=1):
+        assert inc["incarnation"] == k
+        assert inc["died"] is True
+        # The permadeath-economics rule: dead incarnations score zero.
+        assert inc["scored_pnl"] == 0.0
+        assert "pnl_at_death" in inc  # telemetry stays disclosed
+        assert "markets_seen" in inc and "progress_pct" in inc
+        assert "carry" in inc and isinstance(inc["carry"]["ema_keys"], list)
+    # Headline: nobody survived => headline pnl is 0 (not the dead lives' sum).
+    assert artifact["headline_pnl"] == 0.0
+    # Numerical leg: zero treatment telemetry.
+    assert artifact["rebirth"]["calls"] == 0
+    # Holdout still runs (frozen) with the three baselines.
+    assert artifact["holdout"]["summary"]["learning_enabled"] is False
+    assert set(artifact["holdout"]["baselines"]) == {
+        "static",
+        "random",
+        "always_favorite",
+    }
+
+
+def test_groundhog_terminates_on_first_surviving_life(tmp_path) -> None:
+    """High breath: the first incarnation survives to the final market —
+    the loop terminates immediately and the headline is THAT life's pnl."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _dying_fixture,
+        _fragile_seed,
+    )
+
+    rows, snaps = _dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g.json",
+        max_incarnations=5,
+        train_fraction=0.5,
+        initial_breath=1000.0,
+        entry_price_floor=0.0,
+    )
+    assert artifact["survived"] is True
+    assert len(artifact["incarnations"]) == 1
+    last = artifact["incarnations"][-1]
+    assert last["died"] is False
+    assert artifact["surviving_incarnation"] == 1
+    assert last["scored_pnl"] == last["pnl_at_death"]
+    assert artifact["headline_pnl"] == last["scored_pnl"]
+    assert last["progress_pct"] == 100.0
+
+
+def test_groundhog_rejects_bad_config_and_dirty_state_root(tmp_path) -> None:
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _dying_fixture,
+        _fragile_seed,
+    )
+
+    rows, snaps = _dying_fixture()
+    with pytest.raises(ValueError):
+        run_groundhog_export(
+            rows=rows,
+            snapshots=snaps,
+            base_seed=_fragile_seed(),
+            out_path=tmp_path / "g.json",
+            max_incarnations=0,
+            train_fraction=0.5,
+            initial_breath=3.0,
+            entry_price_floor=0.0,
+        )
+    # Dirty explicit state dir => fail closed (stale loop state would resume).
+    root = tmp_path / "root"
+    dirty = root / "inc_1"
+    dirty.mkdir(parents=True)
+    (dirty / "stale.jsonl").write_text("{}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="dirty state dir"):
+        run_groundhog_export(
+            rows=rows,
+            snapshots=snaps,
+            base_seed=_fragile_seed(),
+            out_path=tmp_path / "g.json",
+            max_incarnations=1,
+            train_fraction=0.5,
+            initial_breath=3.0,
+            entry_price_floor=0.0,
+            state_root=root,
+        )
+
+
+def test_build_death_window_carries_death_context_not_market_specifics() -> None:
+    from agent.backtest.reincarnation import build_death_window
+
+    seed_w = _w()
+    window = build_death_window(
+        incarnation=5,
+        max_incarnations=120,
+        terminal_weights=seed_w,
+        seed_weights=seed_w,
+        pnl_at_death=-12.5,
+        recent_step_pnls=[2.5, -8.0, -7.0],
+        settled=134,
+        target_markets=1715,
+        markets_seen=420,
+        avg_stake_usd=4.87,
+        win_rate=0.79,
+        initial_breath=35.0,
+        loss_multiplier=5.0,
+    )
+    assert window.trigger == "tick_interval"
+    assert window.recent_pnl == [2.5, -8.0, -7.0]
+    assert window.recent_pnl_window_usd == pytest.approx(-12.5)
+    # The death summary rides the EXISTING recent_reflections field — the
+    # renderer already shows it to the LLM; schema untouched.
+    assert len(window.recent_reflections) == 1
+    note = window.recent_reflections[0]
+    for token in ("died", "134", "420", "1715", "incarnation 5", "35", "5x"):
+        assert token in note, token
+    # Information hygiene: no market identities of any kind.
+    for forbidden in ("market_id", "slug", "wta", "atp"):
+        assert forbidden not in note.lower()
+
+
+def test_groundhog_ai_leg_applies_deltas_at_each_death(tmp_path) -> None:
+    from agent.backtest.reincarnation import (
+        apply_weight_deltas,
+        run_groundhog_export,
+    )
+    from agent.core.state import Weights
+    from agent.llm.cost_guard import L3CostGuard
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _FakeAdvisorLLM,
+        _fragile_seed,
+    )
+
+    rows, snaps = _clustered_dying_fixture()
+    fake = _FakeAdvisorLLM()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_ai.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        rebirth_llm=fake,
+        rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
+    )
+    assert artifact["provider"] == "ai"
+    incs = artifact["incarnations"]
+    assert incs[0]["rebirth_note"] is None  # incarnation 1 starts cold
+    assert isinstance(incs[1]["rebirth_note"], str)
+    # Boundary application proof (deterministic fake: alpha_2 +0.04).
+    t1 = Weights(**incs[0]["terminal_weights"])
+    expected = apply_weight_deltas(t1, [{"key": "alpha_2", "delta": 0.04}])
+    assert incs[1]["start_weights"]["alpha"][2] == pytest.approx(
+        expected.alpha[2]
+    )
+    # Treatment telemetry: ONE death has a successor (the final death gets
+    # NO retrospective — it would feed the holdout hidden training state).
+    assert artifact["rebirth"]["expected"] == 1
+    assert artifact["rebirth"]["calls"] == 1
+    assert artifact["rebirth"]["productive"] == 1
+    assert incs[0]["advisor"] == {"called": True, "proposals": 1, "applied": 1}
+    # The death summary reached the LLM prompt (any(): fake.calls[0] is the
+    # PREFLIGHT probe prompt, not the death prompt).
+    assert any("died" in c["prompt"] for c in fake.calls)

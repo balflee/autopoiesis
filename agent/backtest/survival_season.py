@@ -1461,6 +1461,30 @@ def _decision_engine_from_seed(
     )
 
 
+class _FrozenInnerUpdater(WeightUpdater):
+    """A :class:`WeightUpdater` whose settlement learning is a NO-OP.
+
+    The reincarnation experiment's cold-start pass (learning_enabled=False)
+    swaps this in as the per-life adapter's inner so the FULL settlement path
+    (poller → adapter → recorder capture, breath/death physics) runs
+    unchanged while the weights stay byte-frozen at the seed. Its EMA buffer
+    never populates and nothing is carried.
+    """
+
+    async def update_from_settlement(
+        self,
+        *,
+        current: Weights,
+        phase: Phase,
+        pnl_usd: float,
+        size_usd: float,
+        signal_scores: dict[str, float],
+        bet_direction: float,
+        desperate: bool = False,
+    ) -> Weights:
+        return current
+
+
 def _build_life_loop(
     *,
     idx: int,
@@ -1478,6 +1502,7 @@ def _build_life_loop(
     side_correct_pricing: bool = False,
     value_betting: bool = False,
     effective_entry_price_floor: float | None = None,
+    learning_enabled: bool = True,
 ) -> SandboxPhase2Loop:
     """Construct ONE fresh life loop (codex H2 + R5 + R8 + R2-MED).
 
@@ -1634,8 +1659,12 @@ def _build_life_loop(
     # FRESH per-life settlement-learning adapter bound to THIS loop, wrapping the
     # SHARED inner updater (codex R2-MED): reusing the adapter would mutate the
     # DEAD previous loop; a fresh inner updater would drop the EMA.
+    # Reincarnation cold-start (learning_enabled=False): a frozen inner takes
+    # the SAME adapter seat — settlement physics (breath/death) and the
+    # recorder's per-step capture run unchanged, but every gradient step
+    # returns the current weights verbatim, so the seed stays byte-frozen.
     learning_adapter = _SettlementLearningWeightUpdater(
-        inner=shared_inner,
+        inner=shared_inner if learning_enabled else _FrozenInnerUpdater(),
         weights_holder=loop,
     )
     # A3: when a recorder is wired, the settlement-update call is wrapped so each
@@ -1665,6 +1694,8 @@ def run_survival_season(
     side_correct_pricing: bool = False,
     value_betting: bool = False,
     effective_entry_price_floor: float | None = None,
+    shared_inner: WeightUpdater | None = None,
+    learning_enabled: bool = True,
 ) -> SeasonResult:
     """Drive a multi-life FRESH-loop survival season (A2).
 
@@ -1722,7 +1753,11 @@ def run_survival_season(
         top of the numerical EMA backbone (auto-approved weight deltas).
     """
     snaps_by_id = {s.market_id: s for s in snapshots}
-    shared_inner = WeightUpdater()
+    # Reincarnation carry seam: an injected inner (its EMA buffer) survives
+    # ACROSS seasons; the default fresh instance keeps every existing caller
+    # byte-identical.
+    if shared_inner is None:
+        shared_inner = WeightUpdater()
 
     remaining = list(rows)
     lives: list[LifeOutcome] = []
@@ -1754,6 +1789,7 @@ def run_survival_season(
             side_correct_pricing=side_correct_pricing,
             value_betting=value_betting,
             effective_entry_price_floor=effective_entry_price_floor,
+            learning_enabled=learning_enabled,
         )
 
         max_ticks = len(schedule.stops)

@@ -1312,3 +1312,83 @@ def test_ai_context_model_threads_into_all_three_constructions(
     probe_client = _FakeAdvisorLLM()
     ss.preflight_ai_advisor_applicable(probe_client, model="")
     assert "<DEFAULT>" not in captured["advisor_models"]  # type: ignore[operator]
+
+
+# =========================================================================== #
+# Part 6 — reincarnation seams: shared EMA inner + learning freeze (additive).
+# =========================================================================== #
+
+
+def test_season_shared_inner_is_used_and_carries_state(tmp_path: Path) -> None:
+    """The injected WeightUpdater IS the season's learner (its EMA buffer
+    mutates), and its state survives into a second season — the carry seam.
+
+    Do NOT assert carried-vs-fresh terminal-weight divergence on the
+    constant-score ``_dying_fixture`` — with a constant feature stream a fresh
+    EMA initializes AT the first value and equals a carried one
+    (weight_updater.py:473), so divergence is not guaranteed. The seam
+    contract is asserted directly on the injected instance's state, over a
+    VARIED-score fixture so the EMA keeps moving.
+    """
+    from agent.engines.weight_updater import WeightUpdater
+
+    # Varied scores (NOT the constant 0.8 default) — rebuild rows off the
+    # fixture's snaps so the EMA tau-blend keeps moving between seasons.
+    _, snaps = _dying_fixture()
+    rows = [_row(s, score=x) for s, x in zip(snaps, (0.8, 0.3, 0.6), strict=True)]
+    seed = _fragile_seed()
+    inner = WeightUpdater()
+    assert inner._ema == {}
+    r1 = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=seed,
+        state_root=tmp_path / "s1",
+        initial_breath=3.0,
+        max_lives=2,
+        shared_inner=inner,
+    )
+    assert r1.lives, "sanity: season ran"
+    assert inner._ema, "the injected inner must be the instance that learned"
+    ema_after_1 = dict(inner._ema)
+    run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=seed,
+        state_root=tmp_path / "s2",
+        initial_breath=3.0,
+        max_lives=2,
+        shared_inner=inner,
+    )
+    assert inner._ema != ema_after_1, (
+        "season 2 must keep learning FROM the carried state (varied scores "
+        "guarantee the tau-blend moves the buffer)"
+    )
+
+
+def test_season_learning_disabled_freezes_weights(tmp_path: Path) -> None:
+    """learning_enabled=False: weights stay byte-frozen at the seed across the
+    whole season (the cold-start contract) while the season still runs and a
+    recorder still captures the settled steps."""
+    rows, snaps = _dying_fixture()
+    seed = _fragile_seed()
+    recorder = SurvivalRecorder(rows=rows)
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=seed,
+        state_root=tmp_path / "s",
+        initial_breath=3.0,
+        max_lives=2,
+        learning_enabled=False,
+        recorder=recorder,
+    )
+    assert result.lives
+    for life in result.lives:
+        assert life.terminal_weights == seed.weights
+    # The journey seam stays alive under the freeze (steps still recorded,
+    # and each step proves the weights did not move).
+    assert recorder.steps, "frozen season must still record settled steps"
+    for step in recorder.steps:
+        assert step.weights_before == seed.weights
+        assert step.weights_after == seed.weights

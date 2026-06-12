@@ -41,6 +41,11 @@ const nextConfig: NextConfig = {
       "./public/backtest/survival_journey_ai_run2.json",
       "./public/backtest/survival_journey_ai_gemini_run2.json",
     ],
+    // Phase-2 reincarnation artifacts — same deploy-only contract.
+    "/reincarnation": [
+      "./public/backtest/reincarnation.json",
+      "./public/backtest/reincarnation_ai.json",
+    ],
   },
 };
 

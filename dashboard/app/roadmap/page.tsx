@@ -234,6 +234,17 @@ export default function RoadmapPage(): JSX.Element {
           >
             verify everything <span aria-hidden>▸</span> /docs
           </Link>
+
+          {/* Phase-2 cross-link — the reincarnation experiment. */}
+          <Link
+            href="/reincarnation"
+            data-testid="roadmap-reincarnation-link"
+            className="ab-hero-in mt-2 inline-flex w-fit items-center gap-2 rounded-sm font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--ab-dim)] transition-colors hover:text-[var(--ab-glow)] focus:outline-none focus-visible:text-[var(--ab-glow)] focus-visible:ring-2 focus-visible:ring-[var(--ab-glow)]/70"
+            style={{ animationDelay: "760ms" }}
+          >
+            phase 2 · the reincarnation experiment <span aria-hidden>▸</span>{" "}
+            /reincarnation
+          </Link>
         </header>
 
         {/* ---- LIFELINE -------------------------------------------- */}

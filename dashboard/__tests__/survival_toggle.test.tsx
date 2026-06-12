@@ -374,3 +374,13 @@ function fixtureRawForV3(): unknown {
     },
   };
 }
+
+describe("Phase framing — the Phase-1 banner", () => {
+  it("renders the phase-1 chip + the /reincarnation cross-link", () => {
+    render(<SurvivalJourneyShell numerical={buildFixture(11)} ai={null} />);
+    const banner = screen.getByTestId("survival-phase1-banner");
+    expect(banner.textContent).toMatch(/phase 1/i);
+    const link = within(banner).getByRole("link");
+    expect(link.getAttribute("href")).toBe("/reincarnation");
+  });
+});

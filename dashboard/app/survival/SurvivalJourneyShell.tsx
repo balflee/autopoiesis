@@ -15,6 +15,7 @@
  * renders the AI option, disabled with a "pending" hint.
  */
 
+import Link from "next/link";
 import { useState, type JSX } from "react";
 
 import {
@@ -160,6 +161,24 @@ export function SurvivalJourneyShell({
 
   return (
     <>
+      {/* ── Phase framing: this page is the PHASE 1 record; the reincarnation
+          experiment (same-season passes + frozen cold-start) is Phase 2 on its
+          own page. The data below is untouched. ── */}
+      <section
+        data-testid="survival-phase1-banner"
+        className="ab-reveal mb-8 flex flex-wrap items-center gap-3 rounded-xl border border-[var(--ab-moss)]/30 bg-[var(--ab-bg-2)]/60 px-4 py-3"
+      >
+        <span className="inline-flex items-center rounded-full border border-[var(--ab-text)]/40 px-2.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--ab-text)]">
+          phase 1 · backtest with ai
+        </span>
+        <Link
+          href="/reincarnation"
+          className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--ab-dim)] transition-colors hover:text-[var(--ab-glow)]"
+        >
+          phase 2 — the reincarnation experiment ▸ /reincarnation
+        </Link>
+      </section>
+
       {/* ── Toggle: Numerical vs AI — the run currently telling the story. ── */}
       <section
         data-testid="survival-mode-section"

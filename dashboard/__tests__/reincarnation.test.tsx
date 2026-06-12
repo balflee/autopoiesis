@@ -283,6 +283,7 @@ function tributeFixture(): ReincarnationFixture {
     headline_pnl: 459,
     ...({
       gods_revenue: 4000,
+      gods_revenue_best_incarnation: 2000,
       tribute: {
         enabled: true,
         min_usd: 500,
@@ -320,6 +321,9 @@ describe("A7 tribute — validator accounting + rendering", () => {
     expect(within(verdict).getByText("$459")).toBeInTheDocument();
     const gods = screen.getByTestId("reincarnation-gods-revenue");
     expect(gods.textContent).toMatch(/\$4,000/);
+    // The live business metric: the gods' best single-life take.
+    const best = screen.getByTestId("reincarnation-gods-best");
+    expect(best.textContent).toBe("$2,000");
     // Honest notes carry the tribute fine print.
     const honest = screen.getByTestId("reincarnation-honest");
     expect(honest.textContent).toMatch(/scripted reflex/i);

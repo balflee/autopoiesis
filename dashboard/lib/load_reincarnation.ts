@@ -121,6 +121,11 @@ export interface ReincarnationFixture {
   /** A7: the gods' total take across ALL incarnations (failed offerings
    * included). Present only on tribute-enabled artifacts. */
   readonly gods_revenue?: number;
+  /** The LIVE business metric: the gods' best take from a SINGLE life
+   * (live = a stream of lives; this is revenue per life). Optional —
+   * artifacts written before 2026-06-13 lack it; the page falls back to
+   * computing it from the incarnation rows. */
+  readonly gods_revenue_best_incarnation?: number;
   readonly tribute?: {
     readonly enabled: boolean;
     readonly min_usd: number;
@@ -289,6 +294,27 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
     }
     if (Math.abs(revenue - total) > 1e-6) {
       fail("tribute accounting: gods_revenue != sum of all tributes");
+    }
+    // Best-single-incarnation take: validated when present (older
+    // artifacts lack the field; the page derives it client-side).
+    if (data.gods_revenue_best_incarnation !== undefined) {
+      const best = asNumber(
+        data.gods_revenue_best_incarnation,
+        "gods_revenue_best_incarnation",
+      );
+      let maxPaid = 0;
+      for (const inc of incs) {
+        const rec = inc as Record<string, unknown>;
+        if (typeof rec.tributes_paid === "number" && rec.tributes_paid > maxPaid) {
+          maxPaid = rec.tributes_paid;
+        }
+      }
+      if (Math.abs(best - maxPaid) > 1e-6) {
+        fail(
+          "tribute accounting: gods_revenue_best_incarnation != max of " +
+            "tributes_paid",
+        );
+      }
     }
   }
 

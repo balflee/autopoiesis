@@ -344,8 +344,22 @@ export function ReincarnationShell({
               <span className="font-display text-xl text-[var(--ab-glow)] ab-glow-text">
                 {money(fixture.gods_revenue)}
               </span>{" "}
-              collected at the altar (failed offerings included — the gods
-              keep everything).
+              collected at the altar across {incs.length} incarnation
+              {incs.length === 1 ? "" : "s"} (failed offerings included — the
+              gods keep everything) ·{" "}
+              <span className="text-[var(--ab-text)]">
+                best single life{" "}
+              </span>
+              <span data-testid="reincarnation-gods-best">
+                {money(
+                  fixture.gods_revenue_best_incarnation ??
+                    incs.reduce(
+                      (acc, i) => Math.max(acc, i.tributes_paid ?? 0),
+                      0,
+                    ),
+                )}
+              </span>
+              {" — "}the per-life revenue an operator would actually pocket.
             </p>
           ) : null}
         </section>

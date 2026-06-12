@@ -962,6 +962,7 @@ def test_groundhog_tribute_reflex_buys_the_finish_line(tmp_path) -> None:
     assert inc["scored_pnl"] == pytest.approx(inc["pnl_net"])
     assert artifact["headline_pnl"] == pytest.approx(inc["pnl_net"])
     assert artifact["gods_revenue"] == 2000.0
+    assert artifact["gods_revenue_best_incarnation"] == 2000.0
     assert artifact["tribute"]["enabled"] is True
     # Numerical leg: the reflex is scripted; zero LLM telemetry.
     assert artifact["tribute"]["llm"]["calls"] == 0
@@ -1006,6 +1007,7 @@ def test_groundhog_tribute_fail_then_save_accounting(tmp_path) -> None:
     assert artifact["survived"] is True
     assert artifact["surviving_incarnation"] == 2
     assert artifact["gods_revenue"] == 4000.0
+    assert artifact["gods_revenue_best_incarnation"] == 2000.0
     assert artifact["headline_pnl"] == pytest.approx(inc2["pnl_net"])
 
 

@@ -1254,6 +1254,13 @@ def run_groundhog_export(
                 "gods_revenue": sum(
                     inc.get("tributes_paid", 0.0) for inc in incarnations
                 ),
+                # The LIVE business metric: the gods' best take from a
+                # SINGLE life (live = a stream of lives; this is revenue
+                # per life, the number that lands in the operator's pocket).
+                "gods_revenue_best_incarnation": max(
+                    (inc.get("tributes_paid", 0.0) for inc in incarnations),
+                    default=0.0,
+                ),
                 "tribute": {
                     "enabled": True,
                     "min_usd": TRIBUTE_MIN_USD,
@@ -1338,6 +1345,14 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
                     "tribute accounting violated: gods_revenue != sum of "
                     "all tributes; artifact NOT written"
                 )
+            best = max(
+                (inc.get("tributes_paid", 0.0) for inc in incs), default=0.0
+            )
+            if artifact.get("gods_revenue_best_incarnation") != best:
+                raise RuntimeError(
+                    "tribute accounting violated: best-incarnation revenue "
+                    "!= max of tributes_paid; artifact NOT written"
+                )
         return
     if pointer is None or not (1 <= pointer <= len(incs)):
         raise RuntimeError(
@@ -1387,4 +1402,12 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
             raise RuntimeError(
                 "tribute accounting violated: gods_revenue != sum of all "
                 "tributes; artifact NOT written"
+            )
+        best = max(
+            (inc.get("tributes_paid", 0.0) for inc in incs), default=0.0
+        )
+        if artifact.get("gods_revenue_best_incarnation") != best:
+            raise RuntimeError(
+                "tribute accounting violated: best-incarnation revenue != "
+                "max of tributes_paid; artifact NOT written"
             )

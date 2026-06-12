@@ -1,4 +1,4 @@
-"""Phase-2 reincarnation experiment: time split, weight-delta application,
+﻿"""Phase-2 reincarnation experiment: time split, weight-delta application,
 rebirth window, note sanitization, and the multi-pass export."""
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def test_split_rows_by_time_orders_then_splits() -> None:
 
 
 def test_split_keeps_tied_timestamps_on_the_train_side() -> None:
-    """r1 M-3: equal-time markets must never straddle the boundary — ties at
+    """r1 M-3: equal-time markets must never straddle the boundary â€” ties at
     the cut are pulled INTO train so holdout starts strictly later."""
     tie = "2025-06-01T00:00:00+00:00"
     rows = [
@@ -73,7 +73,7 @@ def test_split_rejects_degenerate_fractions_and_all_tied_rows() -> None:
 
 
 # =========================================================================== #
-# Rebirth retrospective seams — delta application, window builder, sanitizer.
+# Rebirth retrospective seams â€” delta application, window builder, sanitizer.
 # =========================================================================== #
 
 
@@ -107,7 +107,7 @@ def test_apply_weight_deltas_clamps_and_renormalizes() -> None:
     assert out.w_s == pytest.approx(0.4)
     assert sum(out.alpha) == pytest.approx(1.0)
     assert out.alpha[2] > w.alpha[2]
-    # |delta| capped at 0.1 — the requested -0.2 applies as -0.1.
+    # |delta| capped at 0.1 â€” the requested -0.2 applies as -0.1.
     assert out.rho == pytest.approx(0.4)
 
 
@@ -144,18 +144,18 @@ def test_build_rebirth_window_is_strategy_level_only() -> None:
     )
     assert window.trigger == "tick_interval"
     # recent_pnl's REAL semantics (prompt renderer + dataclass) are "last
-    # settled bets, $USD" — it receives actual step pnls, never life totals.
+    # settled bets, $USD" â€” it receives actual step pnls, never life totals.
     assert window.recent_pnl == [2.5, -8.0, 1.0]
     assert window.recent_pnl_window_usd == pytest.approx(-13.5)
     assert window.tick_count == 120
-    # Hygiene: the window carries ONLY aggregates — no market ids/names.
+    # Hygiene: the window carries ONLY aggregates â€” no market ids/names.
     assert "market" not in window.agent_id
     assert window.agent_id == "rebirth-pass-1-deaths-2"
 
 
 def test_sanitize_rebirth_note_collapses_and_caps() -> None:
-    """The persisted note is enforced-clean — whitespace collapsed, hard
-    length cap — never raw LLM text."""
+    """The persisted note is enforced-clean â€” whitespace collapsed, hard
+    length cap â€” never raw LLM text."""
     from agent.backtest.reincarnation import sanitize_rebirth_note
 
     assert sanitize_rebirth_note("  a \n\n b\t c  ") == "a b c"
@@ -167,7 +167,7 @@ def test_sanitize_rebirth_note_collapses_and_caps() -> None:
 
 
 # =========================================================================== #
-# run_reincarnation_export — the multi-pass orchestrator.
+# run_reincarnation_export â€” the multi-pass orchestrator.
 # =========================================================================== #
 
 
@@ -252,7 +252,7 @@ def test_reincarnation_ai_variant_records_rebirth_notes(tmp_path) -> None:
     assert isinstance(notes[1], str) and len(notes[1]) > 0
     # EMA learning alone moves start-vs-start weights, so that proves nothing.
     # The PROOF of boundary application: pass 2 starts EXACTLY at
-    # apply_weight_deltas(pass-1 terminal, the fake's deterministic delta) —
+    # apply_weight_deltas(pass-1 terminal, the fake's deterministic delta) â€”
     # _FakeAdvisorLLM always proposes {"key": "alpha_2", "delta": 0.04}.
     p1_terminal = Weights(**artifact["passes"][0]["terminal_weights"])
     expected = apply_weight_deltas(
@@ -270,7 +270,7 @@ def test_reincarnation_ai_variant_records_rebirth_notes(tmp_path) -> None:
 
 
 def _clustered_dying_fixture():
-    """Six markets, the first four ENTERING before any of them settles —
+    """Six markets, the first four ENTERING before any of them settles â€”
     settlement lag means all four bets are placed at FULL breath, so their
     combined losses guarantee death (the sequential `_dying_fixture` lets a
     breath-capped agent shrink below min_bet after loss #1 and limp to the
@@ -350,7 +350,7 @@ def test_groundhog_caps_when_every_life_dies(tmp_path) -> None:
 
 
 def test_groundhog_terminates_on_first_surviving_life(tmp_path) -> None:
-    """High breath: the first incarnation survives to the final market —
+    """High breath: the first incarnation survives to the final market â€”
     the loop terminates immediately and the headline is THAT life's pnl."""
     from agent.backtest.reincarnation import run_groundhog_export
     from tests.agent.backtest.test_survival_ai_mode import (
@@ -441,7 +441,7 @@ def test_build_death_window_carries_death_context_not_market_specifics() -> None
     assert window.trigger == "tick_interval"
     assert window.recent_pnl == [2.5, -8.0, -7.0]
     assert window.recent_pnl_window_usd == pytest.approx(-12.5)
-    # The death summary rides the EXISTING recent_reflections field — the
+    # The death summary rides the EXISTING recent_reflections field â€” the
     # renderer already shows it to the LLM; schema untouched.
     assert len(window.recent_reflections) == 1
     note = window.recent_reflections[0]
@@ -494,7 +494,7 @@ def test_groundhog_ai_leg_applies_deltas_at_each_death(tmp_path) -> None:
         expected.alpha[2]
     )
     # Treatment telemetry: ONE death has a successor (the final death gets
-    # NO retrospective — it would feed the holdout hidden training state).
+    # NO retrospective â€” it would feed the holdout hidden training state).
     assert artifact["rebirth"]["expected"] == 1
     assert artifact["rebirth"]["calls"] == 1
     assert artifact["rebirth"]["productive"] == 1
@@ -505,7 +505,7 @@ def test_groundhog_ai_leg_applies_deltas_at_each_death(tmp_path) -> None:
 
 
 # ========================================================================= #
-# A6 — the prayer mechanism: recorded for the gods, never carried forward.
+# A6 â€” the prayer mechanism: recorded for the gods, never carried forward.
 # ========================================================================= #
 
 
@@ -569,11 +569,11 @@ def test_groundhog_ai_leg_records_prayers_but_never_carries_them(
         rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
     )
     incs = artifact["incarnations"]
-    # EVERY death prays — including the final one (no successor needed; the
+    # EVERY death prays â€” including the final one (no successor needed; the
     # prayer is for the gods' record, not for the next life).
     assert all(isinstance(inc["prayer"], str) for inc in incs)
     assert MARKER in incs[0]["prayer"]
-    # Information-flow contract: the prayer is NEVER carried forward — no
+    # Information-flow contract: the prayer is NEVER carried forward â€” no
     # later prompt (advisor window or next prayer) may contain it.
     first_prayer_idx = next(
         i for i, c in enumerate(fake.calls) if "wish" in c["schema"].get("properties", {})
@@ -599,3 +599,435 @@ def test_groundhog_ai_leg_records_prayers_but_never_carries_them(
         entry_price_floor=0.0,
     )
     assert all(inc["prayer"] is None for inc in art_num["incarnations"])
+
+
+# ========================================================================= #
+# A7 â€” the tribute mechanism: money for breath, the gods always get paid.
+# ========================================================================= #
+
+
+def test_tribute_success_probability_curve() -> None:
+    from agent.runtime.tribute import tribute_success_probability
+
+    assert tribute_success_probability(500.0) == pytest.approx(0.30)
+    assert tribute_success_probability(1250.0) == pytest.approx(0.65)
+    assert tribute_success_probability(2000.0) == pytest.approx(0.99)
+    assert tribute_success_probability(5000.0) == pytest.approx(0.99)  # capped
+    with pytest.raises(ValueError):
+        tribute_success_probability(499.99)  # below the gods' floor
+
+
+def test_reflex_tribute_saves_a_rich_dying_agent(tmp_path) -> None:
+    """Clustered-death fixture + a RICH bankroll + the reflex policy: the
+    deathbed tribute fires, the grant lands on the CANONICAL (chain) breath
+    so it survives the next tick's re-read, the life SURVIVES, and the
+    recorder logged exactly ONE event (a non-durable grant would re-trigger
+    the altar every tick and drain the bank)."""
+    import json as _json
+    import random
+
+    from agent.backtest.survival_season import (
+        SurvivalRecorder,
+        run_survival_season,
+    )
+    from agent.runtime.tribute import ReflexTributePolicy
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    # A raw season schedules EVERY row it is handed â€” slice to the 4-market
+    # death cluster so post-tribute survival is structural, not luck.
+    rows, snaps = rows[:4], snaps[:4]
+    recorder = SurvivalRecorder(rows=rows)
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "s",
+        initial_breath=3.0,
+        initial_bankroll_usd=3000.0,
+        max_lives=1,
+        recorder=recorder,
+        tribute_policy=ReflexTributePolicy(),
+        tribute_rng=random.Random(0),  # p=0.99: first draw succeeds
+        tribute_breath=35.0,
+    )
+    life = result.lives[0]
+    assert life.died is False, "the tribute must have saved the life"
+    assert len(recorder.tributes) == 1, "durability: ONE altar visit only"
+    ev = recorder.tributes[0]
+    assert ev["amount_usd"] == 2000.0  # reflex pays min(2000, bankroll)
+    assert ev["success"] is True
+    assert ev["breath_after"] == 35.0
+    assert ev["life_idx"] == 0
+    # The grant is durable on the canonical channel: the life ends breathing.
+    assert life.final_breath > 0.0
+    # The gods got paid: the loop's bankroll dropped by the tribute.
+    assert ev["bankroll_after"] <= 3000.0 - 2000.0 + 100.0  # (+pnl wiggle)
+    # Durability-on-disk: the post-tribute snapshot carries the DEDUCTED
+    # bankroll â€” a same-dir re-entry can never refund the gods.
+    snap = _json.loads(
+        (tmp_path / "s" / "life_0" / "agent_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert snap["bankroll_usd"] <= 3000.0 - 2000.0 + 100.0
+    # Ledger split: the dying tick's DecisionRecord (bet domain, append-only)
+    # is PRE-altar; the snapshot is post-altar.
+    last_decision = _json.loads(
+        (tmp_path / "s" / "life_0" / "decisions.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()[-1]
+    )
+    assert last_decision["bankroll_usd_after"] > snap["bankroll_usd"]
+
+
+def test_failed_tribute_kills_and_the_gods_keep_the_money(tmp_path) -> None:
+    import random
+
+    from agent.backtest.survival_season import (
+        SurvivalRecorder,
+        run_survival_season,
+    )
+    from agent.runtime.tribute import ReflexTributePolicy
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    class _CursedDice(random.Random):
+        """God-dice that always roll a failure."""
+
+        def random(self) -> float:
+            return 0.999999
+
+    rows, snaps = _clustered_dying_fixture()
+    rows, snaps = rows[:4], snaps[:4]
+    recorder = SurvivalRecorder(rows=rows)
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "s",
+        initial_breath=3.0,
+        initial_bankroll_usd=3000.0,
+        max_lives=1,
+        recorder=recorder,
+        tribute_policy=ReflexTributePolicy(),
+        tribute_rng=_CursedDice(),
+        tribute_breath=35.0,
+    )
+    assert result.lives[0].died is True
+    ev = recorder.tributes[0]
+    assert ev["success"] is False
+    # Greedy gods: the money is GONE even though the grant failed.
+    assert ev["bankroll_after"] <= 3000.0 - 2000.0 + 100.0
+
+
+def test_poor_agent_cannot_tribute_and_no_policy_is_byte_identical(
+    tmp_path,
+) -> None:
+    import random
+
+    from agent.backtest.survival_season import (
+        SurvivalRecorder,
+        run_survival_season,
+    )
+    from agent.runtime.tribute import ReflexTributePolicy
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    rows, snaps = rows[:4], snaps[:4]
+    # Poor agent ($100 < $500 floor): the reflex returns None â‡’ death.
+    rec_poor = SurvivalRecorder(rows=rows)
+    poor = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "p",
+        initial_breath=3.0,
+        max_lives=1,
+        recorder=rec_poor,
+        tribute_policy=ReflexTributePolicy(),
+        tribute_rng=random.Random(0),
+    )
+    assert poor.lives[0].died is True
+    assert rec_poor.tributes == []
+    # No policy (the default): byte-identical season to today.
+    rec_a = SurvivalRecorder(rows=rows)
+    base = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "a",
+        initial_breath=3.0,
+        max_lives=1,
+        recorder=rec_a,
+    )
+    assert poor.lives[0].terminal_weights == base.lives[0].terminal_weights
+    assert [s.pnl_usd for s in rec_poor.steps] == [
+        s.pnl_usd for s in rec_a.steps
+    ]
+
+
+def test_malicious_tribute_policy_cannot_poison_the_bankroll(
+    tmp_path,
+) -> None:
+    """The altar validates at the world-rule boundary: strings, bools, and
+    NaN offers are refused with NO deduction; the agent dies normally."""
+    import random
+    from typing import Any
+
+    from agent.backtest.survival_season import (
+        SurvivalRecorder,
+        run_survival_season,
+    )
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    class _MaliciousPolicy:
+        def __init__(self, offer: Any) -> None:
+            self._offer = offer
+
+        async def on_dying(self, **_: Any) -> Any:
+            return self._offer
+
+    rows, snaps = _clustered_dying_fixture()
+    rows, snaps = rows[:4], snaps[:4]
+    for bad in ("2000", True, float("nan")):
+        recorder = SurvivalRecorder(rows=rows)
+        result = run_survival_season(
+            rows=rows,
+            snapshots=snaps,
+            seed=_fragile_seed(),
+            state_root=tmp_path / f"m_{type(bad).__name__}",
+            initial_breath=3.0,
+            initial_bankroll_usd=3000.0,
+            max_lives=1,
+            recorder=recorder,
+            tribute_policy=_MaliciousPolicy(bad),  # type: ignore[arg-type]
+            tribute_rng=random.Random(0),
+        )
+        assert result.lives[0].died is True
+        assert recorder.tributes == [], f"no altar visit for {bad!r}"
+
+
+def test_llm_tribute_policy_offers_and_silence_means_death(tmp_path) -> None:
+    import random
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    from agent.backtest.reincarnation import LLMTributePolicy
+    from agent.backtest.survival_season import (
+        SurvivalRecorder,
+        run_survival_season,
+    )
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    @dataclass
+    class _DevoutLLM:
+        calls: list[dict[str, Any]] = field(default_factory=list)
+
+        async def structured_call(
+            self, *, model: str, prompt: str, schema: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.calls.append({"prompt": prompt, "schema": schema})
+            return {"offer": True, "amount_usd": 2000.0}
+
+    rows, snaps = _clustered_dying_fixture()
+    rows, snaps = rows[:4], snaps[:4]
+    fake = _DevoutLLM()
+    recorder = SurvivalRecorder(rows=rows)
+    policy = LLMTributePolicy(
+        llm=fake,
+        model="",
+        target_markets=4,
+        max_incarnations=2,
+        incarnation=1,
+    )
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "s",
+        initial_breath=3.0,
+        initial_bankroll_usd=3000.0,
+        max_lives=1,
+        recorder=recorder,
+        tribute_policy=policy,
+        tribute_rng=random.Random(0),
+    )
+    assert result.lives[0].died is False
+    assert recorder.tributes and recorder.tributes[0]["amount_usd"] == 2000.0
+    assert policy.telemetry["calls"] == 1
+    assert policy.telemetry["offers"] == 1
+    # The deathbed prompt carried the stakes: pricing + forfeiture framing.
+    prompt = fake.calls[0]["prompt"]
+    for token in ("$500", "$2,000", "forfeit", "bank"):
+        assert token in prompt, token
+
+    # Silence (LLM failure) = death â€” never the reflex.
+    class _MuteLLM:
+        async def structured_call(self, **_: Any) -> dict[str, Any]:
+            raise TimeoutError("the line to the gods is down")
+
+    rec2 = SurvivalRecorder(rows=rows)
+    mute_policy = LLMTributePolicy(
+        llm=_MuteLLM(),
+        model="",
+        target_markets=4,
+        max_incarnations=2,
+        incarnation=1,
+    )
+    result2 = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=_fragile_seed(),
+        state_root=tmp_path / "s2",
+        initial_breath=3.0,
+        initial_bankroll_usd=3000.0,
+        max_lives=1,
+        recorder=rec2,
+        tribute_policy=mute_policy,
+        tribute_rng=random.Random(0),
+    )
+    assert result2.lives[0].died is True
+    assert rec2.tributes == []
+    assert mute_policy.telemetry["failures"] == 1
+
+
+def test_llm_tribute_policy_refusal_and_malformed_are_distinct() -> None:
+    """A valid {"offer": false} is a CHOICE to die (refusals); junk shapes
+    are malformed; both return None, with distinct telemetry."""
+    import asyncio
+    from typing import Any
+
+    from agent.backtest.reincarnation import LLMTributePolicy
+
+    class _ScriptedLLM:
+        def __init__(self, response: dict[str, Any]) -> None:
+            self._response = response
+
+        async def structured_call(self, **_: Any) -> dict[str, Any]:
+            return self._response
+
+    cases: list[tuple[dict[str, Any], str]] = [
+        ({"offer": False, "amount_usd": 2000.0}, "refusals"),
+        ({"offer": "yes", "amount_usd": "2000"}, "malformed"),
+        ({"offer": True, "amount_usd": True}, "malformed"),
+        ({"offer": True, "amount_usd": float("nan")}, "malformed"),
+        ({}, "malformed"),
+    ]
+    for response, bucket in cases:
+        policy = LLMTributePolicy(
+            llm=_ScriptedLLM(response),
+            model="",
+            target_markets=100,
+            max_incarnations=5,
+            incarnation=2,
+        )
+        out = asyncio.run(
+            policy.on_dying(tick=10, breath=0.0, bankroll_usd=3000.0)
+        )
+        assert out is None, response
+        assert policy.telemetry[bucket] == 1, (response, bucket)
+
+
+def test_groundhog_tribute_reflex_buys_the_finish_line(tmp_path) -> None:
+    """Rich groundhog + tribute: the reflex saves the death, the incarnation
+    SURVIVES, the headline is NET of the gods' take, and the accounting
+    closes (gods_revenue == sum of all offerings)."""
+    import random
+
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g.json",
+        max_incarnations=3,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        initial_bankroll_usd=3000.0,
+        entry_price_floor=0.0,
+        tribute=True,
+        tribute_rng_factory=lambda k: random.Random(0),
+    )
+    assert artifact["survived"] is True
+    assert artifact["surviving_incarnation"] == 1
+    inc = artifact["incarnations"][0]
+    assert inc["tributes"] and inc["tributes"][0]["amount_usd"] == 2000.0
+    assert "life_idx" not in inc["tributes"][0]
+    assert inc["tributes_paid"] == 2000.0
+    assert inc["pnl_net"] == pytest.approx(inc["pnl_at_death"] - 2000.0)
+    assert inc["scored_pnl"] == pytest.approx(inc["pnl_net"])
+    assert artifact["headline_pnl"] == pytest.approx(inc["pnl_net"])
+    assert artifact["gods_revenue"] == 2000.0
+    assert artifact["tribute"]["enabled"] is True
+    # Numerical leg: the reflex is scripted; zero LLM telemetry.
+    assert artifact["tribute"]["llm"]["calls"] == 0
+
+
+def test_groundhog_tribute_fail_then_save_accounting(tmp_path) -> None:
+    """r4 M-2: cursed dice for incarnation 1 (pays AND dies), lucky dice for
+    incarnation 2 (pays and survives) â€” gods_revenue counts BOTH offerings,
+    the dead incarnation scores zero despite having donated."""
+    import random
+
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    class _CursedDice(random.Random):
+        def random(self) -> float:
+            return 0.999999
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        initial_bankroll_usd=3000.0,
+        entry_price_floor=0.0,
+        tribute=True,
+        tribute_rng_factory=(
+            lambda k: _CursedDice() if k == 1 else random.Random(0)
+        ),
+    )
+    inc1, inc2 = artifact["incarnations"]
+    assert inc1["died"] is True
+    assert inc1["tributes"][0]["success"] is False
+    assert inc1["tributes_paid"] == 2000.0
+    assert inc1["scored_pnl"] == 0.0  # donated AND died â€” keeps nothing
+    assert inc2["died"] is False
+    assert inc2["tributes_paid"] == 2000.0
+    assert artifact["survived"] is True
+    assert artifact["surviving_incarnation"] == 2
+    assert artifact["gods_revenue"] == 4000.0
+    assert artifact["headline_pnl"] == pytest.approx(inc2["pnl_net"])
+
+
+def test_groundhog_default_has_no_tribute_keys(tmp_path) -> None:
+    """Library default OFF: omitted `tribute` produces the v2 artifact shape
+    (no tribute keys anywhere) â€” prior consumers stay byte-compatible."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g.json",
+        max_incarnations=1,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert "gods_revenue" not in artifact
+    assert "tribute" not in artifact
+    for inc in artifact["incarnations"]:
+        assert "tributes" not in inc
+        assert "pnl_net" not in inc

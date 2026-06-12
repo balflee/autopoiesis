@@ -90,6 +90,7 @@ from agent.runtime.sandbox_phase2_loop import (
     TickInputs,
     WeightUpdaterPhase,
 )
+from agent.runtime.tribute import TributePolicy
 
 # A3 — the loss-multiplier knob default. ``1.0`` is the IDENTITY: with the knob
 # at default the chain breath delta is the raw per-bet PnL, so the recorder is
@@ -855,6 +856,8 @@ class _RecordingSurvivalStateHook:
             self.recorder._on_weight_delta_applied(payload)
         elif kind == "weight_delta_apply_failed":
             self.recorder._on_weight_delta_apply_failed(payload)
+        elif kind == "tribute":
+            self.recorder._on_tribute(payload)
 
 
 @dataclass
@@ -884,6 +887,11 @@ class SurvivalRecorder:
     # ledger (side + price are known at placement), while the pnl recompute
     # stays settled-only (``steps``). Each entry is the raw BetRecord dict.
     placed_bets: list[dict[str, Any]] = field(default_factory=list)
+
+    # A7 tribute events (money for breath at the deathbed), stamped with
+    # the season-local life index. Empty unless a tribute policy is wired
+    # (the survival season default is none - byte-unchanged journeys).
+    tributes: list[dict[str, Any]] = field(default_factory=list)
 
     # T-D-018 AI tally: how many auto-approved weight deltas the loop actually
     # APPLIED vs failed to apply across the whole season. ``proposals_applied``
@@ -986,6 +994,10 @@ class SurvivalRecorder:
                 reflection=reflection,
             )
         )
+
+    def _on_tribute(self, payload: dict[str, Any]) -> None:
+        """A7: capture a deathbed tribute event (granted or kept)."""
+        self.tributes.append({**payload, "life_idx": self._current_life})
 
     def _on_death(self, payload: dict[str, Any]) -> None:
         self.deaths.append(
@@ -1503,6 +1515,9 @@ def _build_life_loop(
     value_betting: bool = False,
     effective_entry_price_floor: float | None = None,
     learning_enabled: bool = True,
+    tribute_policy: TributePolicy | None = None,
+    tribute_rng: _random.Random | None = None,
+    tribute_breath: float = 35.0,
 ) -> SandboxPhase2Loop:
     """Construct ONE fresh life loop (codex H2 + R5 + R8 + R2-MED).
 
@@ -1651,6 +1666,9 @@ def _build_life_loop(
         side_correct_pricing=side_correct_pricing,
         value_betting=value_betting,
         effective_entry_price_floor=effective_entry_price_floor,
+        tribute_policy=tribute_policy,
+        tribute_rng=tribute_rng,
+        tribute_breath=tribute_breath,
     )
     # Bind the deferred loop reference so the clock can pin now() to
     # stops[loop.tick_counter].
@@ -1696,6 +1714,9 @@ def run_survival_season(
     effective_entry_price_floor: float | None = None,
     shared_inner: WeightUpdater | None = None,
     learning_enabled: bool = True,
+    tribute_policy: TributePolicy | None = None,
+    tribute_rng: _random.Random | None = None,
+    tribute_breath: float = 35.0,
 ) -> SeasonResult:
     """Drive a multi-life FRESH-loop survival season (A2).
 
@@ -1790,6 +1811,9 @@ def run_survival_season(
             value_betting=value_betting,
             effective_entry_price_floor=effective_entry_price_floor,
             learning_enabled=learning_enabled,
+            tribute_policy=tribute_policy,
+            tribute_rng=tribute_rng,
+            tribute_breath=tribute_breath,
         )
 
         max_ticks = len(schedule.stops)

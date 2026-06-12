@@ -18,8 +18,11 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import math
+import random as _grandom
 import re
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -50,8 +53,15 @@ from agent.engines.reflection import _LLMClient
 from agent.engines.strategy_advisor_impl import StrategyAdvisorImpl
 from agent.engines.weight_updater import WeightUpdater
 from agent.llm.cost_guard import L3CostGuard
+from agent.runtime.tribute import (
+    TRIBUTE_FULL_USD,
+    TRIBUTE_MIN_USD,
+    ReflexTributePolicy,
+    TributePolicy,
+)
 
 __all__ = [
+    "LLMTributePolicy",
     "apply_weight_deltas",
     "build_death_window",
     "build_rebirth_window",
@@ -771,6 +781,106 @@ def _pray_after_death(
     return sanitize_rebirth_note(wish)
 
 
+_TRIBUTE_DECISION_SCHEMA: Final[dict[str, Any]] = {
+    "type": "object",
+    "properties": {
+        "offer": {
+            "type": "boolean",
+            "description": "true to offer money to the gods, false to die",
+        },
+        "amount_usd": {
+            "type": "number",
+            "description": "the offering in USD (minimum 500)",
+        },
+    },
+    "required": ["offer", "amount_usd"],
+}
+
+
+class LLMTributePolicy:
+    """The treatment leg's deathbed CHOICE (A7): offer or die.
+
+    The LLM is told the stakes (permadeath forfeiture, the gods' price
+    list, its bank and season position) and decides alone. Boundary
+    posture: validity and CHOICE are different axes - a well-formed
+    `{"offer": false}` is a measured REFUSAL (the agent choosing death),
+    junk shapes are malformed, transport errors are failures; all three
+    return None (death) with distinct telemetry, and NONE fall back to
+    the control's reflex (the legs stay distinguishable).
+    """
+
+    def __init__(
+        self,
+        *,
+        llm: _LLMClient,
+        model: str,
+        target_markets: int,
+        max_incarnations: int,
+        incarnation: int,
+    ) -> None:
+        self._llm = llm
+        self._model = model
+        self._target_markets = target_markets
+        self._max_incarnations = max_incarnations
+        self._incarnation = incarnation
+        self.telemetry: dict[str, int] = {
+            "calls": 0,
+            "offers": 0,
+            "refusals": 0,
+            "failures": 0,
+            "malformed": 0,
+        }
+
+    async def on_dying(
+        self, *, tick: int, breath: float, bankroll_usd: float
+    ) -> float | None:
+        if bankroll_usd < TRIBUTE_MIN_USD:
+            return None  # the gods would refuse; no call wasted
+        prompt = (
+            f"You are a betting agent DYING at tick {tick} of a survival "
+            f"season (incarnation {self._incarnation}/"
+            f"{self._max_incarnations}, season goal: survive all "
+            f"{self._target_markets} markets in one life). Your breath "
+            f"is gone. You hold ${bankroll_usd:.0f} in the bank - and "
+            "ALL profit is forfeit on death.\n\n"
+            "The gods accept offerings: minimum $500 (about 30% chance "
+            "of a grant), rising with the amount to about 99% at "
+            "$2,000. The offering is kept by the gods WIN OR LOSE. A "
+            "grant resets your breath to a fresh lungful and your life "
+            "continues with whatever money remains.\n\n"
+            "Decide now: offer money to the gods, or die and forfeit "
+            "everything. Answer with offer (true/false) and amount_usd."
+        )
+        self.telemetry["calls"] += 1
+        try:
+            raw = await self._llm.structured_call(
+                model=self._model,
+                prompt=prompt,
+                schema=_TRIBUTE_DECISION_SCHEMA,
+            )
+        except Exception:
+            self.telemetry["failures"] += 1
+            return None  # silence is death - never the reflex
+        if not isinstance(raw, dict):
+            self.telemetry["malformed"] += 1
+            return None
+        offer = raw.get("offer")
+        amount = raw.get("amount_usd")
+        if offer is False:
+            self.telemetry["refusals"] += 1  # a CHOICE, not an error
+            return None
+        if (
+            offer is not True
+            or isinstance(amount, bool)
+            or not isinstance(amount, (int, float))
+            or not math.isfinite(float(amount))
+            or float(amount) < TRIBUTE_MIN_USD
+        ):
+            self.telemetry["malformed"] += 1
+            return None
+        self.telemetry["offers"] += 1
+        return min(float(amount), bankroll_usd)
+
 def _count_applicable(deltas: list[dict[str, object]]) -> int:
     """How many proposals ``apply_weight_deltas`` will actually consume
     (same predicate: known key + non-bool numeric delta)."""
@@ -807,6 +917,8 @@ def run_groundhog_export(
     rebirth_guard: L3CostGuard | None = None,
     rebirth_model: str = "",
     preflight: bool = True,
+    tribute: bool = False,
+    tribute_rng_factory: Callable[[int], _grandom.Random] | None = None,
     state_root: Path | None = None,
 ) -> dict[str, Any]:
     """TRUE reincarnation (design v2, user-locked): one incarnation = ONE
@@ -857,6 +969,7 @@ def run_groundhog_export(
     shared_inner = WeightUpdater()
     carry = fragile.weights
     rebirth_note: str | None = None
+    tribute_llm_policies: list[LLMTributePolicy] = []
     incarnations: list[dict[str, Any]] = []
     all_eff_prices: list[float] = []
     survived = False
@@ -874,6 +987,28 @@ def run_groundhog_export(
             recorder = SurvivalRecorder(
                 rows=train, loss_multiplier=loss_multiplier
             )
+            # A7: per-incarnation tribute wiring. The gods' dice are seeded
+            # per incarnation (reproducible); the factory is the test seam.
+            inc_tribute_policy: TributePolicy | None = None
+            inc_tribute_rng: _grandom.Random | None = None
+            if tribute:
+                inc_tribute_rng = (
+                    tribute_rng_factory(k)
+                    if tribute_rng_factory is not None
+                    else _grandom.Random(f"tribute-{k}")
+                )
+                if rebirth_llm is not None:
+                    llm_tribute = LLMTributePolicy(
+                        llm=rebirth_llm,
+                        model=rebirth_model,
+                        target_markets=len(train),
+                        max_incarnations=max_incarnations,
+                        incarnation=k,
+                    )
+                    inc_tribute_policy = llm_tribute
+                    tribute_llm_policies.append(llm_tribute)
+                else:
+                    inc_tribute_policy = ReflexTributePolicy()
             result = run_survival_season(
                 rows=train,
                 snapshots=snapshots,
@@ -888,6 +1023,9 @@ def run_groundhog_export(
                 value_betting=True,
                 effective_entry_price_floor=eff_floor,
                 shared_inner=shared_inner,
+                tribute_policy=inc_tribute_policy,
+                tribute_rng=inc_tribute_rng,
+                tribute_breath=initial_breath,
             )
             all_eff_prices.extend(
                 _validate_learner_physics(
@@ -907,13 +1045,26 @@ def run_groundhog_export(
             wins = sum(1 for s in steps if s.pnl_usd > 0.0)
             pnl = steps[-1].cum_pnl if steps else 0.0
             terminal = life.terminal_weights
+            # A7: this incarnation's tribute events (each recorder is a
+            # fresh one-life season, so every event carries life_idx == 0 —
+            # strip it; never filter by the 1-based incarnation k).
+            inc_tributes = [
+                {
+                    "tick": t["tick"],
+                    "amount_usd": t["amount_usd"],
+                    "success": t["success"],
+                }
+                for t in recorder.tributes
+            ]
+            tributes_paid = sum(t["amount_usd"] for t in inc_tributes)
+            pnl_net = pnl - tributes_paid
             entry: dict[str, Any] = {
                 "incarnation": k,
                 "died": died,
                 # 死了归零: dead men collect nothing — experience carries,
                 # money does not. Raw at-death pnl stays as telemetry.
                 "pnl_at_death": pnl,
-                "scored_pnl": 0.0 if died else pnl,
+                "scored_pnl": 0.0 if died else (pnl_net if tribute else pnl),
                 "markets_seen": len(life.consumed_market_ids),
                 "progress_pct": (
                     100.0 * len(life.consumed_market_ids) / len(train)
@@ -928,6 +1079,15 @@ def run_groundhog_export(
                 "rebirth_note": rebirth_note,
                 "prayer": None,
                 "advisor": {"called": False, "proposals": 0, "applied": 0},
+                **(
+                    {
+                        "tributes": inc_tributes,
+                        "tributes_paid": tributes_paid,
+                        "pnl_net": pnl_net,
+                    }
+                    if tribute
+                    else {}
+                ),
                 "carry": {
                     "ema_keys": sorted(shared_inner._ema),
                     "ema_size": len(shared_inner._ema),
@@ -1049,7 +1209,7 @@ def run_groundhog_export(
         )
 
     headline_pnl = (
-        incarnations[-1]["pnl_at_death"] if survived else 0.0
+        incarnations[-1]["scored_pnl"] if survived else 0.0
     )
 
     artifact: dict[str, Any] = {
@@ -1089,6 +1249,35 @@ def run_groundhog_export(
         "survived": survived,
         "surviving_incarnation": surviving_incarnation,
         "headline_pnl": headline_pnl,
+        **(
+            {
+                "gods_revenue": sum(
+                    inc.get("tributes_paid", 0.0) for inc in incarnations
+                ),
+                "tribute": {
+                    "enabled": True,
+                    "min_usd": TRIBUTE_MIN_USD,
+                    "full_usd": TRIBUTE_FULL_USD,
+                    "p_floor": 0.30,
+                    "p_cap": 0.99,
+                    "llm": {
+                        key: sum(
+                            pol.telemetry[key]
+                            for pol in tribute_llm_policies
+                        )
+                        for key in (
+                            "calls",
+                            "offers",
+                            "refusals",
+                            "failures",
+                            "malformed",
+                        )
+                    },
+                },
+            }
+            if tribute
+            else {}
+        ),
         "rebirth": {
             "expected": expected if rebirth_llm is not None else 0,
             "calls": rebirth_calls,
@@ -1133,6 +1322,22 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
                 "headline 0, no survivor pointer, and all-dead incarnations; "
                 "artifact NOT written"
             )
+        for inc in incs:
+            if "tributes" in inc:
+                paid = sum(t["amount_usd"] for t in inc["tributes"])
+                if inc["tributes_paid"] != paid or inc["pnl_net"] != (
+                    inc["pnl_at_death"] - inc["tributes_paid"]
+                ):
+                    raise RuntimeError(
+                        "tribute accounting violated; artifact NOT written"
+                    )
+        if artifact.get("tribute", {}).get("enabled"):
+            total = sum(inc.get("tributes_paid", 0.0) for inc in incs)
+            if artifact.get("gods_revenue") != total:
+                raise RuntimeError(
+                    "tribute accounting violated: gods_revenue != sum of "
+                    "all tributes; artifact NOT written"
+                )
         return
     if pointer is None or not (1 <= pointer <= len(incs)):
         raise RuntimeError(
@@ -1140,8 +1345,46 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
             "surviving_incarnation pointer; artifact NOT written"
         )
     row = incs[pointer - 1]
-    if row["died"] or headline != row["scored_pnl"] != row["pnl_at_death"]:
+    # Independent equality checks — a chained `a != b != c` means
+    # `(a != b) and (b != c)` in Python and lets `a == b != c` slip through
+    # (shipped bug found in tribute plan review r6 M-2).
+    expected_scored = (
+        row["pnl_net"] if "pnl_net" in row else row["pnl_at_death"]
+    )
+    if row["died"]:
         raise RuntimeError(
-            "scoring invariant violated: the survivor row must be alive and "
-            "carry headline == scored == at-death pnl; artifact NOT written"
+            "scoring invariant violated: survivor pointer targets a dead "
+            "row; artifact NOT written"
         )
+    if row["scored_pnl"] != expected_scored:
+        raise RuntimeError(
+            "scoring invariant violated: the survivor's scored_pnl must "
+            "equal its net (tribute) or at-death (no-tribute) pnl; "
+            "artifact NOT written"
+        )
+    if headline != row["scored_pnl"]:
+        raise RuntimeError(
+            "scoring invariant violated: headline must equal the "
+            "survivor's scored_pnl; artifact NOT written"
+        )
+    # A7 accounting closure: gods' revenue is bookkeeping, not display.
+    for inc in incs:
+        if "tributes" in inc:
+            paid = sum(t["amount_usd"] for t in inc["tributes"])
+            if inc["tributes_paid"] != paid:
+                raise RuntimeError(
+                    "tribute accounting violated: tributes_paid != sum of "
+                    "events; artifact NOT written"
+                )
+            if inc["pnl_net"] != inc["pnl_at_death"] - inc["tributes_paid"]:
+                raise RuntimeError(
+                    "tribute accounting violated: pnl_net != gross - paid; "
+                    "artifact NOT written"
+                )
+    if artifact.get("tribute", {}).get("enabled"):
+        total = sum(inc.get("tributes_paid", 0.0) for inc in incs)
+        if artifact.get("gods_revenue") != total:
+            raise RuntimeError(
+                "tribute accounting violated: gods_revenue != sum of all "
+                "tributes; artifact NOT written"
+            )

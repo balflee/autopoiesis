@@ -125,6 +125,7 @@ import hashlib
 import logging
 import math
 import os
+import random
 import uuid
 from collections import deque
 from dataclasses import dataclass
@@ -198,6 +199,11 @@ from agent.runtime.sandbox_settlement_poller import (
     StateHook,
     WeightUpdater,
     _real_sleep,
+)
+from agent.runtime.tribute import (
+    TRIBUTE_MIN_USD,
+    TributePolicy,
+    tribute_success_probability,
 )
 
 logger = logging.getLogger(__name__)
@@ -861,6 +867,9 @@ class SandboxPhase2Loop:
         # that only the export invariant would catch, late. ``None``
         # (default) disables the gate (live-runtime contract).
         effective_entry_price_floor: float | None = None,
+        tribute_policy: TributePolicy | None = None,
+        tribute_rng: random.Random | None = None,
+        tribute_breath: float = 35.0,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -882,6 +891,17 @@ class SandboxPhase2Loop:
         self._effective_entry_price_floor: float | None = (
             effective_entry_price_floor
         )
+        # A7 tribute (world rule; backtest-only wiring - live runtime
+        # never passes a policy, keeping the death check byte-identical).
+        if tribute_policy is not None and tribute_rng is None:
+            raise RuntimeError(
+                "tribute_policy requires tribute_rng (the gods' dice)"
+            )
+        if tribute_breath <= 0.0:
+            raise RuntimeError("tribute_breath must be positive")
+        self._tribute_policy: TributePolicy | None = tribute_policy
+        self._tribute_rng: random.Random | None = tribute_rng
+        self._tribute_breath: float = tribute_breath
         self._writer: SandboxStateWriter = (
             state_writer
             if state_writer is not None
@@ -1712,11 +1732,19 @@ class SandboxPhase2Loop:
                 self._bankroll_usd,
             )
 
-        # Step 8 — death check.
+        # Step 8 — death check, with the optional tribute escape (A7): the
+        # agent may buy breath from the gods at the deathbed. The policy
+        # proposes, the gods' dice dispose, the offering is kept win or
+        # lose. policy=None (the default, and the only live-runtime
+        # configuration) is byte-identical to the bare death check.
         died = False
         if self._breath <= 0.0:
-            await self._die(last_tick=tick)
-            died = True
+            saved = False
+            if self._tribute_policy is not None:
+                saved = await self._attempt_tribute(tick=tick, now=now)
+            if not saved:
+                await self._die(last_tick=tick)
+                died = True
 
         # Step 9 (T-B-024) — L2 reflection trigger. Runs ONLY when alive
         # AND a reflection engine is wired. Death-path reflections are
@@ -1790,6 +1818,96 @@ class SandboxPhase2Loop:
             poll_pending=poll_result.pending_count,
             died=died,
         )
+
+    # ------------------------------------------------------------------ #
+    # A7 — the altar (deathbed tribute).
+    # ------------------------------------------------------------------ #
+
+    async def _attempt_tribute(self, *, tick: int, now: datetime) -> bool:
+        """Consult the tribute policy at the deathbed; roll the gods' dice.
+
+        The altar validates the OFFER at the world-rule boundary — a
+        malformed or malicious policy can never poison ``_bankroll_usd``
+        (which drives sizing). The offering is deducted win or lose
+        (greedy gods). On a grant, breath flows through the CANONICAL
+        chain channel (the loop re-reads chain breath every tick — a
+        loop-memory write would evaporate and re-trigger the altar each
+        tick), and the snapshot is re-written so a same-dir re-entry can
+        never refund the gods. (Breath itself resets per life on
+        reconstruction by the PRE-EXISTING respawn semantic — the replay
+        chain is in-memory; unchanged here.) A FAILED tribute writes no
+        snapshot of its own: the very next statement is ``_die``, whose
+        terminal snapshot persists the deducted bankroll; the
+        deduction→die crash window is the same pre-existing mid-tick
+        exposure class as every other tick mutation. The dying tick's
+        DecisionRecord (bet domain, appended at step 6) is PRE-altar by
+        design — the tribute hook event + snapshot are the post-altar
+        authority.
+        """
+        assert self._tribute_policy is not None
+        assert self._tribute_rng is not None
+        try:
+            amount = await self._tribute_policy.on_dying(
+                tick=tick,
+                breath=self._breath,
+                bankroll_usd=self._bankroll_usd,
+            )
+        except Exception as exc:
+            logger.warning(
+                "tribute: policy raised %s: %s — silence is death",
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        if (
+            amount is None
+            or isinstance(amount, bool)
+            or not isinstance(amount, (int, float))
+            or not math.isfinite(float(amount))
+            or float(amount) < TRIBUTE_MIN_USD
+            or float(amount) > self._bankroll_usd
+        ):
+            return False
+        offering = float(amount)
+        self._bankroll_usd -= offering
+        p = tribute_success_probability(offering)
+        success = self._tribute_rng.random() < p
+        if success:
+            cur = await self._chain_adapter.read_breath()
+            await self._chain_adapter.update_breath_from_pnl(
+                self._tribute_breath - cur
+            )
+            self._breath = await self._chain_adapter.read_breath()
+            post_tribute_snapshot = AgentStateSnapshot(
+                snapshot_ts=_iso_utc(now),
+                phase=_phase_to_literal(self._phase),
+                breath=self._breath,
+                bankroll_usd=self._bankroll_usd,
+                phase_age_days=0.0,
+                open_bet_ids=sorted(self._open_bet_ids),
+                last_tick=tick,
+                weights=self._weights,
+                desperate=self._desperate,
+                pending_proposals=list(self._pending_proposals),
+            )
+            self._writer.write_snapshot(post_tribute_snapshot)
+        self._state_hook.emit(
+            kind="tribute",
+            tick=tick,
+            amount_usd=offering,
+            success=success,
+            breath_after=self._breath,
+            bankroll_after=self._bankroll_usd,
+        )
+        logger.info(
+            "tribute: tick=%d offered $%.2f (p=%.2f) -> %s; bankroll=%.2f",
+            tick,
+            offering,
+            p,
+            "GRANTED" if success else "the gods kept the money",
+            self._bankroll_usd,
+        )
+        return success
 
     # ------------------------------------------------------------------ #
     # Death path — PRD §6.9.

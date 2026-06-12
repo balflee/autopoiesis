@@ -362,6 +362,41 @@ export function ReincarnationShell({
               {" — "}the per-life revenue an operator would actually pocket.
             </p>
           ) : null}
+          {fixture.gods_revenue !== undefined &&
+          fixture.revival_earnings_total !== undefined ? (
+            <p
+              data-testid="reincarnation-revival-roi"
+              className="font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]"
+            >
+              <span className="text-[var(--ab-text)]">
+                did buying life buy income? ▸{" "}
+              </span>
+              after its revivals the agent earned{" "}
+              <span className="text-[var(--ab-glow)]">
+                {money(fixture.revival_earnings_total)}
+              </span>{" "}
+              against{" "}
+              <span className="text-[var(--ab-death)]">
+                {money(fixture.gods_revenue)}
+              </span>{" "}
+              paid at the altar
+              {fixture.gods_revenue > 0 ? (
+                <>
+                  {" "}
+                  — every $1 of tribute bought{" "}
+                  <span className="text-[var(--ab-text)]">
+                    $
+                    {(
+                      fixture.revival_earnings_total / fixture.gods_revenue
+                    ).toFixed(3)}
+                  </span>{" "}
+                  of post-revival earnings. Revival lands at peak in-flight
+                  loss pressure; a fresh lungful survives ~1.4 of those
+                  losses.
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </section>
 
         {/* ── §5 incarnation curves (the kept ones) ─────────────────── */}

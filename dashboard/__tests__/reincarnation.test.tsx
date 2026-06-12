@@ -264,15 +264,17 @@ function tributeFixture(): ReincarnationFixture {
   const dead = {
     ...inc(1, { curve: [{ i: 0, cum_pnl: 0 }, { i: 50, cum_pnl: 42 }] }),
     // Paid the gods and STILL died — donations are not refunds.
-    tributes: [{ tick: 700, amount_usd: 2000, success: false }],
+    tributes: [{ tick: 700, amount_usd: 2000, success: false, pnl_at_event: 45 }],
     tributes_paid: 2000,
     pnl_net: 50 - 2000,
+    revival_earnings: 5,
   };
   const survivor = {
     ...inc(2, { died: false, progress_pct: 100, pnl_at_death: 2459 }),
-    tributes: [{ tick: 826, amount_usd: 2000, success: true }],
+    tributes: [{ tick: 826, amount_usd: 2000, success: true, pnl_at_event: 2400 }],
     tributes_paid: 2000,
     pnl_net: 459,
+    revival_earnings: 59,
     scored_pnl: 459, // survivor scored = net under tribute
   };
   const incarnations = [dead, survivor];
@@ -284,6 +286,7 @@ function tributeFixture(): ReincarnationFixture {
     ...({
       gods_revenue: 4000,
       gods_revenue_best_incarnation: 2000,
+      revival_earnings_total: 64,
       tribute: {
         enabled: true,
         min_usd: 500,
@@ -324,6 +327,10 @@ describe("A7 tribute — validator accounting + rendering", () => {
     // The live business metric: the gods' best single-life take.
     const best = screen.getByTestId("reincarnation-gods-best");
     expect(best.textContent).toBe("$2,000");
+    // The user's headline metric: did buying life buy income?
+    const roi = screen.getByTestId("reincarnation-revival-roi");
+    expect(roi.textContent).toMatch(/\$64/);
+    expect(roi.textContent).toMatch(/0\.016/);
     // Honest notes carry the tribute fine print.
     const honest = screen.getByTestId("reincarnation-honest");
     expect(honest.textContent).toMatch(/scripted reflex/i);

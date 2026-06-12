@@ -996,8 +996,20 @@ class SurvivalRecorder:
         )
 
     def _on_tribute(self, payload: dict[str, Any]) -> None:
-        """A7: capture a deathbed tribute event (granted or kept)."""
-        self.tributes.append({**payload, "life_idx": self._current_life})
+        """A7: capture a deathbed tribute event (granted or kept).
+
+        ``pnl_at_event`` (the recorder's running cum at the altar moment)
+        makes the user's headline metric self-contained: revival earnings =
+        pnl_at_death - pnl at the FIRST tribute - did buying life actually
+        buy any income, or just a deeper grave?
+        """
+        self.tributes.append(
+            {
+                **payload,
+                "life_idx": self._current_life,
+                "pnl_at_event": self._cum_pnl,
+            }
+        )
 
     def _on_death(self, payload: dict[str, Any]) -> None:
         self.deaths.append(

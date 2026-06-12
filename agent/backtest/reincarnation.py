@@ -1053,11 +1053,18 @@ def run_groundhog_export(
                     "tick": t["tick"],
                     "amount_usd": t["amount_usd"],
                     "success": t["success"],
+                    "pnl_at_event": t["pnl_at_event"],
                 }
                 for t in recorder.tributes
             ]
             tributes_paid = sum(t["amount_usd"] for t in inc_tributes)
             pnl_net = pnl - tributes_paid
+            # The user's headline metric: did buying life buy any income?
+            revival_earnings = (
+                pnl - inc_tributes[0]["pnl_at_event"]
+                if inc_tributes
+                else None
+            )
             entry: dict[str, Any] = {
                 "incarnation": k,
                 "died": died,
@@ -1084,6 +1091,7 @@ def run_groundhog_export(
                         "tributes": inc_tributes,
                         "tributes_paid": tributes_paid,
                         "pnl_net": pnl_net,
+                        "revival_earnings": revival_earnings,
                     }
                     if tribute
                     else {}
@@ -1261,6 +1269,13 @@ def run_groundhog_export(
                     (inc.get("tributes_paid", 0.0) for inc in incarnations),
                     default=0.0,
                 ),
+                # Sum of post-revival earnings across all incarnations: the
+                # user's question "did tribute keep it alive AND earning?"
+                # answered in one number against gods_revenue.
+                "revival_earnings_total": sum(
+                    inc.get("revival_earnings") or 0.0
+                    for inc in incarnations
+                ),
                 "tribute": {
                     "enabled": True,
                     "min_usd": TRIBUTE_MIN_USD,
@@ -1395,6 +1410,13 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
                 raise RuntimeError(
                     "tribute accounting violated: pnl_net != gross - paid; "
                     "artifact NOT written"
+                )
+            if inc["tributes"] and inc.get("revival_earnings") != (
+                inc["pnl_at_death"] - inc["tributes"][0]["pnl_at_event"]
+            ):
+                raise RuntimeError(
+                    "tribute accounting violated: revival_earnings != "
+                    "gross - pnl at first altar; artifact NOT written"
                 )
     if artifact.get("tribute", {}).get("enabled"):
         total = sum(inc.get("tributes_paid", 0.0) for inc in incs)

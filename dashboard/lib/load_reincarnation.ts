@@ -50,6 +50,9 @@ export interface ReincarnationIncarnation {
   readonly tributes_paid?: number;
   /** Gross pnl minus tributes — the survivor's REAL take-home. */
   readonly pnl_net?: number;
+  /** The user's headline metric: pnl earned AFTER the first altar visit
+   * (did buying life buy any income?). Null when no tribute fired. */
+  readonly revival_earnings?: number | null;
   readonly advisor: {
     readonly called: boolean;
     readonly proposals: number;
@@ -126,6 +129,10 @@ export interface ReincarnationFixture {
    * artifacts written before 2026-06-13 lack it; the page falls back to
    * computing it from the incarnation rows. */
   readonly gods_revenue_best_incarnation?: number;
+  /** Sum of post-revival earnings across all incarnations — set against
+   * gods_revenue it answers "did tribute keep the agent alive AND
+   * earning?" in one ratio. */
+  readonly revival_earnings_total?: number;
   readonly tribute?: {
     readonly enabled: boolean;
     readonly min_usd: number;

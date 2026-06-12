@@ -262,6 +262,20 @@ const RUNS: readonly {
     lives: "10 / 9",
     applied: "—",
   },
+  {
+    run: "v3 · AI (MiniMax)",
+    rules: "side-correct · EV-gated",
+    pnl: "$2,273",
+    lives: "12 / 11",
+    applied: "142",
+  },
+  {
+    run: "v3 · AI (Gemini)",
+    rules: "side-correct · EV-gated",
+    pnl: "$2,222",
+    lives: "10 / 9",
+    applied: "395",
+  },
 ];
 
 /* ------------------------------------------------------------------ */

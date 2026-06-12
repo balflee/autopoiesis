@@ -43,8 +43,10 @@ Backtested over a **4,925-market tennis universe (2024–2026)** built from real
 | v2 · AI (MiniMax) | floors+cap, YES-priced (superseded) | $2,757 | 10 / 9 | 126 |
 | v2 · AI (Gemini) | floors+cap, YES-priced (superseded) | $2,510 | 10 / 9 | 411 |
 | v3 · Numerical | **side-correct · EV-gated** | **$3,249** | 10 / 9 | — |
+| v3 · AI (MiniMax) | **side-correct · EV-gated** | **$2,273** | 12 / 11 | 142 |
+| v3 · AI (Gemini) | **side-correct · EV-gated** | **$2,222** | 10 / 9 | 395 |
 
-Under the corrected physics the honest ladder reads: always-favorite **−$661** < random +$206 < frozen value seed +$1,327 < **learning agent +$3,249** (+$1,922 ahead of its frozen twin). Superseded numbers stay published — the audit trail IS the product. Toggle every run live on the [survival page](https://autopoiesis.draftlabs.org/survival).
+Under the corrected physics the honest ladder reads: always-favorite **−$661** < random +$206 < frozen value seed +$1,327 < **every learning agent ($2,222–$3,249, all +$896 to +$1,922 ahead of the frozen twin)**. An honest wrinkle we publish rather than hide: in the corrected world the deterministic EMA learner out-earned both LLM-driven runs — the LLMs applied 142/395 weight deltas and survived, but their wandering cost P&L vs the numeric baseline. Superseded numbers stay published — the audit trail IS the product. Toggle every run live on the [survival page](https://autopoiesis.draftlabs.org/survival).
 
 ## Deployed contracts
 

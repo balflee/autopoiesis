@@ -428,7 +428,12 @@ export default function DocsPage(): JSX.Element {
                 <Prose>
                   After run 1 we audited our own headline and found it was 62%
                   lottery: two $5 bets that hit extreme longshots at $0.0005 /
-                  $0.0055 — payouts no real $5-liquidity market could pay. Run
+                  $0.0055 — payouts no thin market could really pay. (Honest
+                  precision: our per-bet cap is a UNIFORM $5 — the
+                  5%-of-24h-volume formula floors at $5, and resolved markets
+                  always fetch with zero 24h volume, so the &quot;market
+                  liquidity&quot; cap degenerates to a conservative flat $5 on
+                  all 7,494 markets. Conservative, never inflating.) Run
                   2 introduces two rules, applied identically to the numerical
                   and AI seasons <Hi>and all baselines</Hi>:{" "}
                   <Glow>entry-price floor ≥ 0.05</Glow> (untradeable longshots

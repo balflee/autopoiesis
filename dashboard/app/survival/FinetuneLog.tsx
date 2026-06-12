@@ -78,7 +78,9 @@ export function FinetuneLog({
         After run 1 we audited the data: most of the headline came from two $5
         bets that hit extreme longshots at
         <span className="text-[var(--ab-text)]"> $0.0005 / $0.0055 </span>
-        — bet size was capped at $5 by market liquidity, but the payout
+        — bet size was held to $5 by our uniform conservative liquidity cap
+        (the 24h-volume formula floors at $5 for resolved markets, so in
+        practice every market gets $5), but the payout
         <span className="text-[var(--ab-text)]"> size×(1/price−1) </span>
         was unbounded (one bet &quot;won&quot; +$9,995 and pumped breath into
         the thousands, faking &quot;learned to survive&quot;). Run 2 introduced

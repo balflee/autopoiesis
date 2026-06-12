@@ -164,3 +164,100 @@ def test_sanitize_rebirth_note_collapses_and_caps() -> None:
     assert out is not None and len(out) <= 500
     assert sanitize_rebirth_note("") is None
     assert sanitize_rebirth_note("   \n ") is None
+
+
+# =========================================================================== #
+# run_reincarnation_export — the multi-pass orchestrator.
+# =========================================================================== #
+
+
+def test_reincarnation_export_three_passes_plus_frozen_holdout(tmp_path) -> None:
+    from agent.backtest.reincarnation import run_reincarnation_export
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _dying_fixture,
+        _fragile_seed,
+    )
+
+    rows, snaps = _dying_fixture()
+    out = tmp_path / "reincarnation.json"
+    artifact = run_reincarnation_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=out,
+        passes=3,
+        train_fraction=0.5,
+        initial_breath=3.0,
+        max_lives=2,
+        entry_price_floor=0.0,
+    )
+    assert out.exists()
+    assert artifact["experiment"] == "reincarnation"
+    assert artifact["provider"] == "numerical"
+    assert len(artifact["passes"]) == 3
+    for i, p in enumerate(artifact["passes"], start=1):
+        assert p["pass"] == i
+        for key in ("pnl", "deaths", "lives", "settled", "coverage_pct", "win_rate"):
+            assert key in p["summary"], key
+        assert p["curve"], "each pass carries a cumulative curve"
+        assert "start_weights" in p and "terminal_weights" in p
+        assert "carry" in p and isinstance(p["carry"]["ema_keys"], list)
+        # Numerical variant: no LLM, no notes.
+        assert p["rebirth_note"] is None
+    h = artifact["holdout"]
+    assert h["summary"]["learning_enabled"] is False
+    assert set(h["baselines"]) == {"static", "random", "always_favorite"}
+    # Physics disclosure (v3 throughout).
+    assert artifact["physics"]["side_correct_pricing"] is True
+    assert artifact["physics"]["value_betting"] is True
+    # The split is chronological and disjoint.
+    assert (
+        artifact["split"]["train_rows"] + artifact["split"]["holdout_rows"]
+        == len(rows)
+    )
+    assert artifact["split"]["train_end_ts"] < artifact["split"]["holdout_start_ts"]
+
+
+def test_reincarnation_ai_variant_records_rebirth_notes(tmp_path) -> None:
+    from agent.backtest.reincarnation import (
+        apply_weight_deltas,
+        run_reincarnation_export,
+    )
+    from agent.core.state import Weights
+    from agent.llm.cost_guard import L3CostGuard
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _dying_fixture,
+        _FakeAdvisorLLM,
+        _fragile_seed,
+    )
+
+    rows, snaps = _dying_fixture()
+    artifact = run_reincarnation_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "r_ai.json",
+        passes=2,
+        train_fraction=0.5,
+        initial_breath=3.0,
+        max_lives=2,
+        entry_price_floor=0.0,
+        rebirth_llm=_FakeAdvisorLLM(),
+        rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
+    )
+    assert artifact["provider"] == "ai"
+    # Pass boundaries: passes-1 retrospectives (after pass 1, before pass 2).
+    notes = [p.get("rebirth_note") for p in artifact["passes"]]
+    assert notes[0] is None  # pass 1 starts cold
+    assert isinstance(notes[1], str) and len(notes[1]) > 0
+    # EMA learning alone moves start-vs-start weights, so that proves nothing.
+    # The PROOF of boundary application: pass 2 starts EXACTLY at
+    # apply_weight_deltas(pass-1 terminal, the fake's deterministic delta) —
+    # _FakeAdvisorLLM always proposes {"key": "alpha_2", "delta": 0.04}.
+    p1_terminal = Weights(**artifact["passes"][0]["terminal_weights"])
+    expected = apply_weight_deltas(
+        p1_terminal, [{"key": "alpha_2", "delta": 0.04}]
+    )
+    got = artifact["passes"][1]["start_weights"]
+    assert got["alpha"][2] == pytest.approx(expected.alpha[2])
+    assert got != artifact["passes"][0]["terminal_weights"]

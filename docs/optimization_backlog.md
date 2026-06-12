@@ -1,0 +1,107 @@
+# 优化 Backlog（2026-06-12 讨论记录）
+
+> 逐项评审用。每项标注：动机 / 改什么 / 前置条件与成本 / 风险与诚实注意点。
+> 状态：`PROPOSED`（待拍板）/ `AGREED`（已同意未做）/ `IN-FLIGHT` / `DONE`。
+> 背景取证（本日 workflow 实证，文内引用）：agent 的可学习面只有 6 个融合权重键；
+> 学习信号是每注 PnL 符号信用，**梯度里没有 breath/death 任何一项**；breath 期望
+> ≈ −1.22/注（$5 仓位、×5 惩罚、胜率 81.4%），胜率 ~86% 翻正；7,494 个缓存市场
+> 的流动性帽 100% 退化为 $5 下限；±0.1 的 rho delta 被 $5 帽吃进死区（2110 个
+> 决策只有 6-7 个毫厘级差异）。
+
+---
+
+## A. 生存/学习机制类
+
+### A1 · Phase-3 基因组解锁（genome unlock）— `PROPOSED`（我推荐的下一步）
+- **动机**：用户担心"delta 参数不够让 agent 优化策略"——实证成立：6 键里唯一的
+  仓位杠杆 rho 要盲推 ~8 次同方向才穿透 $5 流动性帽，前 7 次零行为反馈，LLM 建议
+  一旦摇摆永远到不了阈值。
+- **改什么**：把冻结的生存攸关旋钮开放给死亡 advisor（带夹具）：
+  `min_edge`（挑剔度——最强生存杠杆，**下一世立刻可见反馈**）、
+  `max_breath_risk_pct`、`min_confidence`、`kappa`、（可选）`min_bet_size_usd`。
+  groundhog 架构里顺手：每次转世本来就 `replace(seed, ...)`，扩成携带突变后的
+  完整 StrategyConfig；advisor delta key 集 6 → ~10，照旧 schema 校验 + 夹具。
+- **成本**：中（advisor schema/prompt 扩展 + apply 路径 + 测试 + 重跑 treatment 腿）。
+- **诚实注意**：仍然零脚本——只拓宽身体参数，不写行为规则；"全弃权不死薅 $0"
+  的漏洞已由计分规则（不死但 $0 = 死亡同分）+ 页面披露覆盖。
+
+### A2 · 数值腿的死亡感知（death term in EMA objective）— `PROPOSED`（争议项）
+- **动机**：对照组的梯度对死亡结构性失明（weight_updater 里 grep 不到 breath/death）。
+- **改什么**：给 `update_from_settlement` 增加死亡终端信用（如死亡时对 rho logit
+  施加一次强负梯度），或保持纯对照不动。
+- **风险**：这是**我们设计惩罚函数** = 半脚本化，和"行为必须涌现"的哲学有张力；
+  建议保留数值腿为纯对照，死亡感知只走 AI 腿（A1）。
+
+### A3 · desperate 模式接线或删除 — `PROPOSED`（小项）
+- **取证**：`desperate_threshold` 全仓库只存在于 docstring，没有任何模块计算它；
+  回测里 desperate 恒为 False，全部下游行为是死代码；且若真翻转，它会把资金帽
+  0.30→0.50（**加**风险），对生存可能起反作用。
+- **改什么**：要么在 lifecycle 层真正接 `breath < threshold` 的翻转（并重审
+  0.50 帽的方向是否该反过来），要么删掉死代码。
+
+### A4 · 结算吞吐/滞后 — `PROPOSED`（v3 起遗留）
+- **取证**：~38-55% 已下注从未结算（agent 死时仍 open，作废）。
+- **改什么**：结算窗口/调度优化，让更多注真正落地结算。影响所有实验的有效样本量。
+
+## B. 物理/数据真实性类
+
+### B1 · v4 真实流动性帽（realism rule #4）— `PROPOSED`
+- **取证**：帽公式 `max(5, min(50, volume24hr×5%))` 对已结算市场恒落 $5 下限
+  （7,494/7,494）；"按市场流动性封顶"实际是全局 $5 硬编码。保守方向、不虚报，
+  但措辞需修正，且均匀帽正是杀死 rho 杠杆的元凶。
+- **改什么**：重抓 gamma 每市场**终身总成交量**（缓存没存原始字段，需重新抓
+  ~7,494 个市场，~1-2h API），帽改 `clamp(总量×1%, 5, 50)` 逐市场差异化；
+  作为 realism rule #4 全量重跑（新章节，不可与 v1-v3 直接比较）。
+- **连带效应**：仓位解锁（rho 立刻有反馈）+ 死亡更凶（注大血掉快）——是完整的
+  新实验，不是补丁。
+- **小项（先行）**：/docs 与 FinetuneLog 中 "capped at $5 by market liquidity"
+  措辞改准确（"统一 $5 保守帽，公式对已结算市场退化到下限"）→ 归入当前 Task 5。
+
+## C. 信号/特征工程类（按 预测力×数据可得性 排序）
+
+### C1 · Surface-specific Elo（替换排名积分差）— `PROPOSED`（特征类最大单项）
+- 现状 tennis_technical = `tanh(rank_points差/3000)`；积分是 52 周滚动和，失真。
+- 改：用 Sackmann 全量比赛史离线建逐场更新的 per-surface Elo + 综合 Elo 混合。
+  数据已在硬盘。
+### C2 · 疲劳/负荷 — `PROPOSED`
+- 7/14 天场次盘数、本届已耗局数、上一场 `minutes`、连续三盘史。现 rest 信号只数
+  休息天数；负荷是倒 U。数据已在硬盘。
+### C3 · 发球统计差 — `PROPOSED`
+- 一发/二发得分率差（场地加权近期窗）、破发点挽救率、ace 率。`w_svpt/w_1stWon/
+  bpSaved` 等字段已在硬盘。快速场地与五盘制下权重大。
+### C4 · 对手质量加权近期状态 — `PROPOSED`
+- 近期战绩按对手 Elo 加权（裸胜率会骗人）。依赖 C1 的 Elo 表。
+### C5 · 赛制/轮次/年龄/动量/左右手/身高/退赛风险/主场 — `PROPOSED`（第二梯队打包）
+- `best_of`(五盘利好热门)、tourney_level、round、年龄曲线、90 天排名轨迹、
+  左撇子对位、身高、近期退赛史（直接影响结算方向）、国籍主场。字段都在 Sackmann。
+### C6 · ATP/WTA 分轨校准 — `PROPOSED`（小项）
+- WTA 爆冷率更高；kappa/min_edge 分开 sweep。
+
+## D. 市场侧 / Edge 类
+
+### D1 · 跨市场锐线信号（Pinnacle vs Polymarket）— `PROPOSED`（**真 edge 最可能在此**）
+- **回测版**：tennis-data.co.uk 免费历史 ATP/WTA 赔率 CSV；信号 = 去水位后的
+  Pinnacle 隐含概率 − Polymarket 中价。
+- **⚠️ 前视陷阱（必须处理）**：收盘线包含开赛前最后一刻信息——entry_asof 早于
+  收盘时拿收盘线 = 偷看未来；诚实回测要用开盘线或时间对齐的线。
+- **live/mock-bet 版（用户已确认兴趣）**：live 才是主场（信息时差只在"现在"可
+  收割，且 live 无前视问题）。The Odds API（免费档 500 req/月 ≈ 16 快照/天，够
+  MVP）或 Betfair 交易所价；去水位（~2-3%）；`smart_money` 槽位名至实归；
+  门控 `gap > 点差+滑点+安全边际`；窗口短（分钟级）、容量薄（小仓高频收时差，
+  与 $100 资金设定登对）。
+- **对生存的意义**：比市场锐的信号源是把胜率推过 ~86% breath 翻正线的最现实路径
+  ——"不死"从彩票变成可学。
+
+## E. 已知但暂缓 / 上下文
+
+- E1 · walk-forward 多窗验证（超出单一 holdout）— v3 起遗留。
+- E2 · 种子 in-sample 选择偏差（sweep 与验证同窗）— v3 健康检查发现。
+- E3 · coverage ≤30%（大量市场被 min_edge/置信门挡掉）— 与 C 类特征升级联动。
+- E4 · Phase A/B/C 深层自治（breath 进感知特征、进化选择/谱系淘汰）— 早期讨论，
+  A1/A2 是其落地切片。
+
+---
+
+## 当前进行中（非 backlog）
+- groundhog v2 双腿真实 run（对照 + Gemini treatment，cap 120）→ 跑完后
+  README/文档（含 B1 措辞修正）→ 全量回归 → push → 部署 → 线上验证。

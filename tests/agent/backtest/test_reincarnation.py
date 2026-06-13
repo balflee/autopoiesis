@@ -1296,3 +1296,202 @@ def test_groundhog_flag_off_has_no_genome_keys(tmp_path) -> None:
         assert "start_genome" not in inc
         assert "terminal_genome_before_advice" not in inc
         assert "carry_genome_after_advice" not in inc
+
+
+# ========================================================================= #
+# A9 Task 3 — the K6 counterfactual ledger + death-window wiring.
+# ========================================================================= #
+
+
+def _stamped_step(
+    *,
+    pnl: float,
+    storm: float | None,
+    edge: float = 0.08,
+    min_edge: float = 0.05,
+    eff_min_edge: float = 0.05,
+    market_id: str = "SECRET-MKT-42",
+):
+    from agent.backtest.survival_season import SurvivalStep
+    from agent.core.state import Weights
+
+    w = Weights(
+        w_r=0.5, w_s=0.5, alpha=[1 / 3, 1 / 3, 1 / 3], beta=[0.5, 0.5],
+        rho=0.5,
+    )
+    return SurvivalStep(
+        life_idx=0,
+        market_id=market_id,
+        slug="secret-slug",
+        players=("Anon A", "Anon B"),
+        surface="clay",
+        entry_price=0.4,
+        outcome="yes",
+        winning_price=1.0,
+        side="YES",
+        size_usd=5.0,
+        pnl_usd=pnl,
+        signal_scores={},
+        weights_before=w,
+        weights_after=w,
+        breath_after=30.0,
+        bankroll_after=100.0,
+        cum_pnl=pnl,
+        running_win_rate=0.5,
+        storm_at_bet=storm,
+        edge_at_bet=None if storm is None else edge,
+        min_edge_at_bet=None if storm is None else min_edge,
+        gamma_at_bet=None if storm is None else 0.0,
+        eff_min_edge_at_bet=None if storm is None else eff_min_edge,
+    )
+
+
+def test_regime_ledger_arithmetic() -> None:
+    from agent.backtest.reincarnation import build_regime_ledger
+
+    steps = [
+        # HIGH storm losers (storm 1.0): candidate eff' = 0.05 + γ'·1.0.
+        _stamped_step(pnl=-5.0, storm=1.0),   # γ'=0.05 ⇒ 0.10 > 0.08 ⇒ blocked
+        _stamped_step(pnl=-7.0, storm=1.0),
+        # LOW storm winner (storm 0.0): eff' = 0.05 ⇒ 0.08 ≥ 0.05 ⇒ NOT blocked.
+        _stamped_step(pnl=4.0, storm=0.0),
+        # Not computable for every γ' (the policy at bet already had a
+        # TIGHTER gate than the candidate): eff_min_edge_at_bet 0.30.
+        _stamped_step(pnl=-2.0, storm=0.5, eff_min_edge=0.30),
+    ]
+    ledger = build_regime_ledger(steps, loss_multiplier=5.0)
+    assert ledger is not None
+    split = ledger["storm_split"]
+    # storm 0.5 sits ON the threshold => HIGH (>=).
+    assert split["high"]["bets"] == 3
+    assert split["high"]["pnl"] == pytest.approx(-14.0)
+    assert split["high"]["breath_delta"] == pytest.approx(-70.0)  # 5x
+    assert split["low"]["bets"] == 1
+    assert split["low"]["pnl"] == pytest.approx(4.0)
+    assert split["low"]["breath_delta"] == pytest.approx(4.0)
+
+    by_gamma = {c["gamma"]: c for c in ledger["gate_counterfactuals"]}
+    c05 = by_gamma[0.05]
+    # storm-1.0 bets: eff'=0.10 > |0.08| ⇒ blocked (2, pnl −12);
+    # storm-0.0 winner: eff'=0.05 ≤ 0.08 ⇒ admitted;
+    # storm-0.5 step: eff'=0.075 < its eff_min_edge_at_bet 0.30 ⇒ not computable.
+    assert c05["blocked"] == 2
+    assert c05["blocked_pnl"] == pytest.approx(-12.0)
+    assert c05["computable"] == 3
+    assert c05["not_computable"] == 1
+    # γ'=0.2: storm-0 winner eff'=0.05 still admits; storm-0.5 candidate
+    # eff'=0.15 < 0.30 ⇒ still not computable; high-storm blocked.
+    c20 = by_gamma[0.2]
+    assert c20["blocked"] == 2 and c20["not_computable"] == 1
+
+
+def test_regime_ledger_none_without_stamps() -> None:
+    from agent.backtest.reincarnation import build_regime_ledger
+
+    steps = [_stamped_step(pnl=-5.0, storm=None)]
+    assert build_regime_ledger(steps, loss_multiplier=5.0) is None
+    assert build_regime_ledger([], loss_multiplier=5.0) is None
+
+
+def test_death_window_renders_ledger_genome_and_tribute() -> None:
+    """The death summary carries the genome readout (every advisable key
+    + value), the storm split, the tightening-only counterfactual with
+    the loosening caveat, and the K5 tribute line — but NEVER a market
+    identity (information hygiene)."""
+    from agent.backtest.reincarnation import (
+        GENOME_KEYS,
+        build_death_window,
+        build_regime_ledger,
+    )
+    from agent.core.state import Weights
+
+    w = Weights(
+        w_r=0.5, w_s=0.5, alpha=[1 / 3, 1 / 3, 1 / 3], beta=[0.5, 0.5],
+        rho=0.5,
+    )
+    steps = [
+        _stamped_step(pnl=-5.0, storm=1.0),
+        _stamped_step(pnl=4.0, storm=0.0),
+    ]
+    ledger = build_regime_ledger(steps, loss_multiplier=5.0)
+    genome = {
+        "min_edge": 0.035,
+        "max_breath_risk_pct": 0.95,
+        "min_confidence": 0.08,
+        "kappa": 0.49,
+        "gate_storm_sensitivity": 0.0,
+        "risk_storm_sensitivity": 0.0,
+    }
+    window = build_death_window(
+        incarnation=3,
+        max_incarnations=20,
+        terminal_weights=w,
+        seed_weights=w,
+        pnl_at_death=-42.0,
+        recent_step_pnls=[-5.0, 4.0],
+        settled=2,
+        target_markets=100,
+        markets_seen=40,
+        avg_stake_usd=5.0,
+        win_rate=0.5,
+        initial_breath=35.0,
+        loss_multiplier=5.0,
+        best_markets_seen=60,
+        best_progress_pct=60.0,
+        genome=genome,
+        regime_ledger=ledger,
+        tribute_summary=(
+            "this life you bought 2 revival(s) for $1000 and earned "
+            "$12.00 after the first altar."
+        ),
+    )
+    text = window.recent_reflections[0]
+    # Genome readout: every advisable key AND its value appear (r5 H-1).
+    for key in GENOME_KEYS:
+        assert key in text
+    assert "min_edge 0.035" in text
+    assert "kappa 0.490" in text
+    # Storm split + counterfactual + loosening caveat (r2 M-4).
+    assert "HIGH storm" in text and "LOW storm" in text
+    assert "TIGHTENING direction only" in text
+    assert "loosening direction is not computable" in text
+    assert "would have BLOCKED" in text
+    # K5 tribute line.
+    assert "bought 2 revival(s) for $1000" in text
+    # Information hygiene: no market identity ever reaches the LLM.
+    assert "SECRET-MKT-42" not in text
+    assert "secret-slug" not in text
+    assert "Anon A" not in text
+
+
+def test_death_window_without_kit_is_unchanged() -> None:
+    """Kit-off (no genome/ledger/tribute kwargs): the summary ends with
+    the pre-kit sentence — byte-identical death rites for G0."""
+    from agent.backtest.reincarnation import build_death_window
+    from agent.core.state import Weights
+
+    w = Weights(
+        w_r=0.5, w_s=0.5, alpha=[1 / 3, 1 / 3, 1 / 3], beta=[0.5, 0.5],
+        rho=0.5,
+    )
+    window = build_death_window(
+        incarnation=1,
+        max_incarnations=20,
+        terminal_weights=w,
+        seed_weights=w,
+        pnl_at_death=-10.0,
+        recent_step_pnls=[-10.0],
+        settled=1,
+        target_markets=100,
+        markets_seen=10,
+        avg_stake_usd=5.0,
+        win_rate=0.0,
+        initial_breath=35.0,
+        loss_multiplier=5.0,
+        best_markets_seen=10,
+        best_progress_pct=10.0,
+    )
+    text = window.recent_reflections[0]
+    assert text.endswith("with these weights.")
+    assert "genome" not in text
+    assert "storm" not in text

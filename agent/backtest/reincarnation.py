@@ -69,8 +69,10 @@ __all__ = [
     "apply_weight_deltas",
     "build_death_window",
     "build_rebirth_window",
+    "build_regime_ledger",
     "classify_proposals",
     "genome_dict",
+    "render_regime_ledger_text",
     "run_groundhog_export",
     "run_reincarnation_export",
     "sanitize_rebirth_note",
@@ -803,6 +805,136 @@ def _run_frozen_holdout(
     return holdout_dict, eff_prices
 
 
+#: A9 K6: the pre-registered γ-grid for the tightening-only gate
+#: counterfactual and the storm-split threshold.
+_LEDGER_GAMMA_GRID: Final[tuple[float, ...]] = (0.05, 0.1, 0.2)
+_LEDGER_STORM_SPLIT: Final[float] = 0.5
+
+
+def build_regime_ledger(
+    steps: list[Any],
+    *,
+    loss_multiplier: float,
+    storm_split_threshold: float = _LEDGER_STORM_SPLIT,
+    gamma_grid: tuple[float, ...] = _LEDGER_GAMMA_GRID,
+) -> dict[str, Any] | None:
+    """The K6 counterfactual ledger over one life's SETTLED steps.
+
+    (a) Storm-split accounting: settled bets partitioned by
+    ``storm_at_bet >= threshold``; breath_delta applies the loss
+    multiplier to losing pnl (the physics that kills).
+
+    (b) γ-grid gate counterfactual, TIGHTENING DIRECTION ONLY (r1 H-3:
+    the outcomes of bets never placed are unknowable, so the loosening
+    direction is NOT computable and is never claimed). For each γ' the
+    candidate gate is ``eff'(γ') = min_edge_at_bet + γ'·storm_at_bet``;
+    a bet is **computable** iff ``eff'(γ') >= eff_min_edge_at_bet``
+    (true tightening relative to the policy that admitted it — r4 M-3),
+    and **would have been blocked** iff ``|edge_at_bet| < eff'(γ')``
+    (the REAL gate predicate, decision.py — r5 M-3).
+
+    Returns ``None`` when NO step carries stamps (storm off / no
+    settles) — the caller omits the artifact key.
+    """
+    stamped = [
+        s
+        for s in steps
+        if s.storm_at_bet is not None
+        and s.edge_at_bet is not None
+        and s.min_edge_at_bet is not None
+        and s.eff_min_edge_at_bet is not None
+    ]
+    if not stamped:
+        return None
+
+    def _bucket(subset: list[Any]) -> dict[str, float | int]:
+        pnl = sum(s.pnl_usd for s in subset)
+        breath = sum(
+            s.pnl_usd * (loss_multiplier if s.pnl_usd < 0.0 else 1.0)
+            for s in subset
+        )
+        return {"bets": len(subset), "pnl": pnl, "breath_delta": breath}
+
+    high = [s for s in stamped if s.storm_at_bet >= storm_split_threshold]
+    low = [s for s in stamped if s.storm_at_bet < storm_split_threshold]
+
+    counterfactuals: list[dict[str, Any]] = []
+    for gamma in gamma_grid:
+        computable = 0
+        not_computable = 0
+        blocked = 0
+        blocked_pnl = 0.0
+        for s in stamped:
+            eff_candidate = s.min_edge_at_bet + gamma * s.storm_at_bet
+            if eff_candidate < s.eff_min_edge_at_bet:
+                not_computable += 1
+                continue
+            computable += 1
+            if abs(s.edge_at_bet) < eff_candidate:
+                blocked += 1
+                blocked_pnl += s.pnl_usd
+        counterfactuals.append(
+            {
+                "gamma": gamma,
+                "computable": computable,
+                "not_computable": not_computable,
+                "blocked": blocked,
+                "blocked_pnl": blocked_pnl,
+            }
+        )
+
+    return {
+        "storm_split": {
+            "threshold": storm_split_threshold,
+            "high": _bucket(high),
+            "low": _bucket(low),
+        },
+        "gate_counterfactuals": counterfactuals,
+        "stamped_steps": len(stamped),
+        "unstamped_steps": len(steps) - len(stamped),
+    }
+
+
+def render_regime_ledger_text(ledger: dict[str, Any]) -> str:
+    """The 2-3 aggregate sentences the death window appends — storm-
+    resolved, gate-causal evidence the advisor can QUOTE (its HARD RULE 4
+    becomes satisfiable for γ proposals). Aggregates ONLY, never a market
+    identity; the loosening caveat is explicit (r2 M-4)."""
+    split = ledger["storm_split"]
+    hs, ls = split["high"], split["low"]
+    parts = [
+        (
+            f"storm split (threshold {split['threshold']:g}): "
+            f"{hs['bets']} settled bets in HIGH storm, pnl "
+            f"${hs['pnl']:.2f} (breath {hs['breath_delta']:+.2f}); "
+            f"{ls['bets']} in LOW storm, pnl ${ls['pnl']:.2f} "
+            f"(breath {ls['breath_delta']:+.2f})."
+        )
+    ]
+    bits: list[str] = []
+    for c in ledger["gate_counterfactuals"]:
+        if c["computable"] == 0:
+            bits.append(
+                f"at gate_storm_sensitivity +{c['gamma']:g}: not computable "
+                "from placed bets"
+            )
+        else:
+            bits.append(
+                f"at gate_storm_sensitivity +{c['gamma']:g}: would have "
+                f"BLOCKED {c['blocked']} of {c['computable']} computable "
+                f"settled bets whose realized pnl was ${c['blocked_pnl']:.2f}"
+            )
+    parts.append(
+        "gate counterfactual, TIGHTENING direction only (outcomes of bets "
+        "never placed are unknowable, so the loosening direction is not "
+        "computable): "
+        + "; ".join(bits)
+        + ". negative blocked pnl = blocking would have HELPED; positive = "
+        "it would have COST."
+    )
+    return " ".join(parts)
+
+
 def build_death_window(
     *,
     incarnation: int,
@@ -820,6 +952,9 @@ def build_death_window(
     loss_multiplier: float,
     best_markets_seen: int,
     best_progress_pct: float,
+    genome: dict[str, float] | None = None,
+    regime_ledger: dict[str, Any] | None = None,
+    tribute_summary: str | None = None,
 ) -> PerformanceWindow:
     """Death-context retrospective window (groundhog design).
 
@@ -848,6 +983,18 @@ def build_death_window(
         f"keeps its earnings. you will be reborn at the season's first "
         f"market with these weights."
     )
+    # A9 (storm kit only — the kit-off window stays byte-identical):
+    # (d) the genome readout — the advisor cannot reason about knobs it
+    # cannot see (PerformanceWindow carries weights only);
+    # (b) the K6 ledger sentences; (c) the K5 tribute line.
+    if genome is not None:
+        summary += " your genome: " + " · ".join(
+            f"{k} {v:.3f}" for k, v in genome.items()
+        ) + "."
+    if regime_ledger is not None:
+        summary += " " + render_regime_ledger_text(regime_ledger)
+    if tribute_summary:
+        summary += " " + tribute_summary
     return PerformanceWindow(
         tick=settled,
         ts=datetime(1970, 1, 1, tzinfo=UTC),
@@ -1243,6 +1390,15 @@ def run_groundhog_export(
                     "ema_size": len(shared_inner._ema),
                 },
             }
+            # A9 K6: the per-life counterfactual ledger (storm kit only —
+            # flag-off artifacts gain no key, r4 H-1).
+            inc_ledger: dict[str, Any] | None = None
+            if storm:
+                inc_ledger = build_regime_ledger(
+                    steps, loss_multiplier=loss_multiplier
+                )
+                entry["regime_ledger"] = inc_ledger
+
             # Size guard: scalars for EVERY incarnation; curves only for the
             # first few, the survivor, and the final incarnation.
             if k <= _CURVE_KEEP_FIRST or not died or k == max_incarnations:
@@ -1267,6 +1423,18 @@ def run_groundhog_export(
                 best_progress_pct = max(
                     float(e["progress_pct"]) for e in incarnations
                 )
+                # K5: the tribute line (storm kit only).
+                trib_line: str | None = None
+                if storm and inc_tributes:
+                    revivals = sum(
+                        1 for t in inc_tributes if t["success"]
+                    )
+                    earned = revival_earnings or 0.0
+                    trib_line = (
+                        f"this life you bought {revivals} revival(s) for "
+                        f"${tributes_paid:.0f} and earned ${earned:.2f} "
+                        "after the first altar."
+                    )
                 window = build_death_window(
                     incarnation=k,
                     max_incarnations=max_incarnations,
@@ -1289,6 +1457,9 @@ def run_groundhog_export(
                     loss_multiplier=loss_multiplier,
                     best_markets_seen=best_markets_seen,
                     best_progress_pct=best_progress_pct,
+                    genome=genome_dict(carry_seed) if storm else None,
+                    regime_ledger=inc_ledger if storm else None,
+                    tribute_summary=trib_line,
                 )
                 # A6: the dying wish — recorded for the gods, never carried
                 # into the next life (the artifact is its only afterlife).

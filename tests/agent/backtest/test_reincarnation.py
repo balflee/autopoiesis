@@ -4,6 +4,7 @@ rebirth window, note sanitization, and the multi-pass export."""
 from __future__ import annotations
 
 import dataclasses
+import itertools
 
 import pytest
 
@@ -1495,3 +1496,177 @@ def test_death_window_without_kit_is_unchanged() -> None:
     assert text.endswith("with these weights.")
     assert "genome" not in text
     assert "storm" not in text
+
+
+# ========================================================================= #
+# A9 Task 4 — K7 falsification (paired time-shift) + participation.
+# ========================================================================= #
+
+
+def test_shuffle_timestamps_paired_consistency() -> None:
+    """Every (row, snapshot) pair shifts as ONE unit: internal intervals
+    (entry→resolution, entry→end, ledger spacing) are preserved exactly;
+    the output timeline is monotone with >= 60 s spacing; and the
+    chronological MARKET ORDER actually changed (the regression that
+    fails if an implementation shuffles row order without moving
+    timestamps — order-only shuffles are erased by the re-sorts)."""
+    from datetime import datetime
+
+    from agent.backtest.reincarnation import _entry_ts, shuffle_timestamps
+
+    rows, snaps = _clustered_dying_fixture()
+    out_rows, out_snaps = shuffle_timestamps(rows, snaps, seed=3)
+    assert len(out_rows) == len(rows)
+    snap_by_id = {s.market_id: s for s in snaps}
+    out_snap_by_id = {s.market_id: s for s in out_snaps}
+    orig_by_id = {r.market_id: r for r in rows}
+    for r in out_rows:
+        orig = orig_by_id[r.market_id]
+        delta = _entry_ts(r) - _entry_ts(orig)
+        s_orig = snap_by_id[r.market_id]
+        s_new = out_snap_by_id[r.market_id]
+        # Row internal intervals preserved.
+        assert datetime.fromisoformat(r.end_date_iso) - datetime.fromisoformat(
+            orig.end_date_iso
+        ) == delta
+        if orig.resolution_ts_iso is not None:
+            assert datetime.fromisoformat(
+                r.resolution_ts_iso
+            ) - datetime.fromisoformat(orig.resolution_ts_iso) == delta
+        # Snapshot moved by the SAME delta (paired settle availability).
+        assert datetime.fromisoformat(
+            s_new.end_date_iso
+        ) - datetime.fromisoformat(s_orig.end_date_iso) == delta
+        if s_orig.resolution_ts_iso is not None:
+            assert datetime.fromisoformat(
+                s_new.resolution_ts_iso
+            ) - datetime.fromisoformat(s_orig.resolution_ts_iso) == delta
+        # Ledger spacing preserved.
+        for pp_new, pp_old in zip(
+            s_new.price_ledger, s_orig.price_ledger, strict=True
+        ):
+            assert datetime.fromisoformat(
+                pp_new.ts
+            ) - datetime.fromisoformat(pp_old.ts) == delta
+    # Monotone >= 60 s spacing on the output timeline.
+    out_sorted = sorted(out_rows, key=_entry_ts)
+    for a, b in itertools.pairwise(out_sorted):
+        assert (_entry_ts(b) - _entry_ts(a)).total_seconds() >= 60.0
+    # The chronological market order CHANGED (timestamps moved, not rows).
+    orig_order = [
+        r.market_id for r in sorted(rows, key=lambda x: (_entry_ts(x), x.market_id))
+    ]
+    new_order = [r.market_id for r in out_sorted]
+    assert new_order != orig_order
+
+
+def test_shuffle_timestamps_tied_bucket_escape() -> None:
+    """r13 M-1: a large tied bucket sitting closer than bucket_size×60 s
+    to the next slot still yields >= 60 s spacing everywhere (cumulative
+    push), and slot order IS the seeded permutation order (ties are
+    eliminated entirely)."""
+    import dataclasses as _dc
+
+    from agent.backtest.reincarnation import _entry_ts, shuffle_timestamps
+
+    rows, snaps = _clustered_dying_fixture()
+    # Force a tied bucket: first 3 rows share ONE entry ts; the next
+    # distinct ts is only 30 s later (< 3 × 60 s).
+    snap_by_id = {s.market_id: s for s in snaps}
+    tied_ts = "2026-06-01T00:00:00+00:00"
+    near_ts = "2026-06-01T00:00:30+00:00"
+    forced: list = []
+    for idx, r in enumerate(rows):
+        if idx < 3:
+            forced.append(_dc.replace(r, entry_asof_ts_iso=tied_ts))
+        elif idx == 3:
+            forced.append(_dc.replace(r, entry_asof_ts_iso=near_ts))
+        else:
+            forced.append(r)
+    out_rows, _ = shuffle_timestamps(forced, snaps, seed=7)
+    out_sorted = sorted(out_rows, key=_entry_ts)
+    for a, b in itertools.pairwise(out_sorted):
+        assert (_entry_ts(b) - _entry_ts(a)).total_seconds() >= 60.0
+    # No ties remain anywhere.
+    ts_list = [_entry_ts(r) for r in out_sorted]
+    assert len(set(ts_list)) == len(ts_list)
+    del snap_by_id
+
+
+def test_groundhog_shuffled_disclosure_and_flag_off_keyset(tmp_path) -> None:
+    """The falsification leg discloses split.shuffled_timestamps; the
+    normal leg's split dict carries NO such key."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    shuffled = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_shuffled.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        storm=True,
+        shuffle_timestamps_seed=1,
+    )
+    assert shuffled["split"]["shuffled_timestamps"] is True
+    assert shuffled["split"]["shuffle_seed"] == 1
+    # bets_by_third rides the storm kit (per-inc).
+    for inc in shuffled["incarnations"]:
+        thirds = inc["bets_by_third"]
+        assert [t["third"] for t in thirds] == [0, 1, 2]
+        assert sum(t["placed"] for t in thirds) <= inc["bets"] + 1
+        assert sum(t["denominator"] for t in thirds) == inc["markets_seen"]
+
+    plain = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_plain.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert "shuffled_timestamps" not in plain["split"]
+    assert "shuffle_seed" not in plain["split"]
+    for inc in plain["incarnations"]:
+        assert "bets_by_third" not in inc
+        assert "regime_ledger" not in inc
+
+
+def test_bets_by_third_dedups_status_flips() -> None:
+    """r2 M-3: the poller appends a settled status-flip COPY per bet —
+    raw rows double-count; dedup keeps the FIRST (placement) record."""
+    from datetime import UTC, datetime
+
+    from agent.backtest.reincarnation import _bets_by_third
+
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+
+    def _iso(minutes: int) -> str:
+        from datetime import timedelta
+
+        return (t0 + timedelta(minutes=minutes)).isoformat()
+
+    placed = [
+        {"bet_id": "a", "ts": _iso(0), "status": "open"},
+        {"bet_id": "b", "ts": _iso(50), "status": "open"},
+        # status-flip copy of a (later ts) — must NOT double-count nor
+        # rebucket the placement.
+        {"bet_id": "a", "ts": _iso(99), "status": "settled"},
+        {"bet_id": "c", "ts": _iso(99), "status": "open"},
+    ]
+    consumed = [t0, t0.replace(minute=30), t0.replace(minute=59)]
+    from datetime import timedelta
+
+    consumed = [t0, t0 + timedelta(minutes=50), t0 + timedelta(minutes=99)]
+    thirds = _bets_by_third(placed, consumed_entry_ts=consumed)
+    assert sum(t["placed"] for t in thirds) == 3  # a, b, c — not 4
+    assert thirds[0]["placed"] == 1   # a at minute 0
+    assert thirds[1]["placed"] == 1   # b at minute 50
+    assert thirds[2]["placed"] == 1   # c at minute 99
+    assert sum(t["denominator"] for t in thirds) == 3

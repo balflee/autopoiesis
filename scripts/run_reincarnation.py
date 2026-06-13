@@ -6,14 +6,24 @@ gemini provider adds a sanitized strict-advisor "rebirth retrospective" at
 each pass boundary), then runs ONE learning-frozen cold-start pass on the
 held-out 30% window + the three baselines. v3 physics throughout.
 
-Provider purity (v3 convention): the gemini leg injects
-``RetryLLMClient(inner=GeminiClient())`` directly with ``model=""`` so the
-client self-resolves its own default — never ``make_llm_client()``.
+Provider purity (v3 convention): each LLM leg injects its client directly
+(``RetryLLMClient(inner=GeminiClient())`` / ``RetryLLMClient(inner=
+MiniMaxClient())``) with ``model=""`` so the client self-resolves its own
+default — never ``make_llm_client()``.
 
-Usage::
+A9 experiment arms (plan 2026-06-13; treatment provider = MiniMax-M3)::
 
-    python scripts/run_reincarnation.py --provider numerical
-    python scripts/run_reincarnation.py --provider gemini
+    # N  — numerical control: the published artifact, never rerun.
+    # G0 — kit-off LLM ablation (six-weight advisor + tribute, NO kit):
+    python scripts/run_reincarnation.py --provider minimax \\
+        --out dashboard/public/backtest/reincarnation_g0.json
+    # G1 — full-kit treatment (storm percept + genome + ledger):
+    python scripts/run_reincarnation.py --provider minimax --storm \\
+        --out dashboard/public/backtest/reincarnation_g1.json
+    # G2 — falsification (full kit on the timestamp-shuffled season):
+    python scripts/run_reincarnation.py --provider minimax --storm \\
+        --shuffle-timestamps-seed 1 \\
+        --out dashboard/public/backtest/reincarnation_g2.json
 
 Keys come from ``./.env`` (never committed, never printed).
 """
@@ -47,10 +57,16 @@ _OUT = {
     "groundhog": {
         "numerical": Path("dashboard/public/backtest/reincarnation.json"),
         "gemini": Path("dashboard/public/backtest/reincarnation_ai.json"),
+        "minimax": Path(
+            "dashboard/public/backtest/reincarnation_ai_minimax.json"
+        ),
     },
     "passes": {
         "numerical": Path("dashboard/public/backtest/reincarnation_3pass.json"),
         "gemini": Path("dashboard/public/backtest/reincarnation_ai_3pass.json"),
+        "minimax": Path(
+            "dashboard/public/backtest/reincarnation_ai_minimax_3pass.json"
+        ),
     },
 }
 # The v3 realism row floor — rows are LOADED under it and the export
@@ -65,9 +81,15 @@ def main(argv: list[str] | None = None) -> int:
 
     _load_dotenv_if_present()
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Phase-2 reincarnation runner. A9 arms: G0 = --provider "
+            "minimax (kit-off LLM ablation); G1 = + --storm (full kit); "
+            "G2 = + --storm --shuffle-timestamps-seed N (falsification)."
+        )
+    )
     parser.add_argument(
-        "--provider", choices=("numerical", "gemini"), required=True
+        "--provider", choices=("numerical", "gemini", "minimax"), required=True
     )
     parser.add_argument(
         "--design", choices=("groundhog", "passes"), default="groundhog"
@@ -78,6 +100,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--train-fraction", type=float, default=0.7)
     # A7: the CLI is the tribute opt-in choke point (library default OFF).
     parser.add_argument("--no-tribute", action="store_true")
+    # A9: the ONE explicit kit flag (storm percept + genome vocabulary +
+    # counterfactual ledger + participation split + falsification metric).
+    parser.add_argument("--storm", action="store_true")
+    # A9 K7: the falsification leg's paired time-shift (G2 only).
+    parser.add_argument("--shuffle-timestamps-seed", type=int, default=None)
     args = parser.parse_args(argv)
 
     out = args.out or _OUT[args.design][args.provider]
@@ -99,6 +126,15 @@ def main(argv: list[str] | None = None) -> int:
 
         rebirth_llm = RetryLLMClient(inner=GeminiClient())
         rebirth_guard = L3CostGuard.from_env()
+    elif args.provider == "minimax":
+        # Provider-pure (v3 convention): direct MiniMaxClient injection,
+        # model="" self-resolves to MiniMax-M3. Never make_llm_client().
+        from agent.llm.cost_guard import L3CostGuard
+        from agent.llm.factory import RetryLLMClient
+        from agent.llm.minimax_client import MiniMaxClient
+
+        rebirth_llm = RetryLLMClient(inner=MiniMaxClient())
+        rebirth_guard = L3CostGuard.from_env()
 
     if args.design == "groundhog":
         artifact = run_groundhog_export(
@@ -119,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
             rebirth_guard=rebirth_guard,
             rebirth_model="",  # each client self-resolves its OWN default
             tribute=not args.no_tribute,
+            storm=args.storm,
+            shuffle_timestamps_seed=args.shuffle_timestamps_seed,
         )
         for inc in artifact["incarnations"]:
             note = " note=yes" if inc["rebirth_note"] else ""
@@ -150,6 +188,22 @@ def main(argv: list[str] | None = None) -> int:
             f"applied={r['applied']}",
             flush=True,
         )
+        fm = artifact.get("falsification_metric")
+        if fm is not None:
+            # Neutral readout — the arm-specific verdict (G1 wants γ to
+            # move, G2 wants γ≈0) belongs to the page, not the runner.
+            print(
+                f"falsification_metric: {fm['key']}={fm['value']:+.3f} "
+                f"(threshold {fm['threshold']:g}) "
+                f"productive_calls={fm['productive_calls']}/"
+                f"{fm['min_productive_required']} "
+                + (
+                    "evaluable"
+                    if fm["evaluable"]
+                    else "NOT evaluable -> INCONCLUSIVE"
+                ),
+                flush=True,
+            )
     else:
         artifact = run_reincarnation_export(
             rows=rows,

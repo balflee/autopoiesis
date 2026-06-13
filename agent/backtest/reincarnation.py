@@ -23,7 +23,7 @@ import random as _grandom
 import re
 import tempfile
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -76,6 +76,7 @@ __all__ = [
     "run_groundhog_export",
     "run_reincarnation_export",
     "sanitize_rebirth_note",
+    "shuffle_timestamps",
     "split_rows_by_time",
 ]
 
@@ -233,6 +234,148 @@ def split_rows_by_time(
             "split degenerate: tie absorption exhausted the holdout window"
         )
     return ordered[:cut], ordered[cut:]
+
+
+#: K7 falsification: minimum inter-slot spacing after the monotone
+#: normalization pass — 60 s ≫ the replay clock's worst within-tick drift
+#: (+1 s per now() read), so synthetic stops can never let tick N's clock
+#: run past tick N+1 and snap backward (r11 H-1 / r13 M-1).
+_SHUFFLE_MIN_SPACING: Final[timedelta] = timedelta(seconds=60)
+
+
+def _shift_iso(ts_iso: str, delta: timedelta) -> str:
+    return (datetime.fromisoformat(ts_iso) + delta).isoformat()
+
+
+def _shift_iso_opt(ts_iso: str | None, delta: timedelta) -> str | None:
+    return None if ts_iso is None else _shift_iso(ts_iso, delta)
+
+
+def shuffle_timestamps(
+    rows: list[SurvivalRow],
+    snapshots: list[MarketSnapshot],
+    *,
+    seed: int,
+    min_spacing: timedelta = _SHUFFLE_MIN_SPACING,
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """K7: the seeded PAIRED TIME-SHIFT — a pure PRE-split transform that
+    destroys serial regime structure while preserving each market's
+    internal physics.
+
+    Row-order shuffling alone is ERASED by the split/schedule re-sorts,
+    and shifting row timestamps without their snapshots desyncs
+    settlement availability (r1 H-4 / r2 H-2). So: sort ALL (row,
+    snapshot) pairs chronologically into slots; normalize the slot
+    timeline MONOTONE with ``min_spacing`` between slots (cumulative
+    forward push — ties are eliminated ENTIRELY, so slot order IS the
+    seeded permutation order, and 60 s spacing holds globally BY
+    CONSTRUCTION; the stretch is harmless — the timeline is synthetic +
+    disclosed and the split is count-based); draw a seeded permutation;
+    clone the pair assigned to each slot with EVERY timestamp field
+    shifted by ``slot_ts − pair_entry_ts`` (row: entry/resolution/end;
+    snapshot: end/resolution/price_ledger), preserving each pair's
+    internal intervals exactly. Snapshots without a row pass through
+    untouched.
+    """
+    snap_by_id = {s.market_id: s for s in snapshots}
+    missing = [r.market_id for r in rows if r.market_id not in snap_by_id]
+    if missing:
+        raise ValueError(
+            f"shuffle_timestamps: rows without snapshots: {missing[:3]}"
+        )
+    ordered = sorted(rows, key=lambda r: (_entry_ts(r), r.market_id))
+    # Monotone slot timeline (r13 M-1).
+    slot_ts: list[datetime] = []
+    for r in ordered:
+        ts = _entry_ts(r)
+        if slot_ts and ts < slot_ts[-1] + min_spacing:
+            ts = slot_ts[-1] + min_spacing
+        slot_ts.append(ts)
+    rng = _grandom.Random(seed)
+    order = list(range(len(ordered)))
+    rng.shuffle(order)  # order[j] = original sorted index assigned to slot j
+    out_rows: list[SurvivalRow] = []
+    out_snaps: list[MarketSnapshot] = []
+    shuffled_ids: set[str] = set()
+    for j, i in enumerate(order):
+        row = ordered[i]
+        snap = snap_by_id[row.market_id]
+        delta = slot_ts[j] - _entry_ts(row)
+        out_rows.append(
+            dataclasses.replace(
+                row,
+                entry_asof_ts_iso=_shift_iso(row.entry_asof_ts_iso, delta),
+                resolution_ts_iso=_shift_iso_opt(
+                    row.resolution_ts_iso, delta
+                ),
+                end_date_iso=_shift_iso(row.end_date_iso, delta),
+            )
+        )
+        out_snaps.append(
+            snap.model_copy(
+                update={
+                    "end_date_iso": _shift_iso(snap.end_date_iso, delta),
+                    "resolution_ts_iso": _shift_iso_opt(
+                        snap.resolution_ts_iso, delta
+                    ),
+                    "price_ledger": [
+                        pp.model_copy(
+                            update={"ts": _shift_iso(pp.ts, delta)}
+                        )
+                        for pp in snap.price_ledger
+                    ],
+                }
+            )
+        )
+        shuffled_ids.add(row.market_id)
+    out_snaps.extend(
+        s for s in snapshots if s.market_id not in shuffled_ids
+    )
+    return out_rows, out_snaps
+
+
+def _bets_by_third(
+    placed_rows: list[dict[str, Any]],
+    *,
+    consumed_entry_ts: list[datetime],
+) -> list[dict[str, Any]]:
+    """Participation split (anti-shutdown-ratchet, constraint 3).
+
+    ``placed_rows`` are raw open_bets.jsonl rows — the poller appends a
+    settled status-flip COPY per bet, so dedup by ``bet_id`` keeps the
+    FIRST (placement) record (r2 M-3). Buckets are thirds of the life's
+    consumed-market entry span; denominators (consumed markets per
+    third) are disclosed as approximate.
+    """
+    seen: set[str] = set()
+    placements: list[dict[str, Any]] = []
+    for b in placed_rows:
+        bid = b.get("bet_id")
+        if isinstance(bid, str) and bid not in seen:
+            seen.add(bid)
+            placements.append(b)
+    thirds: list[dict[str, Any]] = [
+        {"third": t, "placed": 0, "denominator": 0} for t in range(3)
+    ]
+    if not consumed_entry_ts:
+        return thirds
+    start = min(consumed_entry_ts)
+    end = max(consumed_entry_ts)
+    span = (end - start).total_seconds()
+
+    def _bucket(ts: datetime) -> int:
+        if span <= 0.0:
+            return 0
+        frac = max(0.0, min(1.0, (ts - start).total_seconds() / span))
+        return min(2, int(frac * 3.0))
+
+    for ts in consumed_entry_ts:
+        thirds[_bucket(ts)]["denominator"] += 1
+    for b in placements:
+        ts_raw = b.get("ts")
+        if isinstance(ts_raw, str):
+            thirds[_bucket(datetime.fromisoformat(ts_raw))]["placed"] += 1
+    return thirds
 
 
 def apply_weight_deltas(
@@ -1184,6 +1327,7 @@ def run_groundhog_export(
     tribute_rng_factory: Callable[[int], _grandom.Random] | None = None,
     state_root: Path | None = None,
     storm: bool = False,
+    shuffle_timestamps_seed: int | None = None,
 ) -> dict[str, Any]:
     """TRUE reincarnation (design v2, user-locked): one incarnation = ONE
     life from the season's FIRST market (``max_lives=1`` — no internal
@@ -1213,6 +1357,14 @@ def run_groundhog_export(
         raise ValueError(
             f"row universe violates entry_price_floor {entry_price_floor!r} "
             f"(min entry price {bad!r}) -- load rows with the same floor"
+        )
+
+    # K7 falsification (G2): the paired time-shift runs BEFORE the split
+    # machinery — the normal chronological split then operates on the
+    # synthetic timeline.
+    if shuffle_timestamps_seed is not None:
+        rows, snapshots = shuffle_timestamps(
+            rows, snapshots, seed=shuffle_timestamps_seed
         )
 
     train, holdout = split_rows_by_time(rows, train_fraction=train_fraction)
@@ -1398,6 +1550,17 @@ def run_groundhog_export(
                     steps, loss_multiplier=loss_multiplier
                 )
                 entry["regime_ledger"] = inc_ledger
+                # Participation split (constraint 3): from the DEDUPED
+                # placed-bet ledger over the consumed-market span.
+                train_by_id = {r.market_id: r for r in train}
+                entry["bets_by_third"] = _bets_by_third(
+                    recorder.placed_bets,
+                    consumed_entry_ts=[
+                        _entry_ts(train_by_id[mid])
+                        for mid in life.consumed_market_ids
+                        if mid in train_by_id
+                    ],
+                )
 
             # Size guard: scalars for EVERY incarnation; curves only for the
             # first few, the survivor, and the final incarnation.
@@ -1572,6 +1735,15 @@ def run_groundhog_export(
             "train_fraction": train_fraction,
             "train_end_ts": train[-1].entry_asof_ts_iso,
             "holdout_start_ts": holdout[0].entry_asof_ts_iso,
+            # K7 disclosure: present ONLY on the falsification leg.
+            **(
+                {
+                    "shuffled_timestamps": True,
+                    "shuffle_seed": shuffle_timestamps_seed,
+                }
+                if shuffle_timestamps_seed is not None
+                else {}
+            ),
         },
         "knobs": {
             "max_incarnations": max_incarnations,

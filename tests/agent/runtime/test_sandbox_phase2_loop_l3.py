@@ -304,6 +304,12 @@ def _build_loop(
     storm_tau: float = 0.05,
     storm_scale: float | None = None,
     chain_adapter: Any | None = None,
+    divine_tithe: bool = False,
+    tithe_every: int = 20,
+    tithe_amount_usd: float = 20.0,
+    tithe_breath_cost: float = 5.0,
+    initial_breath: float = 100.0,
+    initial_bankroll_usd: float = 100.0,
 ) -> tuple[
     SandboxPhase2Loop,
     _FakeStateHook,
@@ -318,7 +324,7 @@ def _build_loop(
     clock = _FixedClock(start=datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC))
     sleeper = _FakeSleeper()
     if chain_adapter is None:
-        chain_adapter = _FakeChainAdapter(current_breath=100.0)
+        chain_adapter = _FakeChainAdapter(current_breath=initial_breath)
     state_hook = _FakeStateHook()
     weight_updater = _FakeWeightUpdater()
 
@@ -352,8 +358,8 @@ def _build_loop(
         clock=clock,
         sleeper=sleeper,
         decision_cadence=timedelta(0),
-        initial_breath=100.0,
-        initial_bankroll_usd=100.0,
+        initial_breath=initial_breath,
+        initial_bankroll_usd=initial_bankroll_usd,
         strategy_advisor=strategy_advisor,
         strategy_advisor_tick_interval=strategy_advisor_tick_interval,
         strategy_advisor_stability_window=strategy_advisor_stability_window,
@@ -367,6 +373,10 @@ def _build_loop(
         storm_enabled=storm_enabled,
         storm_tau=storm_tau,
         storm_scale=storm_scale,
+        divine_tithe=divine_tithe,
+        tithe_every=tithe_every,
+        tithe_amount_usd=tithe_amount_usd,
+        tithe_breath_cost=tithe_breath_cost,
         **({"decision_engine": decision_engine} if decision_engine is not None else {}),
     )
     return loop, state_hook, writer, clock
@@ -1200,3 +1210,87 @@ def test_storm_restart_rejected_with_prior_state(tmp_path: Path) -> None:
     # Control: a NON-storm loop resumes the same dir without complaint.
     loop_d, _, _, clock_d = _build_loop(tmp_path=tmp_path)
     _drive(loop_d, n=1, clock=clock_d)
+
+
+# --------------------------------------------------------------------------- #
+# A10 divine tithe (plan 2026-06-13) — periodic rent: $X every N markets, or
+# Y breath when broke; default off = byte-identical.
+# --------------------------------------------------------------------------- #
+
+
+def test_tithe_default_off_emits_no_event(tmp_path: Path) -> None:
+    loop, hook, _, clock = _build_loop(tmp_path=tmp_path)
+    _drive(loop, n=3, clock=clock)
+    assert hook.by_kind("tithe") == []
+
+
+def test_tithe_ctor_validation(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="tithe_every"):
+        _build_loop(tmp_path=tmp_path / "a", divine_tithe=True, tithe_every=0)
+    with pytest.raises(RuntimeError, match="tithe_amount_usd"):
+        _build_loop(
+            tmp_path=tmp_path / "b", divine_tithe=True, tithe_amount_usd=-1.0
+        )
+    with pytest.raises(RuntimeError, match="tithe_breath_cost"):
+        _build_loop(
+            tmp_path=tmp_path / "c",
+            divine_tithe=True,
+            tithe_breath_cost=float("nan"),
+        )
+
+
+def test_tithe_charges_cash_when_affordable(tmp_path: Path) -> None:
+    """Every ``tithe_every`` markets the gods take cash from a solvent
+    agent — breath untouched."""
+    loop, hook, _, clock = _build_loop(
+        tmp_path=tmp_path,
+        divine_tithe=True,
+        tithe_every=2,
+        tithe_amount_usd=10.0,
+        initial_bankroll_usd=500.0,
+        initial_breath=100.0,
+    )
+    _drive(loop, n=4, clock=clock)
+    events = hook.by_kind("tithe")
+    # markets 2 and 4 → two tithes (every market is an eligible-market tick).
+    assert len(events) == 2
+    for e in events:
+        assert e["amount_usd"] == 10.0
+        assert e["breath_cost"] == 0.0
+    # bankroll dropped by 2×$10; breath never touched by the tithe.
+    assert loop._bankroll_usd <= 500.0 - 20.0 + 1e-9
+
+
+def test_tithe_takes_breath_when_broke_and_drains_toward_death(
+    tmp_path: Path,
+) -> None:
+    """A broke agent cannot pay cash → the gods take breath each market →
+    breath drains monotonically toward 0 (the abstention-survival loophole:
+    a do-nothing agent can no longer freeze its breath forever). The full
+    death→advisor integration is covered at the reincarnation level with the
+    real replay chain adapter; here we prove the drain mechanics short of the
+    kill tick (this file's fake chain adapter has no tombstone mint)."""
+    no_bet = Action(kind=ActionKind.NO_BET, no_bet_reason="scripted")
+    eng = _RecordingDecisionEngine(action=no_bet)
+    loop, hook, _, clock = _build_loop(
+        tmp_path=tmp_path,
+        decision_engine=eng,
+        divine_tithe=True,
+        tithe_every=1,
+        tithe_amount_usd=1000.0,  # unaffordable → forces the breath path
+        tithe_breath_cost=4.0,
+        initial_bankroll_usd=10.0,
+        initial_breath=20.0,
+    )
+    # breath 20, −4/market the agent never replenishes (it abstains):
+    # market 1 → 16, market 2 → 12, market 3 → 8 (all still alive).
+    _drive(loop, n=3, clock=clock)
+    breath_events = [e for e in hook.by_kind("tithe") if e["breath_cost"] > 0]
+    assert len(breath_events) == 3, "broke agent pays in breath every market"
+    assert breath_events[0]["amount_usd"] == 0.0
+    assert breath_events[0]["breath_cost"] == 4.0
+    # Monotone drain toward 0 — no freezing.
+    afters = [e["breath_after"] for e in breath_events]
+    assert afters == sorted(afters, reverse=True)
+    assert afters[-1] == pytest.approx(8.0)
+    assert loop._breath == pytest.approx(8.0)

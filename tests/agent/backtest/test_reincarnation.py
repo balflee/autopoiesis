@@ -1670,3 +1670,97 @@ def test_bets_by_third_dedups_status_flips() -> None:
     assert thirds[1]["placed"] == 1   # b at minute 50
     assert thirds[2]["placed"] == 1   # c at minute 99
     assert sum(t["denominator"] for t in thirds) == 3
+
+
+# ========================================================================= #
+# A10 divine tithe — periodic rent accounting + fail-closed invariant.
+# ========================================================================= #
+
+
+def test_groundhog_divine_tithe_accounting(tmp_path) -> None:
+    """With the gods charging rent, the artifact discloses the tithe physics,
+    per-incarnation cash/breath accounting, and the top-level revenue — and
+    the fail-closed validator (which run_groundhog_export calls before write)
+    accepts a coherent artifact."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_tithe.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        divine_tithe=True,
+        tithe_every=1,
+        tithe_amount_usd=10.0,
+        tithe_breath_cost=2.0,
+    )
+    assert artifact["physics"]["divine_tithe"] is True
+    assert artifact["physics"]["tithe_every"] == 1
+    assert "tithe_revenue" in artifact
+    assert artifact["tithe"]["amount_usd"] == 10.0
+    # Per-incarnation accounting present + internally consistent.
+    total_cash = 0.0
+    for inc in artifact["incarnations"]:
+        assert "tithe_cash_paid" in inc and "tithe_breath_lost" in inc
+        evt_cash = sum(t["amount_usd"] for t in inc["tithes"])
+        assert inc["tithe_cash_paid"] == pytest.approx(evt_cash)
+        # cash XOR breath per event (never both).
+        for t in inc["tithes"]:
+            assert (t["amount_usd"] > 0) != (t["breath_cost"] > 0) or (
+                t["amount_usd"] == 0 and t["breath_cost"] == 0
+            )
+        total_cash += inc["tithe_cash_paid"]
+    assert artifact["tithe_revenue"] == pytest.approx(total_cash)
+
+
+def test_groundhog_flag_off_has_no_tithe_keys(tmp_path) -> None:
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_notithe.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert "divine_tithe" not in artifact["physics"]
+    assert "tithe_revenue" not in artifact
+    for inc in artifact["incarnations"]:
+        assert "tithe_cash_paid" not in inc
+        assert "tithes" not in inc
+
+
+def test_tithe_accounting_invariant_is_fail_closed() -> None:
+    """A hand-broken tithe_revenue must be rejected before any write."""
+    from agent.backtest.reincarnation import _validate_groundhog_scoring
+
+    artifact = {
+        "incarnations": [
+            {
+                "incarnation": 1,
+                "died": True,
+                "scored_pnl": 0.0,
+                "tithes": [{"tick": 1, "amount_usd": 10.0, "breath_cost": 0.0}],
+                "tithe_cash_paid": 10.0,
+                "tithe_breath_lost": 0.0,
+            }
+        ],
+        "survived": False,
+        "surviving_incarnation": None,
+        "headline_pnl": 0.0,
+        "tithe_revenue": 999.0,  # LIE: should be 10.0
+        "tithe_breath_taken_total": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="tithe_revenue"):
+        _validate_groundhog_scoring(artifact)

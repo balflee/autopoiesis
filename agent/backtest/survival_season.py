@@ -868,6 +868,8 @@ class _RecordingSurvivalStateHook:
             self.recorder._on_weight_delta_apply_failed(payload)
         elif kind == "tribute":
             self.recorder._on_tribute(payload)
+        elif kind == "tithe":
+            self.recorder._on_tithe(payload)
 
 
 @dataclass
@@ -902,6 +904,11 @@ class SurvivalRecorder:
     # the season-local life index. Empty unless a tribute policy is wired
     # (the survival season default is none - byte-unchanged journeys).
     tributes: list[dict[str, Any]] = field(default_factory=list)
+
+    # A10 divine-tithe events (periodic rent: $ paid from bankroll, or breath
+    # taken when broke), stamped with the season-local life index. Empty
+    # unless ``divine_tithe`` is enabled (the default is off - byte-unchanged).
+    tithes: list[dict[str, Any]] = field(default_factory=list)
 
     # T-D-018 AI tally: how many auto-approved weight deltas the loop actually
     # APPLIED vs failed to apply across the whole season. ``proposals_applied``
@@ -1026,6 +1033,15 @@ class SurvivalRecorder:
                 **payload,
                 "life_idx": self._current_life,
                 "pnl_at_event": self._cum_pnl,
+            }
+        )
+
+    def _on_tithe(self, payload: dict[str, Any]) -> None:
+        """A10: capture one periodic divine-tithe event (cash or breath)."""
+        self.tithes.append(
+            {
+                **payload,
+                "life_idx": self._current_life,
             }
         )
 
@@ -1563,6 +1579,10 @@ def _build_life_loop(
     storm_enabled: bool = False,
     storm_tau: float = 0.05,
     storm_scale: float | None = None,
+    divine_tithe: bool = False,
+    tithe_every: int = 20,
+    tithe_amount_usd: float = 20.0,
+    tithe_breath_cost: float = 5.0,
 ) -> SandboxPhase2Loop:
     """Construct ONE fresh life loop (codex H2 + R5 + R8 + R2-MED).
 
@@ -1718,6 +1738,11 @@ def _build_life_loop(
         storm_enabled=storm_enabled,
         storm_tau=storm_tau,
         storm_scale=storm_scale,
+        # A10 divine tithe (False = byte-identical; the gods charge no rent).
+        divine_tithe=divine_tithe,
+        tithe_every=tithe_every,
+        tithe_amount_usd=tithe_amount_usd,
+        tithe_breath_cost=tithe_breath_cost,
     )
     # Bind the deferred loop reference so the clock can pin now() to
     # stops[loop.tick_counter].
@@ -1769,6 +1794,10 @@ def run_survival_season(
     storm_enabled: bool = False,
     storm_tau: float = 0.05,
     storm_scale: float | None = None,
+    divine_tithe: bool = False,
+    tithe_every: int = 20,
+    tithe_amount_usd: float = 20.0,
+    tithe_breath_cost: float = 5.0,
 ) -> SeasonResult:
     """Drive a multi-life FRESH-loop survival season (A2).
 
@@ -1869,6 +1898,10 @@ def run_survival_season(
             storm_enabled=storm_enabled,
             storm_tau=storm_tau,
             storm_scale=storm_scale,
+            divine_tithe=divine_tithe,
+            tithe_every=tithe_every,
+            tithe_amount_usd=tithe_amount_usd,
+            tithe_breath_cost=tithe_breath_cost,
         )
 
         max_ticks = len(schedule.stops)

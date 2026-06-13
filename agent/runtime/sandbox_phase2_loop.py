@@ -885,6 +885,17 @@ class SandboxPhase2Loop:
         storm_enabled: bool = False,
         storm_tau: float = 0.05,
         storm_scale: float | None = None,
+        # A10 divine tithe (backtest-only; the gods charge periodic rent for
+        # existence, extending the A7 deathbed tribute). Every
+        # ``tithe_every`` markets the agent must pay ``tithe_amount_usd``
+        # from bankroll; if it cannot afford it, the gods take
+        # ``tithe_breath_cost`` breath instead (which can kill — a do-nothing
+        # agent stops earning, runs out of cash, and bleeds out). ``False``
+        # (default) = byte-identical; the live runtime never enables it.
+        divine_tithe: bool = False,
+        tithe_every: int = 20,
+        tithe_amount_usd: float = 20.0,
+        tithe_breath_cost: float = 5.0,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -917,6 +928,25 @@ class SandboxPhase2Loop:
         self._tribute_policy: TributePolicy | None = tribute_policy
         self._tribute_rng: random.Random | None = tribute_rng
         self._tribute_breath: float = tribute_breath
+        # A10 divine tithe — boundary validation.
+        if divine_tithe:
+            if tithe_every < 1:
+                raise RuntimeError("tithe_every must be >= 1")
+            if not math.isfinite(tithe_amount_usd) or tithe_amount_usd < 0.0:
+                raise RuntimeError("tithe_amount_usd must be finite and >= 0")
+            if (
+                not math.isfinite(tithe_breath_cost)
+                or tithe_breath_cost < 0.0
+            ):
+                raise RuntimeError("tithe_breath_cost must be finite and >= 0")
+        self._divine_tithe: bool = divine_tithe
+        self._tithe_every: int = tithe_every
+        self._tithe_amount_usd: float = tithe_amount_usd
+        self._tithe_breath_cost: float = tithe_breath_cost
+        # Counts MARKETS seen (decision ticks with a real market), not raw
+        # ticks — settle-only stops do not advance the rent clock. Fires on
+        # each multiple of ``tithe_every``.
+        self._markets_since_start: int = 0
         # A9 storm percept — boundary validation (r2 M-5 / r4 M-2 / r9 M-4).
         if storm_enabled and not value_betting:
             raise RuntimeError(
@@ -1831,6 +1861,16 @@ class SandboxPhase2Loop:
                 self._bankroll_usd,
             )
 
+        # Step 7.5 — A10 divine tithe: the gods charge periodic rent BEFORE
+        # the death check, so a rent-induced breath drain is caught by the
+        # same check below (and routes to _die → next incarnation's advisor).
+        # Counts only markets actually seen (a real eligible market this
+        # tick), so settle-only ticks do not advance the rent clock.
+        if self._divine_tithe and inputs is not None:
+            self._markets_since_start += 1
+            if self._markets_since_start % self._tithe_every == 0:
+                await self._attempt_tithe(tick=tick, now=now)
+
         # Step 8 — death check, with the optional tribute escape (A7): the
         # agent may buy breath from the gods at the deathbed. The policy
         # proposes, the gods' dice dispose, the offering is kept win or
@@ -2048,6 +2088,52 @@ class SandboxPhase2Loop:
             self._bankroll_usd,
         )
         return success
+
+    async def _attempt_tithe(self, *, tick: int, now: datetime) -> None:
+        """A10: the gods collect periodic rent for existence.
+
+        Cash-preferred (the agent never burns its scarce survival currency
+        when it can pay cash): deduct ``tithe_amount_usd`` from bankroll if
+        affordable; otherwise the gods take ``tithe_breath_cost`` breath
+        through the CANONICAL chain channel (so the loop re-reads it and the
+        step-8 death check can fire). A do-nothing agent stops earning, runs
+        out of cash, and bleeds out — which is exactly the metabolic pressure
+        that closes the abstention-survival loophole. The breath path can
+        drive breath <= 0; the immediately following death check handles it.
+        Emits a ``tithe`` hook event (amount_usd XOR breath_cost) for the
+        recorder's gods-revenue accounting.
+        """
+        if self._bankroll_usd >= self._tithe_amount_usd:
+            self._bankroll_usd -= self._tithe_amount_usd
+            paid_usd = self._tithe_amount_usd
+            breath_cost = 0.0
+        else:
+            await self._chain_adapter.update_breath_from_pnl(
+                -self._tithe_breath_cost
+            )
+            self._breath = await self._chain_adapter.read_breath()
+            # A9 interplay: the rent is operator-domain (the gods' tax), NOT a
+            # market-regime signal — reset the storm baseline in place (like a
+            # tribute grant) so the −cost never enters the storm EMA and
+            # masquerades as the market turning scary.
+            self._last_refreshed_breath = self._breath
+            paid_usd = 0.0
+            breath_cost = self._tithe_breath_cost
+        self._state_hook.emit(
+            kind="tithe",
+            tick=tick,
+            amount_usd=paid_usd,
+            breath_cost=breath_cost,
+            breath_after=self._breath,
+            bankroll_after=self._bankroll_usd,
+        )
+        logger.info(
+            "tithe: tick=%d the gods took %s; breath=%.2f bankroll=%.2f",
+            tick,
+            f"${paid_usd:.2f}" if paid_usd else f"{breath_cost:.1f} breath",
+            self._breath,
+            self._bankroll_usd,
+        )
 
     # ------------------------------------------------------------------ #
     # Death path — PRD §6.9.

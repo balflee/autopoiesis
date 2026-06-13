@@ -1328,6 +1328,10 @@ def run_groundhog_export(
     state_root: Path | None = None,
     storm: bool = False,
     shuffle_timestamps_seed: int | None = None,
+    divine_tithe: bool = False,
+    tithe_every: int = 20,
+    tithe_amount_usd: float = 20.0,
+    tithe_breath_cost: float = 5.0,
 ) -> dict[str, Any]:
     """TRUE reincarnation (design v2, user-locked): one incarnation = ONE
     life from the season's FIRST market (``max_lives=1`` — no internal
@@ -1452,6 +1456,10 @@ def run_groundhog_export(
                 tribute_rng=inc_tribute_rng,
                 tribute_breath=initial_breath,
                 storm_enabled=storm,
+                divine_tithe=divine_tithe,
+                tithe_every=tithe_every,
+                tithe_amount_usd=tithe_amount_usd,
+                tithe_breath_cost=tithe_breath_cost,
             )
             all_eff_prices.extend(
                 _validate_learner_physics(
@@ -1485,6 +1493,17 @@ def run_groundhog_export(
             ]
             tributes_paid = sum(t["amount_usd"] for t in inc_tributes)
             pnl_net = pnl - tributes_paid
+            # A10: this incarnation's periodic divine-tithe events.
+            inc_tithes = [
+                {
+                    "tick": t["tick"],
+                    "amount_usd": t["amount_usd"],
+                    "breath_cost": t["breath_cost"],
+                }
+                for t in recorder.tithes
+            ]
+            tithe_cash_paid = sum(t["amount_usd"] for t in inc_tithes)
+            tithe_breath_lost = sum(t["breath_cost"] for t in inc_tithes)
             # The user's headline metric: did buying life buy any income?
             revival_earnings = (
                 pnl - inc_tributes[0]["pnl_at_event"]
@@ -1535,6 +1554,16 @@ def run_groundhog_export(
                         "revival_earnings": revival_earnings,
                     }
                     if tribute
+                    else {}
+                ),
+                # A10 divine-tithe accounting (only when the gods charge rent).
+                **(
+                    {
+                        "tithes": inc_tithes,
+                        "tithe_cash_paid": tithe_cash_paid,
+                        "tithe_breath_lost": tithe_breath_lost,
+                    }
+                    if divine_tithe
                     else {}
                 ),
                 "carry": {
@@ -1728,6 +1757,17 @@ def run_groundhog_export(
             "min_effective_entry_price": min_eff,
             "min_edge": fragile.min_edge,
             "kappa": fragile.kappa,
+            # A10 divine tithe — present only when the gods charge rent.
+            **(
+                {
+                    "divine_tithe": True,
+                    "tithe_every": tithe_every,
+                    "tithe_amount_usd": tithe_amount_usd,
+                    "tithe_breath_cost": tithe_breath_cost,
+                }
+                if divine_tithe
+                else {}
+            ),
         },
         "split": {
             "train_rows": len(train),
@@ -1801,6 +1841,25 @@ def run_groundhog_export(
                 },
             }
             if tribute
+            else {}
+        ),
+        # A10 divine-tithe revenue — the gods' periodic rent (distinct from
+        # the deathbed-ransom ``gods_revenue``). Present only when enabled.
+        **(
+            {
+                "tithe_revenue": sum(
+                    inc.get("tithe_cash_paid", 0.0) for inc in incarnations
+                ),
+                "tithe_breath_taken_total": sum(
+                    inc.get("tithe_breath_lost", 0.0) for inc in incarnations
+                ),
+                "tithe": {
+                    "every": tithe_every,
+                    "amount_usd": tithe_amount_usd,
+                    "breath_cost": tithe_breath_cost,
+                },
+            }
+            if divine_tithe
             else {}
         ),
         "rebirth": {
@@ -1885,6 +1944,31 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
                 f"scoring invariant violated: dead incarnation "
                 f"{inc['incarnation']} carries scored_pnl "
                 f"{inc['scored_pnl']!r}; artifact NOT written"
+            )
+    # A10 tithe accounting (fail-closed): per-incarnation cash/breath sums
+    # must equal the event lists, and the top-level revenue must equal the
+    # per-incarnation cash sum.
+    if "tithe_revenue" in artifact:
+        for inc in incs:
+            evt_cash = sum(t["amount_usd"] for t in inc.get("tithes", []))
+            evt_breath = sum(t["breath_cost"] for t in inc.get("tithes", []))
+            if abs(inc.get("tithe_cash_paid", 0.0) - evt_cash) > 1e-6:
+                raise RuntimeError(
+                    "tithe accounting: incarnation "
+                    f"{inc['incarnation']} tithe_cash_paid != sum of events; "
+                    "artifact NOT written"
+                )
+            if abs(inc.get("tithe_breath_lost", 0.0) - evt_breath) > 1e-6:
+                raise RuntimeError(
+                    "tithe accounting: incarnation "
+                    f"{inc['incarnation']} tithe_breath_lost != sum of events; "
+                    "artifact NOT written"
+                )
+        total_cash = sum(inc.get("tithe_cash_paid", 0.0) for inc in incs)
+        if abs(artifact["tithe_revenue"] - total_cash) > 1e-6:
+            raise RuntimeError(
+                "tithe accounting: tithe_revenue != sum of per-incarnation "
+                "tithe_cash_paid; artifact NOT written"
             )
     if not survived:
         if headline != 0.0 or pointer is not None or not all(

@@ -105,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storm", action="store_true")
     # A9 K7: the falsification leg's paired time-shift (G2 only).
     parser.add_argument("--shuffle-timestamps-seed", type=int, default=None)
+    # A10: the gods' periodic rent — every N markets pay $X or lose Y breath
+    # (closes the abstention-survival loophole; default off).
+    parser.add_argument("--divine-tithe", action="store_true")
+    parser.add_argument("--tithe-every", type=int, default=20)
+    parser.add_argument("--tithe-amount-usd", type=float, default=20.0)
+    parser.add_argument("--tithe-breath-cost", type=float, default=5.0)
     args = parser.parse_args(argv)
 
     out = args.out or _OUT[args.design][args.provider]
@@ -157,6 +163,10 @@ def main(argv: list[str] | None = None) -> int:
             tribute=not args.no_tribute,
             storm=args.storm,
             shuffle_timestamps_seed=args.shuffle_timestamps_seed,
+            divine_tithe=args.divine_tithe,
+            tithe_every=args.tithe_every,
+            tithe_amount_usd=args.tithe_amount_usd,
+            tithe_breath_cost=args.tithe_breath_cost,
         )
         for inc in artifact["incarnations"]:
             note = " note=yes" if inc["rebirth_note"] else ""

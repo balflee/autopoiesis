@@ -345,3 +345,188 @@ describe("roadmap — Phase-2 cross-link", () => {
     expect(link.getAttribute("href")).toBe("/reincarnation");
   });
 });
+
+
+describe("A9 storm kit — validator + rendering", () => {
+  const genome = {
+    min_edge: 0.0349,
+    max_breath_risk_pct: 0.95,
+    min_confidence: 0.0,
+    kappa: 0.4921,
+    gate_storm_sensitivity: 0,
+    risk_storm_sensitivity: 0,
+  };
+  const genomeAfter = { ...genome, gate_storm_sensitivity: 0.1 };
+  const ledger = {
+    storm_split: {
+      threshold: 0.5,
+      high: { bets: 4, pnl: -21, breath_delta: -105 },
+      low: { bets: 8, pnl: 13, breath_delta: 1 },
+    },
+    gate_counterfactuals: [
+      {
+        gamma: 0.05,
+        computable: 10,
+        not_computable: 2,
+        blocked: 3,
+        blocked_pnl: -15,
+      },
+    ],
+    stamped_steps: 12,
+    unstamped_steps: 0,
+  };
+  const shutdownThirds = [
+    { third: 0, placed: 5, denominator: 40 },
+    { third: 1, placed: 2, denominator: 40 },
+    { third: 2, placed: 0, denominator: 40 },
+  ];
+
+  function a9Fixture(): ReincarnationFixture {
+    return buildFixture({
+      incarnations: [
+        {
+          ...inc(1),
+          start_genome: genome,
+          terminal_genome_before_advice: genome,
+          carry_genome_after_advice: genomeAfter,
+          regime_ledger: ledger,
+          bets_by_third: [
+            { third: 0, placed: 6, denominator: 40 },
+            { third: 1, placed: 4, denominator: 40 },
+            { third: 2, placed: 2, denominator: 40 },
+          ],
+        },
+        {
+          ...inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+          start_genome: genomeAfter,
+          terminal_genome_before_advice: genomeAfter,
+          carry_genome_after_advice: null,
+          regime_ledger: ledger,
+          bets_by_third: shutdownThirds,
+        },
+      ],
+      surviving_incarnation: 2,
+      split: {
+        train_rows: 3431,
+        holdout_rows: 1471,
+        train_fraction: 0.7,
+        train_end_ts: "2025-08-01T00:00:00+00:00",
+        holdout_start_ts: "2025-08-01T06:00:00+00:00",
+        shuffled_timestamps: true,
+        shuffle_seed: 1,
+      },
+      falsification_metric: {
+        key: "gate_storm_sensitivity",
+        threshold: 0.05,
+        source:
+          "carry_genome_after_advice of the last incarnation with a successor",
+        value: 0.1,
+        productive_calls: 1,
+        min_productive_required: 3,
+        evaluable: false,
+      },
+      holdout: {
+        summary: {
+          pnl: 88,
+          deaths: 2,
+          lives: 3,
+          settled: 60,
+          coverage_pct: 18.2,
+          win_rate: 0.58,
+          learning_enabled: false,
+        },
+        start_weights: weights,
+        start_genome: genomeAfter,
+        curve: [
+          { i: 0, cum_pnl: 0 },
+          { i: 60, cum_pnl: 88 },
+        ],
+        baselines: { static: 40, random: -12, always_favorite: -60 },
+      },
+    });
+  }
+
+  it("accepts a coherent A9 artifact (backward-compatible optionals)", () => {
+    const fx = a9Fixture();
+    expect(fx.falsification_metric?.evaluable).toBe(false);
+    expect(fx.split.shuffled_timestamps).toBe(true);
+    expect(fx.holdout.start_genome?.gate_storm_sensitivity).toBe(0.1);
+  });
+
+  it("rejects an evaluable flag inconsistent with the call counts", () => {
+    expect(() =>
+      buildFixture({
+        falsification_metric: {
+          key: "gate_storm_sensitivity",
+          threshold: 0.05,
+          source: "x",
+          value: 0.1,
+          productive_calls: 1,
+          min_productive_required: 3,
+          evaluable: true, // 1 < 3 — a lie
+        },
+      }),
+    ).toThrow(/evaluable inconsistent/);
+  });
+
+  it("rejects a bets_by_third that is not exactly thirds 0/1/2", () => {
+    expect(() =>
+      buildFixture({
+        incarnations: [
+          {
+            ...inc(1),
+            bets_by_third: [{ third: 0, placed: 1, denominator: 2 }],
+          },
+          inc(2),
+          inc(3, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+        ],
+      }),
+    ).toThrow(/bets_by_third/);
+  });
+
+  it("renders badge, ledger, genome chips, falsification + participation", () => {
+    render(<ReincarnationShell numerical={a9Fixture()} ai={null} />);
+    // Shuffled-control badge (the falsification leg).
+    expect(
+      screen.getByTestId("reincarnation-shuffled-badge").textContent,
+    ).toMatch(/shuffled-control/i);
+    // Regime ledger line on the incarnation row.
+    const ledgerLine = screen.getByTestId("reincarnation-ledger-1");
+    expect(ledgerLine.textContent).toMatch(/storm-high: 4 bets/);
+    expect(ledgerLine.textContent).toMatch(/would have been blocked/);
+    // Genome chips: only incarnation 1 moved its genome.
+    expect(
+      screen.getByTestId("reincarnation-genome-1").textContent,
+    ).toMatch(/gate_storm_sensitivity 0.000→0.100/);
+    expect(screen.queryByTestId("reincarnation-genome-2")).toBeNull();
+    // Falsification: NOT evaluable ⇒ INCONCLUSIVE, never a pass.
+    expect(
+      screen.getByTestId("reincarnation-falsification").textContent,
+    ).toMatch(/INCONCLUSIVE/);
+    // Participation: final life stopped betting in its last third.
+    expect(
+      screen.getByTestId("reincarnation-participation").textContent,
+    ).toMatch(/SHUTDOWN/);
+  });
+
+  it("renders the mode-switch participation call when betting continues", () => {
+    const fx = buildFixture({
+      incarnations: [
+        inc(1),
+        {
+          ...inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+          bets_by_third: [
+            { third: 0, placed: 5, denominator: 40 },
+            { third: 1, placed: 3, denominator: 40 },
+            { third: 2, placed: 4, denominator: 40 },
+          ],
+        },
+      ],
+      surviving_incarnation: 2,
+    });
+    render(<ReincarnationShell numerical={fx} ai={null} />);
+    expect(
+      screen.getByTestId("reincarnation-participation").textContent,
+    ).toMatch(/kept betting/);
+  });
+});

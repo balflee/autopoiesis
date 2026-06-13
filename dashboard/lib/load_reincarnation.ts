@@ -65,6 +65,54 @@ export interface ReincarnationIncarnation {
   /** Down-sampled cumulative curve — OPTIONAL (size guard keeps only the
    * first few, the survivor, and the final incarnation). */
   readonly curve?: readonly ReincarnationCurvePoint[];
+  /** A9 storm kit (present only on --storm artifacts): the advisable
+   * genome at incarnation start / before advice / after advice. */
+  readonly start_genome?: Readonly<Record<string, number>>;
+  readonly terminal_genome_before_advice?: Readonly<Record<string, number>>;
+  readonly carry_genome_after_advice?: Readonly<Record<string, number>> | null;
+  /** A9 K6: the per-life counterfactual ledger (null when no settles). */
+  readonly regime_ledger?: ReincarnationRegimeLedger | null;
+  /** A9 participation split (anti-shutdown-ratchet). */
+  readonly bets_by_third?: readonly {
+    readonly third: number;
+    readonly placed: number;
+    readonly denominator: number;
+  }[];
+}
+
+export interface ReincarnationRegimeLedger {
+  readonly storm_split: {
+    readonly threshold: number;
+    readonly high: {
+      readonly bets: number;
+      readonly pnl: number;
+      readonly breath_delta: number;
+    };
+    readonly low: {
+      readonly bets: number;
+      readonly pnl: number;
+      readonly breath_delta: number;
+    };
+  };
+  readonly gate_counterfactuals: readonly {
+    readonly gamma: number;
+    readonly computable: number;
+    readonly not_computable: number;
+    readonly blocked: number;
+    readonly blocked_pnl: number;
+  }[];
+  readonly stamped_steps: number;
+  readonly unstamped_steps: number;
+}
+
+export interface ReincarnationFalsificationMetric {
+  readonly key: string;
+  readonly threshold: number;
+  readonly source: string;
+  readonly value: number;
+  readonly productive_calls: number;
+  readonly min_productive_required: number;
+  readonly evaluable: boolean;
 }
 
 export interface ReincarnationHoldout {
@@ -78,6 +126,8 @@ export interface ReincarnationHoldout {
     readonly learning_enabled: boolean;
   };
   readonly start_weights: Readonly<Record<string, unknown>>;
+  /** A9: the MUTATED genome the frozen holdout walked with (storm only). */
+  readonly start_genome?: Readonly<Record<string, number>>;
   readonly curve: readonly ReincarnationCurvePoint[];
   readonly baselines: {
     readonly static: number;
@@ -107,6 +157,9 @@ export interface ReincarnationFixture {
     readonly train_fraction: number;
     readonly train_end_ts: string;
     readonly holdout_start_ts: string;
+    /** K7: present (true) ONLY on the falsification leg. */
+    readonly shuffled_timestamps?: boolean;
+    readonly shuffle_seed?: number;
   };
   readonly knobs: Readonly<Record<string, number>>;
   readonly scoring: string;
@@ -141,6 +194,9 @@ export interface ReincarnationFixture {
     readonly p_cap: number;
     readonly llm: Readonly<Record<string, number>>;
   };
+  /** A9 (r8 M-4): the pre-registered G2 metric; INCONCLUSIVE unless
+   * evaluable. Present only on --storm artifacts. */
+  readonly falsification_metric?: ReincarnationFalsificationMetric;
   readonly incarnations: readonly ReincarnationIncarnation[];
   readonly holdout: ReincarnationHoldout;
 }
@@ -156,6 +212,41 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function asNumber(v: unknown, label: string): number {
   if (typeof v !== "number" || !Number.isFinite(v)) fail(`${label} not a number`);
   return v;
+}
+
+function validateGenome(v: unknown, label: string): void {
+  if (!isRecord(v)) fail(`${label} not an object`);
+  for (const [k, val] of Object.entries(v)) {
+    asNumber(val, `${label}.${k}`);
+  }
+}
+
+function validateRegimeLedger(v: unknown, label: string): void {
+  if (!isRecord(v)) fail(`${label} not an object`);
+  const split = v.storm_split;
+  if (!isRecord(split)) fail(`${label}.storm_split missing`);
+  asNumber(split.threshold, `${label}.storm_split.threshold`);
+  for (const side of ["high", "low"]) {
+    const bucket = (split as Record<string, unknown>)[side];
+    if (!isRecord(bucket)) fail(`${label}.storm_split.${side} missing`);
+    for (const k of ["bets", "pnl", "breath_delta"]) {
+      asNumber(bucket[k], `${label}.storm_split.${side}.${k}`);
+    }
+  }
+  const cfs = v.gate_counterfactuals;
+  if (!Array.isArray(cfs)) fail(`${label}.gate_counterfactuals not an array`);
+  for (const c of cfs) {
+    if (!isRecord(c)) fail(`${label}.gate_counterfactuals entry`);
+    for (const k of [
+      "gamma",
+      "computable",
+      "not_computable",
+      "blocked",
+      "blocked_pnl",
+    ]) {
+      asNumber(c[k], `${label}.gate_counterfactuals.${k}`);
+    }
+  }
 }
 
 function validateCurve(v: unknown, label: string): void {
@@ -253,7 +344,74 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
     if (inc.curve !== undefined) {
       validateCurve(inc.curve, `incarnations[${idx}].curve`);
     }
+    // A9 storm-kit fields — validated only when present (kit-off
+    // artifacts never carry them; backward compatible).
+    if (inc.start_genome !== undefined) {
+      validateGenome(inc.start_genome, `incarnations[${idx}].start_genome`);
+    }
+    if (inc.terminal_genome_before_advice !== undefined) {
+      validateGenome(
+        inc.terminal_genome_before_advice,
+        `incarnations[${idx}].terminal_genome_before_advice`,
+      );
+    }
+    if (
+      inc.carry_genome_after_advice !== undefined &&
+      inc.carry_genome_after_advice !== null
+    ) {
+      validateGenome(
+        inc.carry_genome_after_advice,
+        `incarnations[${idx}].carry_genome_after_advice`,
+      );
+    }
+    if (inc.regime_ledger !== undefined && inc.regime_ledger !== null) {
+      validateRegimeLedger(
+        inc.regime_ledger,
+        `incarnations[${idx}].regime_ledger`,
+      );
+    }
+    if (inc.bets_by_third !== undefined) {
+      if (!Array.isArray(inc.bets_by_third) || inc.bets_by_third.length !== 3) {
+        fail(`incarnations[${idx}].bets_by_third must have 3 entries`);
+      }
+      inc.bets_by_third.forEach((t, ti) => {
+        if (!isRecord(t)) fail(`incarnations[${idx}].bets_by_third[${ti}]`);
+        if (t.third !== ti) {
+          fail(`incarnations[${idx}].bets_by_third[${ti}].third != ${ti}`);
+        }
+        asNumber(t.placed, `incarnations[${idx}].bets_by_third.placed`);
+        asNumber(
+          t.denominator,
+          `incarnations[${idx}].bets_by_third.denominator`,
+        );
+      });
+    }
   });
+
+  // A9 (r8 M-4): the falsification metric's evaluable gate is BOOKKEEPING —
+  // enforced exactly like the Python side.
+  if (data.falsification_metric !== undefined) {
+    const fm = data.falsification_metric;
+    if (!isRecord(fm)) fail("falsification_metric malformed");
+    if (typeof fm.key !== "string") fail("falsification_metric.key");
+    if (typeof fm.source !== "string") fail("falsification_metric.source");
+    asNumber(fm.threshold, "falsification_metric.threshold");
+    asNumber(fm.value, "falsification_metric.value");
+    const productive = asNumber(
+      fm.productive_calls,
+      "falsification_metric.productive_calls",
+    );
+    const minReq = asNumber(
+      fm.min_productive_required,
+      "falsification_metric.min_productive_required",
+    );
+    if (typeof fm.evaluable !== "boolean") {
+      fail("falsification_metric.evaluable must be boolean");
+    }
+    if (fm.evaluable !== productive >= minReq) {
+      fail("falsification_metric.evaluable inconsistent with counts");
+    }
+  }
 
   // Cross-field scoring invariants (the permadeath-economics rule).
   if (typeof data.survived !== "boolean") fail("survived missing");
@@ -334,6 +492,9 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
   }
   if (hs.learning_enabled !== false) {
     fail("holdout.summary.learning_enabled must be false (frozen contract)");
+  }
+  if (holdout.start_genome !== undefined) {
+    validateGenome(holdout.start_genome, "holdout.start_genome");
   }
   validateCurve(holdout.curve, "holdout.curve");
   const baselines = holdout.baselines;

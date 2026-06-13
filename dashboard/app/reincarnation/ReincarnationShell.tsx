@@ -57,6 +57,30 @@ function tableRows(
   return [...incs.slice(0, 8), "gap", incs[incs.length - 1]!];
 }
 
+/** The genome keys the rebirth advisor moved this death (start → carry). */
+function genomeMoves(inc: ReincarnationIncarnation): string[] {
+  const start = inc.start_genome;
+  const after = inc.carry_genome_after_advice;
+  if (!start || !after) return [];
+  return Object.keys(after)
+    .filter((k) => Math.abs((after[k] ?? 0) - (start[k] ?? 0)) > 1e-9)
+    .map((k) => `${k} ${(start[k] ?? 0).toFixed(3)}→${(after[k] ?? 0).toFixed(3)}`);
+}
+
+/** Shutdown-vs-mode-switch read from the participation split. */
+function participationCall(
+  thirds: readonly { third: number; placed: number; denominator: number }[],
+): { label: string; shutdown: boolean } {
+  const placed = thirds.map((t) => t.placed);
+  const shutdown = placed[0]! > 0 && placed[2] === 0;
+  return {
+    shutdown,
+    label: thirds
+      .map((t) => `${t.placed}/${t.denominator}`)
+      .join(" · "),
+  };
+}
+
 function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element {
   return (
     <div
@@ -127,6 +151,34 @@ function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element
             .join(" · ")}
         </p>
       ) : null}
+      {inc.regime_ledger ? (
+        <p
+          data-testid={`reincarnation-ledger-${inc.incarnation}`}
+          className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]"
+        >
+          <span className="text-[var(--ab-text)]">regime ledger ▸ </span>
+          storm-high: {inc.regime_ledger.storm_split.high.bets} bets{" "}
+          {money(inc.regime_ledger.storm_split.high.pnl)} · storm-low:{" "}
+          {inc.regime_ledger.storm_split.low.bets} bets{" "}
+          {money(inc.regime_ledger.storm_split.low.pnl)}
+          {inc.regime_ledger.gate_counterfactuals
+            .filter((c) => c.computable > 0)
+            .slice(0, 1)
+            .map(
+              (c) =>
+                ` · at γ+${c.gamma}: ${c.blocked} bets would have been blocked (${money(c.blocked_pnl)})`,
+            )}
+        </p>
+      ) : null}
+      {genomeMoves(inc).length > 0 ? (
+        <p
+          data-testid={`reincarnation-genome-${inc.incarnation}`}
+          className="font-mono text-[10px] leading-relaxed text-[var(--ab-glow)]"
+        >
+          <span className="text-[var(--ab-text)]">genome moved ▸ </span>
+          {genomeMoves(inc).join(" · ")}
+        </p>
+      ) : null}
       {inc.rebirth_note ? (
         <p className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]">
           <span className="text-[var(--ab-glow)]">rebirth note ▸ </span>
@@ -189,6 +241,15 @@ export function ReincarnationShell({
           <span className="font-mono text-[10px] uppercase tracking-[0.32em] text-[var(--ab-glow)]">
             phase 2 · the reincarnation experiment
           </span>
+          {fixture.split.shuffled_timestamps ? (
+            <span
+              data-testid="reincarnation-shuffled-badge"
+              className="w-fit rounded-full border border-[var(--ab-death)]/50 px-3 py-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--ab-death)]"
+            >
+              shuffled-control season — timestamps permuted, regime destroyed
+              (the falsification leg)
+            </span>
+          ) : null}
           <h1 className="font-display text-4xl leading-tight text-[var(--ab-text)] sm:text-5xl">
             die. remember. restart at bet&nbsp;#1.
           </h1>
@@ -397,6 +458,60 @@ export function ReincarnationShell({
               ) : null}
             </p>
           ) : null}
+          {fixture.falsification_metric ? (
+            <p
+              data-testid="reincarnation-falsification"
+              className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]"
+            >
+              <span className="text-[var(--ab-text)]">
+                falsification metric ▸{" "}
+              </span>
+              terminal {fixture.falsification_metric.key} ={" "}
+              <span className="text-[var(--ab-glow)]">
+                {fixture.falsification_metric.value >= 0 ? "+" : ""}
+                {fixture.falsification_metric.value.toFixed(3)}
+              </span>{" "}
+              (threshold ±{fixture.falsification_metric.threshold}) ·{" "}
+              {fixture.falsification_metric.productive_calls}/
+              {fixture.falsification_metric.min_productive_required} productive
+              death reviews —{" "}
+              {fixture.falsification_metric.evaluable ? (
+                "evaluable"
+              ) : (
+                <span className="text-[var(--ab-death)]">
+                  INCONCLUSIVE — the advisor never had enough death-boundary
+                  chances to move γ; this leg neither passes nor fails
+                </span>
+              )}
+            </p>
+          ) : null}
+          {(() => {
+            const last = incs[incs.length - 1];
+            const thirds = last?.bets_by_third;
+            if (!thirds) return null;
+            const call = participationCall(thirds);
+            return (
+              <p
+                data-testid="reincarnation-participation"
+                className="font-mono text-[10px] leading-relaxed text-[var(--ab-dim)]"
+              >
+                <span className="text-[var(--ab-text)]">
+                  participation (final life, by thirds of its span) ▸{" "}
+                </span>
+                {call.label} bets placed/markets —{" "}
+                {call.shutdown ? (
+                  <span className="text-[var(--ab-death)]">
+                    SHUTDOWN: it stopped betting entirely in the final third.
+                    Survival by abstention is not regime intelligence; called
+                    out as measured.
+                  </span>
+                ) : (
+                  "it kept betting across the whole span (mode-switch, not " +
+                  "shutdown)."
+                )}
+              </p>
+            );
+          })()}
         </section>
 
         {/* ── §5 incarnation curves (the kept ones) ─────────────────── */}

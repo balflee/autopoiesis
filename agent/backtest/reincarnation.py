@@ -1168,15 +1168,34 @@ _PRAYER_SCHEMA: Final[dict[str, Any]] = {
 }
 
 
+# Conservative per-call USD estimates for the AUXILIARY rebirth LLM calls
+# (prayer + tribute decision). These run on the SAME provider as the L3
+# advisor but bypassed the advisor's cost guard until A10's metering fix —
+# routing them through the run-scoped guard makes the $10/month meter cover
+# ALL of a run's LLM spend, not just the advisor reviews. Smaller prompts
+# than the advisor's window, so a smaller estimate.
+_REBIRTH_AUX_CALL_USD: Final[float] = 0.003
+
+
 def _pray_after_death(
-    llm: _LLMClient, *, model: str, summary: str
+    llm: _LLMClient,
+    *,
+    model: str,
+    summary: str,
+    cost_guard: L3CostGuard | None = None,
 ) -> str | None:
     """A6 (user-locked): one dying wish per death, recorded for the gods.
 
     The prayer is NEVER carried into the next life — its only afterlife is
     the artifact (and the designers' roadmap review). Fail-soft: a failed or
     malformed call returns ``None``, never crashes the experiment.
+
+    Metered against the run-scoped ``cost_guard`` (A10): skipped when the
+    budget is exhausted, charged after a completed provider call so the
+    monthly meter reflects prayers too — not just advisor reviews.
     """
+    if cost_guard is not None and cost_guard.is_exhausted():
+        return None
     prompt = (
         "You are a betting agent that has just DIED in a survival season.\n"
         f"{summary}\n\n"
@@ -1195,6 +1214,10 @@ def _pray_after_death(
         )
     except Exception:
         return None
+    # The provider billed for this completed call — record it (a failed
+    # call above raised and is NOT charged, matching the advisor posture).
+    if cost_guard is not None:
+        cost_guard.record(label="prayer", usd=_REBIRTH_AUX_CALL_USD)
     wish = raw.get("wish") if isinstance(raw, dict) else None
     if not isinstance(wish, str):
         return None
@@ -1237,12 +1260,16 @@ class LLMTributePolicy:
         target_markets: int,
         max_incarnations: int,
         incarnation: int,
+        cost_guard: L3CostGuard | None = None,
     ) -> None:
         self._llm = llm
         self._model = model
         self._target_markets = target_markets
         self._max_incarnations = max_incarnations
         self._incarnation = incarnation
+        # A10: meter deathbed tribute decisions against the run-scoped guard
+        # so the monthly budget covers them too (they bypassed it before).
+        self._cost_guard = cost_guard
         self.telemetry: dict[str, int] = {
             "calls": 0,
             "offers": 0,
@@ -1256,6 +1283,9 @@ class LLMTributePolicy:
     ) -> float | None:
         if bankroll_usd < TRIBUTE_MIN_USD:
             return None  # the gods would refuse; no call wasted
+        # A10: respect the run-scoped budget — silence (death) when exhausted.
+        if self._cost_guard is not None and self._cost_guard.is_exhausted():
+            return None
         prompt = (
             f"You are a betting agent DYING at tick {tick} of a survival "
             f"season (incarnation {self._incarnation}/"
@@ -1281,6 +1311,10 @@ class LLMTributePolicy:
         except Exception:
             self.telemetry["failures"] += 1
             return None  # silence is death - never the reflex
+        # The provider billed for this completed call — record it (a failed
+        # call above raised and is NOT charged, matching the advisor posture).
+        if self._cost_guard is not None:
+            self._cost_guard.record(label="tribute", usd=_REBIRTH_AUX_CALL_USD)
         if not isinstance(raw, dict):
             self.telemetry["malformed"] += 1
             return None
@@ -1433,6 +1467,8 @@ def run_groundhog_export(
                         target_markets=len(train),
                         max_incarnations=max_incarnations,
                         incarnation=k,
+                        # A10: same run-scoped budget meter as the advisor.
+                        cost_guard=run_guard,
                     )
                     inc_tribute_policy = llm_tribute
                     tribute_llm_policies.append(llm_tribute)
@@ -1659,6 +1695,7 @@ def run_groundhog_export(
                     rebirth_llm,
                     model=rebirth_model,
                     summary=window.recent_reflections[0],
+                    cost_guard=run_guard,
                 )
             if rebirth_llm is not None and k < max_incarnations:
                 advisor = StrategyAdvisorImpl(

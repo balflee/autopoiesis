@@ -108,11 +108,18 @@ _JSON_SYSTEM_MSG: Final[str] = (
 # api key is never part of the body, but we still bound the size.
 _MAX_ERR_BODY_CHARS: Final[int] = 500
 
-# Per-call HTTP timeout (seconds). ``MiniMax-M3`` is a slow REASONING model and
-# the L3 advisor cadence is slow, so a generous timeout is required — a tight
-# 60s budget caused repeated ``WriteTimeout`` in the multi-life backtest.
-# Overridable via the ctor ``timeout`` param.
-_DEFAULT_TIMEOUT_S: Final[float] = 40.0
+# Per-call READ timeout (seconds). ``MiniMax-M3`` is a slow REASONING model and
+# the L3 advisor cadence is slow, so a generous read budget is required — a
+# tight 40s budget caused repeated ``ReadTimeout`` in the multi-life backtest,
+# and EVERY read timeout triggers a RetryLLMClient retry whose timed-out
+# request the provider may still bill server-side. A patient read budget lets
+# the slow M3 response come back on the FIRST attempt, so we pay once, not 2-4×.
+# Applied as the READ leg only (see ``_request_timeout``): connect/write/pool
+# stay tight so a dead endpoint still fails fast. Overridable via the ctor.
+_DEFAULT_TIMEOUT_S: Final[float] = 180.0
+# Tight non-read legs — a dead endpoint should fail in seconds, not minutes.
+_CONNECT_TIMEOUT_S: Final[float] = 15.0
+_WRITE_TIMEOUT_S: Final[float] = 30.0
 
 
 class MiniMaxClient:
@@ -232,9 +239,17 @@ class MiniMaxClient:
         # next life. A per-call client (which also fixes the cross-loop
         # ``WriteTimeout`` symptom) is loop-safe. The injected test transport
         # is honoured on every call.
+        # Granular timeout: a generous READ budget (slow M3 reasoning) but a
+        # tight connect/write/pool so a dead endpoint fails in seconds.
+        request_timeout = httpx.Timeout(
+            self._timeout,
+            connect=_CONNECT_TIMEOUT_S,
+            write=_WRITE_TIMEOUT_S,
+            pool=_CONNECT_TIMEOUT_S,
+        )
         async with httpx.AsyncClient(
             transport=self._transport,
-            timeout=self._timeout,
+            timeout=request_timeout,
         ) as client:
             # Hard asyncio-level timeout on top of httpx's own. An intermittent
             # connection stall where the inner timeout fails to fire would

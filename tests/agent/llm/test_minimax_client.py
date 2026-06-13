@@ -353,17 +353,34 @@ def test_injected_transport_honoured_every_call(
 
 
 # ---------------------------------------------------------------------------
-# BUG 3 — default per-request timeout for the M3 reasoning model. Hardened to
-# 40s (a hard ``asyncio.wait_for`` budget so a stalled connection RAISES instead
-# of hanging a backtest forever), still overridable via the ctor.
+# BUG 3 — default per-request READ timeout for the M3 reasoning model. Raised
+# to a patient 180s (a hard ``asyncio.wait_for`` budget on top so a stalled
+# connection RAISES instead of hanging forever), still overridable via the
+# ctor. The generous READ budget lets slow M3 reasoning return on the FIRST
+# attempt instead of timing out → retrying (every retry is a billable call).
 # ---------------------------------------------------------------------------
 
 
-def test_default_timeout_is_finite_for_reasoning_model() -> None:
-    """The default per-request timeout is a finite 40s for the reasoning model."""
+def test_default_read_timeout_is_patient_for_reasoning_model() -> None:
+    """The default READ budget is a patient, finite 180s — generous enough
+    that slow M3 reasoning returns on the first attempt (no retry spend)."""
     from agent.llm.minimax_client import _DEFAULT_TIMEOUT_S
 
-    assert _DEFAULT_TIMEOUT_S == 40.0
+    assert _DEFAULT_TIMEOUT_S == 180.0
+    import math
+
+    assert math.isfinite(_DEFAULT_TIMEOUT_S)
+
+
+def test_connect_and_write_timeouts_stay_tight() -> None:
+    """A dead endpoint must still fail fast — connect/write legs stay short."""
+    from agent.llm.minimax_client import (
+        _CONNECT_TIMEOUT_S,
+        _WRITE_TIMEOUT_S,
+    )
+
+    assert _CONNECT_TIMEOUT_S <= 30.0
+    assert _WRITE_TIMEOUT_S <= 60.0
 
 
 def test_timeout_overridable_via_ctor() -> None:

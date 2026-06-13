@@ -1764,3 +1764,110 @@ def test_tithe_accounting_invariant_is_fail_closed() -> None:
     }
     with pytest.raises(RuntimeError, match="tithe_revenue"):
         _validate_groundhog_scoring(artifact)
+
+
+# ========================================================================= #
+# A10 cost-guard gap fix — prayer + tribute calls now meter against the
+# run-scoped budget (they bypassed it before).
+# ========================================================================= #
+
+
+def test_prayer_meters_against_cost_guard() -> None:
+    from dataclasses import dataclass
+    from typing import Any
+
+    from agent.backtest.reincarnation import _REBIRTH_AUX_CALL_USD, _pray_after_death
+    from agent.llm.cost_guard import L3CostGuard
+
+    @dataclass
+    class _FakeLLM:
+        calls: int = 0
+
+        async def structured_call(
+            self, *, model: str, prompt: str, schema: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.calls += 1
+            return {"wish": "let me see my breath"}
+
+    guard = L3CostGuard(hard_cap_usd=1.0)
+    fake = _FakeLLM()
+    wish = _pray_after_death(fake, model="", summary="died", cost_guard=guard)
+    assert wish is not None
+    assert fake.calls == 1
+    assert guard.total_usd == pytest.approx(_REBIRTH_AUX_CALL_USD)
+
+
+def test_prayer_skips_when_budget_exhausted() -> None:
+    from dataclasses import dataclass
+    from typing import Any
+
+    from agent.backtest.reincarnation import _pray_after_death
+    from agent.llm.cost_guard import L3CostGuard
+
+    @dataclass
+    class _FakeLLM:
+        calls: int = 0
+
+        async def structured_call(
+            self, *, model: str, prompt: str, schema: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.calls += 1
+            return {"wish": "x"}
+
+    guard = L3CostGuard(hard_cap_usd=0.001)
+    guard.record(label="seed", usd=0.001)  # exhaust it
+    assert guard.is_exhausted()
+    fake = _FakeLLM()
+    assert _pray_after_death(fake, model="", summary="died", cost_guard=guard) is None
+    assert fake.calls == 0, "exhausted budget must skip the call entirely"
+
+
+def test_tribute_policy_meters_and_respects_budget() -> None:
+    import asyncio
+    from dataclasses import dataclass
+    from typing import Any
+
+    from agent.backtest.reincarnation import _REBIRTH_AUX_CALL_USD, LLMTributePolicy
+    from agent.llm.cost_guard import L3CostGuard
+
+    @dataclass
+    class _FakeLLM:
+        calls: int = 0
+
+        async def structured_call(
+            self, *, model: str, prompt: str, schema: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.calls += 1
+            return {"offer": True, "amount_usd": 600.0}
+
+    guard = L3CostGuard(hard_cap_usd=1.0)
+    fake = _FakeLLM()
+    pol = LLMTributePolicy(
+        llm=fake,
+        model="",
+        target_markets=100,
+        max_incarnations=20,
+        incarnation=1,
+        cost_guard=guard,
+    )
+    amount = asyncio.run(pol.on_dying(tick=10, breath=0.0, bankroll_usd=1000.0))
+    assert amount == pytest.approx(600.0)
+    assert fake.calls == 1
+    assert guard.total_usd == pytest.approx(_REBIRTH_AUX_CALL_USD)
+
+    # Exhaust the guard → the next deathbed call is skipped (silence = death).
+    guard.record(label="drain", usd=1.0)
+    assert guard.is_exhausted()
+    fake2 = _FakeLLM()
+    pol2 = LLMTributePolicy(
+        llm=fake2,
+        model="",
+        target_markets=100,
+        max_incarnations=20,
+        incarnation=2,
+        cost_guard=guard,
+    )
+    assert asyncio.run(
+        pol2.on_dying(tick=10, breath=0.0, bankroll_usd=1000.0)
+    ) is None
+    assert fake2.calls == 0

@@ -91,10 +91,16 @@ class GammaIndexHTTP:
         except Exception:
             self.errors += 1
             return None
-        raw = payload[0] if isinstance(payload, list) and payload else payload
-        if not isinstance(raw, dict):
-            return None
-        raw = dict(raw)
+        # Preserve a list response as a list of markets so the core's
+        # duplicate-market fail-closed guard (len(rows) > 1) can fire.
+        markets = payload if isinstance(payload, list) else [payload]
+        out = [self._enrich(m) for m in markets if isinstance(m, dict)]
+        if self._sleep:
+            time.sleep(self._sleep)
+        return out or None
+
+    def _enrich(self, market: dict[str, object]) -> dict[str, object]:
+        raw = dict(market)
         raw["outcomes"] = _loads_maybe(raw.get("outcomes"))
         raw["outcomePrices"] = _loads_maybe(raw.get("outcomePrices"))
         raw["clobTokenIds"] = _loads_maybe(raw.get("clobTokenIds"))
@@ -106,9 +112,7 @@ class GammaIndexHTTP:
                     raw["tokens"] = clob_m["tokens"]
             except Exception:
                 pass
-        if self._sleep:
-            time.sleep(self._sleep)
-        return [raw]
+        return raw
 
 
 class _PreloadedGammaIndex:
@@ -189,16 +193,21 @@ def _td_url(year: int, *, wta: bool) -> str:
     return f"{_TD_BASE}/{year}{suffix}/{year}.xlsx"
 
 
-def load_tennis_data(years: list[int], *, cache_dir: Path) -> list[dict[str, Any]]:
+def load_tennis_data(
+    years: list[int], *, cache_dir: Path
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Fetch + read tennis-data ATP+WTA annual files for ``years``.
 
-    Caches the raw .xlsx under ``cache_dir`` (gitignored). Returns a flat list
-    of row dicts. Per-year fill-rate of PSW is printed for disclosure.
+    Caches the raw .xlsx under ``cache_dir`` (gitignored). Returns
+    ``(rows, failures)`` where ``failures`` lists the ``<year>_<tour>`` files
+    that could not be fetched/read — so a partial corpus is recorded in the
+    report rather than silently producing a verdict on missing data.
     """
     import pandas as pd
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
+    failures: list[str] = []
     for year in years:
         for wta in (False, True):
             tour = "WTA" if wta else "ATP"
@@ -211,13 +220,14 @@ def load_tennis_data(years: list[int], *, cache_dir: Path) -> list[dict[str, Any
                 df = pd.read_excel(io.BytesIO(local.read_bytes()))
             except Exception as exc:
                 print(f"  tennis-data {year} {tour}: FETCH/READ FAIL ({type(exc).__name__})")
+                failures.append(f"{year}_{tour}")
                 continue
             df = df.where(df.notna(), None)
             recs = df.to_dict(orient="records")
             ps_fill = sum(1 for r in recs if r.get("PSW") not in (None, "")) / max(1, len(recs))
             print(f"  tennis-data {year} {tour}: {len(recs)} rows, PSW fill {ps_fill:.0%}")
             rows.extend(recs)
-    return rows
+    return rows, failures
 
 
 def _iso_date(value: Any) -> str | None:
@@ -316,6 +326,9 @@ def run_2b(
         raw_list = gamma.get(r.market_id)
         if not raw_list:
             buckets.add("gamma_missing")
+            continue
+        if len(raw_list) > 1:
+            buckets.add("gamma_duplicate")
             continue
         raw = raw_list[0]
         ledger = _load_cassette_ledger(r.market_id, cassette_dir)
@@ -483,14 +496,16 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     rng = np.random.default_rng(args.seed)
-    thresholds = [0.02, 0.03, 0.05, 0.08]
+    thresholds = sorted({0.02, 0.03, 0.05, 0.08, args.primary_threshold})
     half_spreads = [0.0, 0.005, 0.01]
     fee_rates = [0.0, 0.03, 0.04]  # 0 / ~0.75% / ~1.0% at p=0.5
     realistic_hs, realistic_fee = 0.005, 0.03
 
     print(f"[A17] loading tennis-data years={args.years} ...", flush=True)
-    td_rows = load_tennis_data(args.years, cache_dir=args.raw_dir)
+    td_rows, td_failures = load_tennis_data(args.years, cache_dir=args.raw_dir)
     print(f"[A17] tennis-data rows: {len(td_rows)}", flush=True)
+    if td_failures:
+        print(f"[A17] WARNING tennis-data load failures: {td_failures}", flush=True)
 
     print("[A17] running 2a (sharp vs non-Pinnacle consensus) ...", flush=True)
     arm_2a = run_2a(td_rows, rng=rng, n_boot=args.bootstrap, sesoi=args.sesoi_brier)
@@ -552,6 +567,7 @@ def main(argv: list[str] | None = None) -> int:
             "thresholds": thresholds,
             "half_spreads": half_spreads,
             "fee_rates": fee_rates,
+            "tennis_data_load_failures": td_failures,
         },
         "arm_2a": arm_2a,
         "arm_2b": arm_2b,
@@ -572,6 +588,12 @@ def main(argv: list[str] | None = None) -> int:
             "2a is the load-bearing arm; 2b is best-effort and may be UNTESTED.",
         ],
     }
+    if td_failures:
+        report["caveats"].insert(
+            0,
+            f"INCOMPLETE 2a CORPUS: tennis-data load failed for {td_failures} — the 2a "
+            "verdict is computed on a PARTIAL corpus; treat with caution / re-run.",
+        )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[A17] wrote {args.out}", flush=True)

@@ -110,7 +110,24 @@
 - **商业张力（诚实记录）**：会换挡的 agent 不再送死 ⇒ 神的每命收入($2,564)下降、
   agent 终于能把 headline 带回家——定价 Laffer 曲线的另一端。
 
-### A9 · 牛熊涌现原料包 v2（经对抗审计修订）— `PROPOSED`（2026-06-13 双 agent 审计定稿）
+### A9 · 牛熊涌现原料包 v2（经对抗审计修订）— `SHIPPED`（2026-06-13 代码全落地；G0/G1/G2 跑批在途）
+- **落地记录（plan-loop 13 轮收敛后 TDD 实现，commits 757fa0f→76fb2ca）**：
+  K1 storm 感知（tick 级真 breath delta 单 EMA + 48h 半衰期 wall-clock 衰减，
+  零 delta tick 只走 wall-clock —— (1−τ) 因子本身是事件计数衰减不许跑）；
+  K2 γ/γ2 条件门（value 模式 eff_min_edge + rho_eff 缩放，γ=0 字节恒等）；
+  K3 genome 上 StrategyConfig（min_bet_size_usd 显式排除——$5 流动性地板下
+  它是全有全无参与开关）；K6 反事实账本（仅紧缩方向 + storm 拆账 + genome
+  读数 + K5 买命行，全部进死亡窗口）；K7 证伪（配对时间平移 + 单调 60s
+  归一化 + bets_by_third 参与度 + falsification_metric.evaluable ≥3 次
+  productive 死亡边界提案才可判定）。Runner：--provider minimax /
+  --storm / --shuffle-timestamps-seed；arm 命令见 scripts/run_reincarnation.py
+  docstring。Dashboard：genome 位移 chips + regime ledger 行 + shuffled
+  徽章 + INCONCLUSIVE 渲染 + 停机/换挡判读。
+- **臂**：N=已发布对照（永不重跑）；G0=kit-off LLM 消融（六权重 advisor+tribute，
+  =原 task #23）；G1=全套件 treatment；G2=洗牌赛季证伪。MiniMax-M3 为主
+  （用户 2026-06-13 指令），Gemini 配额恢复后可替代。
+
+#### 原审计记录（保留）— ### A9 · 牛熊涌现原料包 v2（经对抗审计修订）
 - **审计结论**：原 K1-K5 方案（storm 感知 + γ 条件门 + A1 解锁 + B1 真帽 + 买命账单）
   **不充分**——造了执行器没造仪表。四个被钉死的缺陷：
   ①**归因不可能**：advisor（唯一能动 γ 的实体）的窗口只有混合聚合（牛熊混出 ~85%

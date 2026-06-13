@@ -304,7 +304,8 @@ G1/G2 的所有 null**（无涌现、γ 游走、深度没复现）：**没有 e
 - **动机**：A13 已证公开信息 edge≈0；本探针**最便宜地**验证「真 edge 来自市场未知信息」里最现成的一支——
   **锐线**（Pinnacle 收盘隐含概率）是否系统性比大盘均价/Polymarket 更准（逐场配对 Brier）。纯**只读**、零下注/部署/LLM/key。
 - **设计**：`docs/superpowers/specs/2026-06-13-sharp-line-edge-probe-design.md`；plan-loop 记录于 `~/.claude/plans/`。
-  代码 `agent/backtest/sharp_line.py`（51 测试绿、mypy/ruff clean）+ CLI `scripts/probe_sharp_line.py`；结论将落 `docs/backtest/sharp_line_probe.md`。
+  **核心逻辑已落地**：`agent/backtest/sharp_line.py`（62 测试绿、mypy --strict/ruff clean）——de-vig、姓键、cluster bootstrap、SESOI 三态、ex-ante 选边、orientation fail-closed 门、2a/2b sample 装配、ROI 聚合。
+  **次轮**：CLI `scripts/probe_sharp_line.py`（接真实 tennis-data + live Gamma/CLOB）+ 跑批 → 结论落 `docs/backtest/sharp_line_probe.md`。
 - **两臂**：**2a**（锐线 vs 各非-Pinnacle 单家去 vig 概率均值，纯 tennis-data 离线，**功效充足、唯一 load-bearing**）；
   **2b**（锐线 vs Polymarket 收盘，重抓 Gamma orientation + 真实 CLOB 开赛前收盘价，best-effort、一整套 fail-closed 门
   → **预期常 UNTESTED**）。统计：`tournament+week` cluster bootstrap（Brier+ROI）+ 预声明 SESOI 三态（EDGE/REFUTED/INCONCLUSIVE）。

@@ -15,12 +15,17 @@ from agent.backtest.cached_sweep import compute_bet_pnl
 from agent.backtest.sharp_line import (
     BootstrapCI,
     DropBuckets,
+    MatchSample,
     brier_edge,
+    build_2a_row,
+    build_2b_sample,
     cluster_bootstrap_ci,
     implied_prob_two_way,
+    iso_week_key,
     join_one_to_one,
     normalize_name,
     resolve_2b_close,
+    roi_cell,
     simulate_bet,
     soft_consensus_prob,
     surname_matches,
@@ -368,7 +373,8 @@ class TestJoin:
         gs = datetime(2025, 6, 10, 13, 0, tzinfo=UTC)
         td = {"2025-06-10": [self._td_row("Shelton B.", "Tiafoe F.")]}
         row, ref_is_winner, reason = join_one_to_one(
-            ref_surname="shelton", other_surname="tiafoe", game_start=gs, td_by_date=td
+            ref_display="Ben Shelton", other_display="Frances Tiafoe",
+            game_start=gs, td_by_date=td,
         )
         assert reason is None and row is not None and ref_is_winner is True
 
@@ -376,7 +382,8 @@ class TestJoin:
         gs = datetime(2025, 6, 10, 13, 0, tzinfo=UTC)
         td = {"2025-06-11": [self._td_row("Tiafoe F.", "Shelton B.")]}  # +1 day, ref lost
         row, ref_is_winner, reason = join_one_to_one(
-            ref_surname="shelton", other_surname="tiafoe", game_start=gs, td_by_date=td
+            ref_display="Ben Shelton", other_display="Frances Tiafoe",
+            game_start=gs, td_by_date=td,
         )
         assert reason is None and row is not None and ref_is_winner is False
 
@@ -384,7 +391,8 @@ class TestJoin:
         gs = datetime(2025, 6, 10, 13, 0, tzinfo=UTC)
         td = {"2025-06-20": [self._td_row("Shelton B.", "Tiafoe F.")]}
         _, _, reason = join_one_to_one(
-            ref_surname="shelton", other_surname="tiafoe", game_start=gs, td_by_date=td
+            ref_display="Ben Shelton", other_display="Frances Tiafoe",
+            game_start=gs, td_by_date=td,
         )
         assert reason == "date_miss"
 
@@ -395,9 +403,135 @@ class TestJoin:
             "2025-06-11": [self._td_row("Tiafoe F.", "Shelton B.")],
         }
         _, _, reason = join_one_to_one(
-            ref_surname="shelton", other_surname="tiafoe", game_start=gs, td_by_date=td
+            ref_display="Ben Shelton", other_display="Frances Tiafoe",
+            game_start=gs, td_by_date=td,
         )
         assert reason == "ambiguous_join"
+
+
+class TestBuild2A:
+    def _row(self, **kw: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "Winner": "Sinner J.", "Loser": "Alcaraz C.",
+            "PSW": 1.5, "PSL": 2.75, "B365W": 1.5, "B365L": 2.75,
+            "Comment": "Completed", "Tournament": "Wimbledon", "Date": "2025-07-10",
+        }
+        base.update(kw)
+        return base
+
+    def test_completed_sample(self) -> None:
+        sample, reason = build_2a_row(self._row())
+        assert reason is None and sample is not None
+        # reference = alphabetically-first surname = alcaraz (loser) -> y=0
+        assert sample.y == 0
+        # p_pin(reference=loser) = devig(PSL, PSW)
+        assert sample.p_pin == pytest.approx(implied_prob_two_way(2.75, 1.5), abs=1e-9)
+        assert "wimbledon" in sample.cluster_key
+
+    def test_winner_is_reference(self) -> None:
+        # Winner surname alphabetically first -> reference is winner -> y=1
+        sample, reason = build_2a_row(self._row(Winner="Aaron A.", Loser="Zverev A."))
+        assert reason is None and sample is not None and sample.y == 1
+
+    def test_retired_dropped(self) -> None:
+        _, reason = build_2a_row(self._row(Comment="Retired"))
+        assert reason == "incomplete_ret_wo"
+
+    def test_no_sharp_dropped(self) -> None:
+        _, reason = build_2a_row(self._row(PSW=None, PSL=None))
+        assert reason == "no_sharp"
+
+    def test_no_soft_dropped(self) -> None:
+        _, reason = build_2a_row(
+            self._row(B365W=None, B365L=None, AvgW=None, AvgL=None)
+        )
+        assert reason == "no_soft"
+
+
+class TestBuild2B:
+    def _good_close(self) -> object:
+        gamma = _FakeGamma(
+            {
+                "m1": [
+                    _raw_market(
+                        outcomes=["Ben Shelton", "Frances Tiafoe"],
+                        prices=[1.0, 0.0],
+                        tokens=[{"token_id": "tokA", "outcome": "Ben Shelton"}],
+                        clob_token_ids=["tokA", "tokB"],
+                    )
+                ]
+            }
+        )
+        clob = _FakeClob(
+            {"tokA": [{"t": _unix("2025-06-10T12:30:00+00:00"), "p": 0.66}]}
+        )
+        return resolve_2b_close(
+            market_id="m1", cassette_outcome="yes", gamma_index=gamma, clob=clob
+        )
+
+    def test_build_2b_sample(self) -> None:
+        close = self._good_close()
+        td = {"2025-06-10": [{"Winner": "Shelton B.", "Loser": "Tiafoe F.",
+                              "PSW": 1.4, "PSL": 3.0, "Tournament": "Stuttgart",
+                              "Date": "2025-06-10"}]}
+        sample, reason = build_2b_sample(close, td_by_date=td)  # type: ignore[arg-type]
+        assert reason is None and sample is not None
+        # reference = Shelton (outcomes[0]) = Winner -> y=1, p_pin from PSW
+        assert sample.y == 1
+        assert sample.p_pin == pytest.approx(implied_prob_two_way(1.4, 3.0), abs=1e-9)
+        assert sample.p_soft == pytest.approx(0.66, abs=1e-9)  # polymarket close
+
+    def test_build_2b_date_miss(self) -> None:
+        close = self._good_close()
+        td = {"2025-07-01": [{"Winner": "Shelton B.", "Loser": "Tiafoe F.",
+                              "PSW": 1.4, "PSL": 3.0}]}
+        _, reason = build_2b_sample(close, td_by_date=td)  # type: ignore[arg-type]
+        assert reason == "date_miss"
+
+
+class TestRoi:
+    def _samples(self, n: int) -> list[MatchSample]:
+        # sharp says reference more likely (0.7) than market (0.5); reference
+        # wins -> ex-ante YES bets win. Distinct clusters for the bootstrap.
+        return [
+            MatchSample(edge=0.0, p_pin=0.70, p_soft=0.50, y=1, cluster_key=f"t{i}")
+            for i in range(n)
+        ]
+
+    def test_roi_cell_counts_and_positive(self) -> None:
+        cell = roi_cell(
+            self._samples(40),
+            [s.cluster_key for s in self._samples(40)],
+            threshold=0.05, half_spread=0.0, fee_rate=0.0,
+            rng=np.random.default_rng(0), n_boot=200,
+        )
+        assert cell.bets == 40  # all clear |d_edge|=0.20 > 0.05
+        assert cell.roi > 0  # winning YES bets
+        assert cell.ci.lo <= cell.ci.point <= cell.ci.hi
+
+    def test_roi_cell_below_threshold_no_bets(self) -> None:
+        small = [
+            MatchSample(edge=0.0, p_pin=0.51, p_soft=0.50, y=1, cluster_key=f"t{i}")
+            for i in range(10)
+        ]
+        cell = roi_cell(
+            small, [s.cluster_key for s in small],
+            threshold=0.05, half_spread=0.0, fee_rate=0.0,
+            rng=np.random.default_rng(0), n_boot=50,
+        )
+        assert cell.bets == 0 and cell.roi == 0.0
+
+
+class TestIsoWeek:
+    def test_same_week_same_key(self) -> None:
+        a = iso_week_key("Wimbledon", "2025-07-08")
+        b = iso_week_key("Wimbledon", "2025-07-10")  # same ISO week
+        assert a == b and "wimbledon" in a
+
+    def test_ddmmyyyy_format(self) -> None:
+        a = iso_week_key("US Open", "10/07/2025")
+        b = iso_week_key("US Open", "2025-07-10")
+        assert a == b
 
 
 class TestDropBuckets:

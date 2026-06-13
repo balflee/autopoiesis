@@ -243,8 +243,13 @@ _FEE_RATE = 0.03  # Polymarket Sports taker fee coefficient (≈0.75% at p=0.5)
 
 
 def taker_fee_usd(size_usd: float, price: float, *, rate: float = _FEE_RATE) -> float:
-    """Polymarket Sports taker fee: ``size * p * rate * p*(1-p)`` (peaks at 0.5)."""
-    return size_usd * price * rate * (price * (1.0 - price))
+    """Approximate Polymarket Sports taker fee on a USD stake.
+
+    ``fee = size_usd * rate * price * (1 - price)`` — ≈0.75% of stake at the
+    50/50 price (``rate=0.03``), tapering to the wings. An approximation used
+    only as a sensitivity tier ({0, this, 1.0%}); the probe discloses it.
+    """
+    return size_usd * rate * price * (1.0 - price)
 
 
 @dataclass(frozen=True)
@@ -284,7 +289,7 @@ def simulate_bet(
     ``invalid_spread_price``.
     """
     d_edge = p_pin_ref - p_soft_ref
-    if abs(d_edge) < threshold:
+    if abs(d_edge) <= threshold:  # strict ``>`` to place (plan decision 6)
         return BetResult(placed=False, reason="below_threshold")
 
     side = "YES" if d_edge > 0 else "NO"
@@ -405,6 +410,7 @@ def resolve_2b_close(
     cassette_outcome: str | None,
     gamma_index: GammaIndex,
     clob: ClobHistory,
+    expected_slug: str | None = None,
     max_tick_age_h: float = 24.0,
 ) -> TwoBClose:
     """Resolve a verified pre-match Polymarket close for one 2b market.
@@ -412,19 +418,31 @@ def resolve_2b_close(
     Fail-closed: returns ``ok=False`` with a drop-bucket ``reason`` whenever any
     correctness pre-condition cannot be established result-independently:
 
-    - ``gamma_missing`` / ``gamma_duplicate`` / ``slug_missing``
+    - ``gamma_missing`` / ``gamma_duplicate`` / ``slug_mismatch``
+    - ``non_complete`` / ``void``: cassette outcome missing or void (no clean
+      two-way result to score)
     - ``outcome_drift``: refetched outcome (from ``outcomePrices``) != cassette
     - ``token_orientation_unverified``: ``clobTokenIds``<->``outcomes`` parallel
       ordering not verifiable from primary metadata
     - ``missing_gameStartTime`` / ``no_clob_history`` / ``no_prematch_tick`` /
       ``stale_premarket_tick``
     """
+    # Drop non-complete / void up front — there is no clean two-way result to
+    # score, and a tied ``outcomePrices`` would otherwise sneak through as
+    # ``refetched == "void"`` matching ``cassette_outcome == "void"``.
+    norm_cassette = str(cassette_outcome).lower() if cassette_outcome is not None else None
+    if norm_cassette not in {"yes", "no"}:
+        return TwoBClose(ok=False, reason="void")
+
     rows = gamma_index.get(market_id)
     if not rows:
         return TwoBClose(ok=False, reason="gamma_missing")
     if len(rows) > 1:
         return TwoBClose(ok=False, reason="gamma_duplicate")
     raw = rows[0]
+
+    if expected_slug is not None and str(raw.get("slug", "")) != expected_slug:
+        return TwoBClose(ok=False, reason="slug_mismatch")
 
     outcomes = raw.get("outcomes")
     prices = raw.get("outcomePrices")
@@ -443,7 +461,7 @@ def resolve_2b_close(
     except (TypeError, ValueError):
         return TwoBClose(ok=False, reason="outcome_drift")
     refetched = "yes" if p0 > p1 else "no" if p1 > p0 else "void"
-    if cassette_outcome is None or refetched != str(cassette_outcome).lower():
+    if refetched != norm_cassette:
         return TwoBClose(ok=False, reason="outcome_drift")
 
     # (b) token<->outcome parallel ordering must be verifiable result-independently.
@@ -553,20 +571,22 @@ class DropBuckets:
 
 def join_one_to_one(
     *,
-    ref_surname: str,
-    other_surname: str,
+    ref_display: str,
+    other_display: str,
     game_start: datetime,
     td_by_date: dict[str, list[dict[str, object]]],
     date_tol_days: int = 1,
 ) -> tuple[dict[str, object] | None, bool, str | None]:
-    """Match a Polymarket market to a unique tennis-data row.
+    """Match a Polymarket market (Gamma display names) to a unique tennis-data row.
 
-    ``td_by_date`` is tennis-data rows keyed by ISO date (``YYYY-MM-DD``).
-    Matches by the normalised surname PAIR within ``±date_tol_days`` of the
-    match-start date. Returns ``(row, ref_is_winner, reason)``: a non-None
+    ``td_by_date`` is tennis-data rows keyed by match-day ISO date
+    (``YYYY-MM-DD``, derived from Gamma ``gameStartTime`` — NOT ``end_date_iso``).
+    A row matches when its Winner/Loser surname keys (``tennis_data_surname``)
+    each suffix-match one of the two Gamma display names one-to-one, within
+    ``±date_tol_days``. Returns ``(row, ref_is_winner, reason)``: a non-None
     ``reason`` is a drop bucket (``date_miss`` / ``ambiguous_join``); on success
-    ``reason is None`` and ``ref_is_winner`` says which tennis-data leg the
-    reference (outcomes[0]) player is.
+    ``ref_is_winner`` says whether the reference (``outcomes[0]``) player is the
+    tennis-data Winner.
     """
     candidates: list[tuple[dict[str, object], bool]] = []
     base = game_start.date()
@@ -577,14 +597,226 @@ def join_one_to_one(
             loser = tennis_data_surname(str(row.get("Loser", "")))
             if w is None or loser is None:
                 continue
-            pair = {w, loser}
-            if pair != {ref_surname, other_surname}:
-                continue
-            ref_is_winner = ref_surname == w
-            candidates.append((row, ref_is_winner))
+            if surname_matches(w, ref_display) and surname_matches(loser, other_display):
+                candidates.append((row, True))
+            elif surname_matches(loser, ref_display) and surname_matches(w, other_display):
+                candidates.append((row, False))
     if not candidates:
         return None, False, "date_miss"
     if len(candidates) > 1:
         return None, False, "ambiguous_join"
     row, ref_is_winner = candidates[0]
     return row, ref_is_winner, None
+
+
+# --------------------------------------------------------------------------- #
+# Sample builders (per-match 2a / 2b assembly) + ROI aggregation
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class MatchSample:
+    """One scored match: paired Brier edge + the pieces the bet sim needs."""
+
+    edge: float  # brier_edge(p_pin, p_soft, y); +ve => sharp more accurate
+    p_pin: float
+    p_soft: float
+    y: int
+    cluster_key: str
+    used_avg_fallback: bool = False  # 2a only: soft line fell back to Avg*
+
+
+def iso_week_key(tournament: object, date: object) -> str:
+    """Cluster key = normalised tournament + ISO year-week of the match date."""
+    tour = normalize_name(str(tournament or "")) or "unknown"
+    dt = _parse_iso(date) or _parse_unix(date)
+    if dt is None:
+        # tennis-data Date is usually YYYY-MM-DD or DD/MM/YYYY; try both.
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                dt = datetime.strptime(str(date), fmt).replace(tzinfo=UTC)
+                break
+            except (TypeError, ValueError):
+                continue
+    if dt is None:
+        return f"{tour}|nodate"
+    iso = dt.isocalendar()
+    return f"{tour}|{iso.year}-W{iso.week:02d}"
+
+
+def build_2a_row(
+    row: dict[str, object], *, completed_only: bool = True
+) -> tuple[MatchSample | None, str | None]:
+    """Assemble one 2a sample (sharp vs non-Pinnacle consensus, pure tennis-data).
+
+    Reference player = the alphabetically-first surname (deterministic, no
+    look-ahead). Returns ``(sample, None)`` or ``(None, drop_reason)`` with
+    reason in {``incomplete_ret_wo``, ``surname_unparseable``, ``no_sharp``,
+    ``no_soft``}.
+    """
+    if completed_only and str(row.get("Comment", "")).strip().lower() != "completed":
+        return None, "incomplete_ret_wo"
+    w_sn = tennis_data_surname(str(row.get("Winner", "")))
+    l_sn = tennis_data_surname(str(row.get("Loser", "")))
+    if not w_sn or not l_sn:
+        return None, "surname_unparseable"
+    ref_is_winner = w_sn <= l_sn  # alphabetically-first surname is the reference
+    psw, psl = row.get("PSW"), row.get("PSL")
+    p_pin = (
+        implied_prob_two_way(psw, psl)
+        if ref_is_winner
+        else implied_prob_two_way(psl, psw)
+    )
+    if p_pin is None:
+        return None, "no_sharp"
+    p_soft, used_avg = soft_consensus_prob(row, ref_is_winner=ref_is_winner)
+    if p_soft is None:
+        return None, "no_soft"
+    y = 1 if ref_is_winner else 0
+    return (
+        MatchSample(
+            edge=brier_edge(p_pin, p_soft, y),
+            p_pin=p_pin,
+            p_soft=p_soft,
+            y=y,
+            cluster_key=iso_week_key(row.get("Tournament"), row.get("Date")),
+            used_avg_fallback=used_avg,
+        ),
+        None,
+    )
+
+
+def build_2b_sample(
+    close: TwoBClose,
+    *,
+    td_by_date: dict[str, list[dict[str, object]]],
+    date_tol_days: int = 1,
+) -> tuple[MatchSample | None, str | None]:
+    """Assemble one 2b sample (sharp vs verified Polymarket close).
+
+    Requires a successful :func:`resolve_2b_close` (``close.ok``). Joins to a
+    unique tennis-data row by display-name surname match + match date, maps the
+    reference (``outcomes[0]``) to the Winner/Loser leg to pick ``PSW``/``PSL``,
+    and uses ``close.p_polymarket`` (already P(reference)) as the soft line.
+    """
+    if not close.ok or close.game_start is None or close.p_polymarket is None:
+        return None, "close_unresolved"
+    row, ref_is_winner, reason = join_one_to_one(
+        ref_display=close.reference_display or "",
+        other_display=close.other_display or "",
+        game_start=close.game_start,
+        td_by_date=td_by_date,
+        date_tol_days=date_tol_days,
+    )
+    if reason is not None or row is None:
+        return None, reason or "date_miss"
+    psw, psl = row.get("PSW"), row.get("PSL")
+    p_pin = (
+        implied_prob_two_way(psw, psl)
+        if ref_is_winner
+        else implied_prob_two_way(psl, psw)
+    )
+    if p_pin is None:
+        return None, "no_sharp"
+    y = 1 if ref_is_winner else 0
+    p_market = close.p_polymarket
+    return (
+        MatchSample(
+            edge=brier_edge(p_pin, p_market, y),
+            p_pin=p_pin,
+            p_soft=p_market,
+            y=y,
+            cluster_key=iso_week_key(row.get("Tournament"), row.get("Date")),
+        ),
+        None,
+    )
+
+
+@dataclass(frozen=True)
+class RoiCell:
+    threshold: float
+    half_spread: float
+    fee_rate: float
+    bets: int
+    total_staked: float
+    net_pnl: float
+    roi: float  # net_pnl / total_staked (None-safe -> 0.0 when no bets)
+    ci: BootstrapCI  # cluster bootstrap of per-bet net P&L
+
+
+def roi_cell(
+    samples: list[MatchSample],
+    cluster_keys: list[str],
+    *,
+    threshold: float,
+    half_spread: float,
+    fee_rate: float,
+    rng: _RNG,
+    n_boot: int = 1000,
+    size_usd: float = 1.0,
+) -> RoiCell:
+    """Aggregate 2b betting ROI for one (threshold, spread, fee) cell.
+
+    Bets are placed by :func:`simulate_bet` (ex-ante side, YES-mid contract).
+    The per-bet net P&L is cluster-bootstrapped (same ``tournament+week``
+    resampling unit as the Brier verdict) so the ROI CI is not iid-narrow.
+    """
+    nets: list[float] = []
+    bet_clusters: list[str] = []
+    for s, ck in zip(samples, cluster_keys, strict=True):
+        res = simulate_bet(
+            p_pin_ref=s.p_pin,
+            p_soft_ref=s.p_soft,
+            p_yes_close=s.p_soft,  # 2b: soft line IS the market close (P(reference))
+            y_ref=s.y,
+            threshold=threshold,
+            half_spread=half_spread,
+            fee_rate=fee_rate,
+            size_usd=size_usd,
+        )
+        if res.placed and res.net_pnl is not None:
+            nets.append(res.net_pnl)
+            bet_clusters.append(ck)
+    bets = len(nets)
+    total = size_usd * bets
+    net = sum(nets)
+    ci = cluster_bootstrap_ci(nets, bet_clusters, rng=rng, n_boot=n_boot)
+    return RoiCell(
+        threshold=threshold,
+        half_spread=half_spread,
+        fee_rate=fee_rate,
+        bets=bets,
+        total_staked=total,
+        net_pnl=net,
+        roi=(net / total) if total else 0.0,
+        ci=ci,
+    )
+
+
+def roi_grid(
+    samples: list[MatchSample],
+    *,
+    thresholds: Sequence[float],
+    half_spreads: Sequence[float],
+    fee_rates: Sequence[float],
+    rng: _RNG,
+    n_boot: int = 1000,
+) -> list[RoiCell]:
+    """Run :func:`roi_cell` over the full threshold x spread x fee grid (sensitivity)."""
+    cluster_keys = [s.cluster_key for s in samples]
+    cells: list[RoiCell] = []
+    for thr in thresholds:
+        for hs in half_spreads:
+            for fr in fee_rates:
+                cells.append(
+                    roi_cell(
+                        samples,
+                        cluster_keys,
+                        threshold=thr,
+                        half_spread=hs,
+                        fee_rate=fr,
+                        rng=rng,
+                        n_boot=n_boot,
+                    )
+                )
+    return cells

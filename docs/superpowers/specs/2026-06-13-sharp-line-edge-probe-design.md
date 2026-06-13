@@ -1,7 +1,7 @@
 # 设计：锐线 edge 历史探针（A17 · D1 前置验证）
 
 - 日期：2026-06-13
-- 状态：设计（待批准）
+- 状态：已批准 → plan-loop 执行中（核心模块 `agent/backtest/sharp_line.py` 已落地+测试；CLI/跑批次轮）
 - 关联：backlog **A17**（新立）；是 **D1**（live Pinnacle-vs-Polymarket 锐线，mock 相）的便宜历史前置验证；产出喂回 **A15**（smart-money 链上流）/ **A16**（跨市场）决策
 - 前置认知：**A13**（LLM-融合探针，DONE/no-go）已实证「公开信息 edge ≈ 0」（三方都只比市场强约 +0.008 Brier，N=50 噪声内打平）；本探针验证「真 edge 必须来自市场未知信息」这条论点里**最便宜、最现成**的一支——锐线。
 - 经一轮 36-agent adversarial review（23 条经证伪验证的 finding，high=1/med=10/low=12）修订，下文已并入全部修正。

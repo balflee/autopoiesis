@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import React from "react";
 
@@ -59,7 +59,7 @@ describe("MechanismPage — hub explainer smoke", () => {
     expect(within(breath).getAllByText(/BREATH/).length).toBeGreaterThan(0);
   });
 
-  it("renders all nine threaded sections and the breath-waveform motif", () => {
+  it("renders all ten threaded sections and the breath-waveform motif", () => {
     render(<MechanismPage />);
     for (const id of [
       "mechanism-arena",
@@ -70,11 +70,35 @@ describe("MechanismPage — hub explainer smoke", () => {
       "mechanism-breath",
       "mechanism-learning",
       "mechanism-params",
+      "mechanism-evolution",
       "mechanism-stack",
     ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
     expect(screen.getAllByTestId("breath-waveform").length).toBeGreaterThan(0);
+  });
+
+  it("explains each evolution phase and switches tabs", () => {
+    render(<MechanismPage />);
+    const evo = screen.getByTestId("mechanism-evolution");
+    // All six chronological phase tabs are present.
+    for (const id of ["p1", "p2", "a56", "a7", "a9", "a10"]) {
+      expect(within(evo).getByTestId(`phase-tab-${id}`)).toBeInTheDocument();
+    }
+    // Default tab = phase 1; its honest finding names the death-blind gradient.
+    expect(screen.getByTestId("phase-panel-p1").textContent).toMatch(
+      /DEATH-BLIND/i,
+    );
+    // Switch to the emergence kit: the verdict is INCONCLUSIVE, never a win.
+    fireEvent.click(within(evo).getByTestId("phase-tab-a9"));
+    expect(screen.getByTestId("phase-panel-a9").textContent).toMatch(
+      /INCONCLUSIVE/,
+    );
+    // Switch to the divine tithe: the rent closes the abstention loophole.
+    fireEvent.click(within(evo).getByTestId("phase-tab-a10"));
+    const tithe = screen.getByTestId("phase-panel-a10").textContent ?? "";
+    expect(tithe).toMatch(/rent/i);
+    expect(tithe).toMatch(/every 20 markets/i);
   });
 
   it("keeps a ◂ lifeline back-link to /roadmap", () => {

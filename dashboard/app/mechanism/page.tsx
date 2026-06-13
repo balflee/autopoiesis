@@ -20,6 +20,8 @@
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 
+import PhaseEvolution from "./PhaseEvolution";
+
 /* ------------------------------------------------------------------ */
 /* The breath / heartbeat waveform — reused from the roadmap hero.     */
 /* ------------------------------------------------------------------ */
@@ -633,11 +635,27 @@ export default function MechanismPage(): JSX.Element {
             </SpineSection>
 
             {/* §9 · THE STACK --------------------------------------- */}
+            {/* §9 · THE EVOLUTION (tabbed per-phase changelog) ------ */}
             <SpineSection
               index="09"
+              kicker="the evolution"
+              title="How each stage changed the world"
+              delayMs={760}
+              testId="mechanism-evolution"
+            >
+              <p className="mb-4 font-mono text-[12px] leading-relaxed text-[var(--ab-dim)]">
+                The world did not arrive finished — each stage added one rule
+                and measured what it did. Switch between them; every tab states
+                what changed, why, and the honest result (failures included).
+              </p>
+              <PhaseEvolution />
+            </SpineSection>
+
+            <SpineSection
+              index="10"
               kicker="the stack"
               title="What it's built on"
-              delayMs={760}
+              delayMs={840}
               testId="mechanism-stack"
               last
             >

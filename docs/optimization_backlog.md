@@ -300,18 +300,16 @@ G1/G2 的所有 null**（无涌现、γ 游走、深度没复现）：**没有 e
 - **延伸**：这条天然指向"**为什么赌首盘**"的上游问题——**赛果市场流动性厚得多、更可预测、且锐线/钱包流
   数据更有信号**。若无锁定首盘的理由，迁到赛果市场可能同时改善 edge（A15/D1 变可行）与可预测性。
 
-### A17 · 锐线 edge 历史探针（D1 前置验证）— `代码进行中`（2026-06-13；spec + 8 轮 plan-loop review 收敛 PASS）
+### A17 · 锐线 edge 历史探针（D1 前置验证）— `DONE`（2026-06-14；spec + 8 轮 plan-loop plan-review + 5 轮 code-review 收敛；真实跑批完成）
 - **动机**：A13 已证公开信息 edge≈0；本探针**最便宜地**验证「真 edge 来自市场未知信息」里最现成的一支——
-  **锐线**（Pinnacle 收盘隐含概率）是否系统性比大盘均价/Polymarket 更准（逐场配对 Brier）。纯**只读**、零下注/部署/LLM/key。
-- **设计**：`docs/superpowers/specs/2026-06-13-sharp-line-edge-probe-design.md`；plan-loop 记录于 `~/.claude/plans/`。
-  **核心逻辑已落地**：`agent/backtest/sharp_line.py`（62 测试绿、mypy --strict/ruff clean）——de-vig、姓键、cluster bootstrap、SESOI 三态、ex-ante 选边、orientation fail-closed 门、2a/2b sample 装配、ROI 聚合。
-  **次轮**：CLI `scripts/probe_sharp_line.py`（接真实 tennis-data + live Gamma/CLOB）+ 跑批 → 结论落 `docs/backtest/sharp_line_probe.md`。
-- **两臂**：**2a**（锐线 vs 各非-Pinnacle 单家去 vig 概率均值，纯 tennis-data 离线，**功效充足、唯一 load-bearing**）；
-  **2b**（锐线 vs Polymarket 收盘，重抓 Gamma orientation + 真实 CLOB 开赛前收盘价，best-effort、一整套 fail-closed 门
-  → **预期常 UNTESTED**）。统计：`tournament+week` cluster bootstrap（Brier+ROI）+ 预声明 SESOI 三态（EDGE/REFUTED/INCONCLUSIVE）。
-- **触发/去向**：**full go**（2a edge 存在 + 2b 可吃）→ 推进 **D1**（实时同时间戳锐线管道）+ 评估首盘→赛果迁移；
-  2a 过 / 2b UNTESTED → mock 相向前采集同时间戳数据；2a REFUTED 或 2b REFUTED → mock 相 edge 注意力转 **A15**（链上 smart-money）。
-- **诚实**：收盘价是 edge 的乐观上界（非可成交证明）；偏置双向（tick 陈旧度偏乐观 / 流动性幸存者偏悲观）；上界不替代功效。
+  **锐线**（Pinnacle 收盘隐含概率）是否系统性比大盘共识/Polymarket 更准（逐场配对 Brier）。纯**只读**、零下注/部署/LLM/key。
+- **落地**：`agent/backtest/sharp_line.py`（66 测试、mypy --strict/ruff clean）+ CLI `scripts/probe_sharp_line.py`；结论 `docs/backtest/sharp_line_probe.md`；spec `docs/superpowers/specs/2026-06-13-...md`。统计：`tournament+week` cluster bootstrap（Brier+ROI）+ 预声明 SESOI 三态。
+- **结果（真实数据，2024-26 ATP+WTA 12,886 场 + 378 Polymarket cassette）**：
+  - **2a（锐线 vs 庄家共识，载重，n=9856/294簇）= REFUTED**：点估 +0.00014 Brier，CI 上界 0.0004 < SESOI 0.002 → 锐线**不比高效庄家市场更准**（功效充足）。
+  - **2b（锐线 vs Polymarket 收盘，n=303/26簇）= INCONCLUSIVE**：点估 **+0.00255**（>2a），realistic 档 ROI 点估 +14~63%，但 cluster CI 跨 0 → 点估**暗示 Polymarket 比庄家软、可能可吃**，但簇数不足无法确认。
+- **硬约束发现**：Polymarket **已清空已结算市场的 CLOB prices-history**（重抓全空）→ 历史 2b 只能用 cassette 当年抓的真实 ledger（354/378 有 ≥5 真 tick；orientation 用重抓 Gamma+CLOB token 标签结果无关验证）。
+- **去向**：推进 **D1**（实时同时间戳，锐线/共识 vs Polymarket，更多市场→更多簇→足够功效）确认 2b 正点估是否为真；2a REFUTED 不否定——真 edge 在「庄家/锐线共识 vs 更软的 Polymarket」（softer-venue 套利），非锐线 vs 庄家。若 D1 证实，评估首盘→赛果迁移；smart-money（A15）/跨市场（A16）按序。
+- **诚实**：收盘价=edge 乐观上界（非可成交证明）；双向偏置（tick 陈旧度偏乐观/流动性幸存者偏悲观）；上界不替代功效。
 
 ### A4 · 结算吞吐/滞后 — `PROPOSED`（v3 起遗留）
 - **取证**：~38-55% 已下注从未结算（agent 死时仍 open，作废）。

@@ -65,6 +65,10 @@ dev = [
     # imports either.
     "eth-tester>=0.12",
     "py-evm>=0.10",
+    # A17 sharp-line probe (scripts/probe_sharp_line.py) reads tennis-data.co.uk
+    # annual .xlsx via pandas.read_excel. Dev/probe-only — the deployed runtime
+    # never imports the probe script.
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]

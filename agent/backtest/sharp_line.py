@@ -391,6 +391,7 @@ class TwoBClose:
     p_polymarket: float | None = None  # YES-token closing mid (ref player)
     tick_age_h: float | None = None
     game_start: datetime | None = None
+    reference_won: bool | None = None  # cassette/Gamma outcome: did outcomes[0] win
 
 
 def _parse_iso(ts: object) -> datetime | None:
@@ -508,6 +509,7 @@ def resolve_2b_close(
         p_polymarket=last_mid,
         tick_age_h=age_h,
         game_start=game_start,
+        reference_won=(norm_cassette == "yes"),  # outcomes[0]=YES token won
     )
 
 
@@ -660,7 +662,11 @@ def build_2a_row(
     l_sn = tennis_data_surname(str(row.get("Loser", "")))
     if not w_sn or not l_sn:
         return None, "surname_unparseable"
-    ref_is_winner = w_sn <= l_sn  # alphabetically-first surname is the reference
+    if w_sn == l_sn:
+        # Same normalised surname key -> reference selection would be
+        # result-dependent (the <= tie always picks the Winner). Drop.
+        return None, "surname_collision"
+    ref_is_winner = w_sn < l_sn  # alphabetically-first surname is the reference
     psw, psl = row.get("PSW"), row.get("PSL")
     p_pin = (
         implied_prob_two_way(psw, psl)
@@ -710,6 +716,14 @@ def build_2b_sample(
     )
     if reason is not None or row is None:
         return None, reason or "date_miss"
+    if str(row.get("Comment", "")).strip().lower() != "completed":
+        return None, "incomplete_ret_wo"
+    y = 1 if ref_is_winner else 0
+    # Decision 3(d): the joined-row y MUST agree with the verified cassette/Gamma
+    # outcome (reference == outcomes[0] == YES token). A mismatch means the join
+    # bound the wrong match or the sources disagree — drop, never score.
+    if close.reference_won is not None and (y == 1) != close.reference_won:
+        return None, "outcome_y_mismatch"
     psw, psl = row.get("PSW"), row.get("PSL")
     p_pin = (
         implied_prob_two_way(psw, psl)
@@ -718,7 +732,6 @@ def build_2b_sample(
     )
     if p_pin is None:
         return None, "no_sharp"
-    y = 1 if ref_is_winner else 0
     p_market = close.p_polymarket
     return (
         MatchSample(

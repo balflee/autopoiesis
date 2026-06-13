@@ -441,6 +441,11 @@ class TestBuild2A:
         _, reason = build_2a_row(self._row(PSW=None, PSL=None))
         assert reason == "no_sharp"
 
+    def test_surname_collision_dropped(self) -> None:
+        # Same normalized surname key -> result-dependent reference -> drop.
+        _, reason = build_2a_row(self._row(Winner="Williams S.", Loser="Williams V."))
+        assert reason == "surname_collision"
+
     def test_no_soft_dropped(self) -> None:
         _, reason = build_2a_row(
             self._row(B365W=None, B365L=None, AvgW=None, AvgL=None)
@@ -473,7 +478,7 @@ class TestBuild2B:
         close = self._good_close()
         td = {"2025-06-10": [{"Winner": "Shelton B.", "Loser": "Tiafoe F.",
                               "PSW": 1.4, "PSL": 3.0, "Tournament": "Stuttgart",
-                              "Date": "2025-06-10"}]}
+                              "Date": "2025-06-10", "Comment": "Completed"}]}
         sample, reason = build_2b_sample(close, td_by_date=td)  # type: ignore[arg-type]
         assert reason is None and sample is not None
         # reference = Shelton (outcomes[0]) = Winner -> y=1, p_pin from PSW
@@ -484,9 +489,25 @@ class TestBuild2B:
     def test_build_2b_date_miss(self) -> None:
         close = self._good_close()
         td = {"2025-07-01": [{"Winner": "Shelton B.", "Loser": "Tiafoe F.",
-                              "PSW": 1.4, "PSL": 3.0}]}
+                              "PSW": 1.4, "PSL": 3.0, "Comment": "Completed"}]}
         _, reason = build_2b_sample(close, td_by_date=td)  # type: ignore[arg-type]
         assert reason == "date_miss"
+
+    def test_build_2b_outcome_y_mismatch(self) -> None:
+        # cassette says reference (Shelton=outcomes[0]) WON, but the joined td
+        # row has Shelton as the Loser -> y=0 contradicts reference_won -> drop.
+        close = self._good_close()  # cassette_outcome="yes" -> reference_won=True
+        td = {"2025-06-10": [{"Winner": "Tiafoe F.", "Loser": "Shelton B.",
+                              "PSW": 1.4, "PSL": 3.0, "Comment": "Completed"}]}
+        _, reason = build_2b_sample(close, td_by_date=td)  # type: ignore[arg-type]
+        assert reason == "outcome_y_mismatch"
+
+    def test_build_2b_retired_dropped(self) -> None:
+        close = self._good_close()
+        td = {"2025-06-10": [{"Winner": "Shelton B.", "Loser": "Tiafoe F.",
+                              "PSW": 1.4, "PSL": 3.0, "Comment": "Retired"}]}
+        _, reason = build_2b_sample(close, td_by_date=td)  # type: ignore[arg-type]
+        assert reason == "incomplete_ret_wo"
 
 
 class TestRoi:

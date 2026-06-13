@@ -20,7 +20,13 @@ import {
 export const REINCARNATION_FILENAME = "reincarnation.json";
 export const REINCARNATION_AI_FILENAME = "reincarnation_ai.json";
 
-export type ReincarnationMode = "numerical" | "ai";
+// A9 emergence-kit arms (MiniMax-M3): G0 kit-off ablation, G1 full kit,
+// G2 timestamp-shuffled falsification leg. Deploy-only like the others.
+export const REINCARNATION_G0_FILENAME = "reincarnation_g0.json";
+export const REINCARNATION_G1_FILENAME = "reincarnation_g1.json";
+export const REINCARNATION_G2_FILENAME = "reincarnation_g2.json";
+
+export type ReincarnationMode = "numerical" | "ai" | "g0" | "g1" | "g2";
 
 const MODE_CONFIG: Record<
   ReincarnationMode,
@@ -28,6 +34,9 @@ const MODE_CONFIG: Record<
 > = {
   numerical: { filename: REINCARNATION_FILENAME, envVar: "REINCARNATION_PATH" },
   ai: { filename: REINCARNATION_AI_FILENAME, envVar: "REINCARNATION_AI_PATH" },
+  g0: { filename: REINCARNATION_G0_FILENAME, envVar: "REINCARNATION_G0_PATH" },
+  g1: { filename: REINCARNATION_G1_FILENAME, envVar: "REINCARNATION_G1_PATH" },
+  g2: { filename: REINCARNATION_G2_FILENAME, envVar: "REINCARNATION_G2_PATH" },
 };
 
 export function resolveReincarnationPath(

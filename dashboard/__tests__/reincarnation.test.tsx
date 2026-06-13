@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import React from "react";
 
@@ -528,5 +528,79 @@ describe("A9 storm kit — validator + rendering", () => {
     expect(
       screen.getByTestId("reincarnation-participation").textContent,
     ).toMatch(/kept betting/);
+  });
+});
+
+
+describe("A9 experiment arms — multi-arm toggle", () => {
+  function armFixture(overrides: Partial<Record<string, unknown>>): ReincarnationFixture {
+    return buildFixture({ provider: "ai", ...overrides });
+  }
+
+  it("renders a toggle entry per arm and switches the rendered fixture", () => {
+    const numerical = buildFixture({});
+    const g0 = armFixture({
+      surviving_incarnation: 3,
+      headline_pnl: 188,
+    });
+    const g1 = armFixture({
+      surviving_incarnation: 3,
+      headline_pnl: 188,
+      falsification_metric: {
+        key: "gate_storm_sensitivity",
+        threshold: 0.05,
+        source: "x",
+        value: 0.05,
+        productive_calls: 1,
+        min_productive_required: 3,
+        evaluable: false,
+      },
+    });
+    const g2 = armFixture({
+      surviving_incarnation: 3,
+      headline_pnl: 188,
+      split: {
+        train_rows: 3431,
+        holdout_rows: 1471,
+        train_fraction: 0.7,
+        train_end_ts: "2025-08-01T00:00:00+00:00",
+        holdout_start_ts: "2025-08-01T06:00:00+00:00",
+        shuffled_timestamps: true,
+        shuffle_seed: 1,
+      },
+    });
+    render(
+      <ReincarnationShell
+        numerical={numerical}
+        arms={[
+          { key: "g0", label: "G0 · kit-off LLM · ablation", fixture: g0 },
+          { key: "g1", label: "G1 · full kit · treatment", fixture: g1 },
+          { key: "g2", label: "G2 · shuffled · falsification", fixture: g2 },
+        ]}
+      />,
+    );
+    // The toggle carries the control + all three arms.
+    const toggle = screen.getByTestId("reincarnation-mode-toggle");
+    expect(within(toggle).getByTestId("reincarnation-mode-numerical")).toBeTruthy();
+    expect(within(toggle).getByTestId("reincarnation-mode-g0")).toBeTruthy();
+    expect(within(toggle).getByTestId("reincarnation-mode-g1")).toBeTruthy();
+    expect(within(toggle).getByTestId("reincarnation-mode-g2")).toBeTruthy();
+    // Default arm = numerical control: no shuffled badge, no falsification.
+    expect(screen.queryByTestId("reincarnation-shuffled-badge")).toBeNull();
+    // Switch to G2: the shuffled-control badge appears.
+    fireEvent.click(screen.getByTestId("reincarnation-mode-g2"));
+    expect(
+      screen.getByTestId("reincarnation-shuffled-badge").textContent,
+    ).toMatch(/shuffled-control/i);
+    // Switch to G1: the falsification line appears (INCONCLUSIVE here).
+    fireEvent.click(screen.getByTestId("reincarnation-mode-g1"));
+    expect(
+      screen.getByTestId("reincarnation-falsification").textContent,
+    ).toMatch(/INCONCLUSIVE/);
+  });
+
+  it("shows no toggle when only the numerical control is present", () => {
+    render(<ReincarnationShell numerical={buildFixture({})} />);
+    expect(screen.queryByTestId("reincarnation-mode-toggle")).toBeNull();
   });
 });

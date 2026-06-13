@@ -42,9 +42,14 @@ const nextConfig: NextConfig = {
       "./public/backtest/survival_journey_ai_gemini_run2.json",
     ],
     // Phase-2 reincarnation artifacts — same deploy-only contract.
+    // A9 emergence-kit arms (G0 kit-off / G1 full kit / G2 falsification)
+    // must be traced into the serverless bundle alongside the controls.
     "/reincarnation": [
       "./public/backtest/reincarnation.json",
       "./public/backtest/reincarnation_ai.json",
+      "./public/backtest/reincarnation_g0.json",
+      "./public/backtest/reincarnation_g1.json",
+      "./public/backtest/reincarnation_g2.json",
     ],
   },
 };

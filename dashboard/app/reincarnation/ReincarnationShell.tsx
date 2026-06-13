@@ -200,18 +200,41 @@ function IncarnationRow({ inc }: { inc: ReincarnationIncarnation }): JSX.Element
   );
 }
 
+/** One toggle-able experiment arm beyond the numerical control. */
+export interface ReincarnationArm {
+  readonly key: string;
+  readonly label: string;
+  readonly fixture: ReincarnationFixture;
+}
+
 export interface ReincarnationShellProps {
   readonly numerical: ReincarnationFixture;
-  /** The Gemini death-retrospective treatment leg, or null. */
-  readonly ai: ReincarnationFixture | null;
+  /** The Gemini death-retrospective treatment leg, or null (legacy prop;
+   * kept for backward compatibility — the A9 arms ride `arms`). */
+  readonly ai?: ReincarnationFixture | null;
+  /** A9 experiment arms (G0 kit-off / G1 full kit / G2 falsification),
+   * each toggle-able against the numerical control. */
+  readonly arms?: readonly ReincarnationArm[];
 }
 
 export function ReincarnationShell({
   numerical,
-  ai,
+  ai = null,
+  arms = [],
 }: ReincarnationShellProps): JSX.Element {
-  const [mode, setMode] = useState<"numerical" | "ai">("numerical");
-  const fixture = mode === "ai" && ai !== null ? ai : numerical;
+  // Toggle entries: the numerical control first, then the legacy Gemini
+  // leg (if present), then every A9 arm. ``mode`` is the active key.
+  const entries: ReincarnationArm[] = [
+    { key: "numerical", label: "numerical · control", fixture: numerical },
+    ...(ai !== null
+      ? [{ key: "ai", label: "ai · gemini rebirth · treatment", fixture: ai }]
+      : []),
+    ...arms,
+  ];
+  const [mode, setMode] = useState<string>("numerical");
+  const fixture =
+    entries.find((e) => e.key === mode)?.fixture ?? numerical;
+  const hasToggle = entries.length > 1;
   const incs = fixture.incarnations;
   const h = fixture.holdout;
   const b = h.baselines;
@@ -256,33 +279,37 @@ export function ReincarnationShell({
           <p className="max-w-2xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
             Every death sends the agent back to the season&apos;s first market
             — carrying its weights, the EMA learner&apos;s aggregates
-            {ai ? ", and a one-paragraph rebirth retrospective" : ""}, but
-            never the outcomes. The loop ends only when one life walks from
+            {fixture.provider === "ai"
+              ? ", and a one-paragraph rebirth retrospective"
+              : ""}
+            , but never the outcomes. The loop ends only when one life walks
+            from
             the first bet to the last without drowning. And the money? A dead
             life&apos;s profit is <span className="text-[var(--ab-death)]">forfeit</span>.
           </p>
         </header>
 
-        {/* ── Provider toggle (only when the AI variant exists) ─────── */}
-        {ai !== null ? (
-          <div className="flex gap-2" data-testid="reincarnation-mode-toggle">
-            {(["numerical", "ai"] as const).map((m) => (
+        {/* ── Arm toggle (numerical control + every present arm) ────── */}
+        {hasToggle ? (
+          <div
+            className="flex flex-wrap gap-2"
+            data-testid="reincarnation-mode-toggle"
+          >
+            {entries.map((e) => (
               <button
-                key={m}
+                key={e.key}
                 type="button"
-                data-testid={`reincarnation-mode-${m}`}
-                data-active={mode === m}
-                onClick={() => setMode(m)}
+                data-testid={`reincarnation-mode-${e.key}`}
+                data-active={mode === e.key}
+                onClick={() => setMode(e.key)}
                 className={[
                   "rounded-full border px-4 py-1 font-mono text-[10px] uppercase tracking-[0.22em] transition-colors",
-                  mode === m
+                  mode === e.key
                     ? "border-[var(--ab-glow)]/60 text-[var(--ab-glow)]"
                     : "border-[var(--ab-moss)]/30 text-[var(--ab-dim)] hover:text-[var(--ab-text)]",
                 ].join(" ")}
               >
-                {m === "numerical"
-                  ? "numerical · control"
-                  : "ai · gemini rebirth · treatment"}
+                {e.label}
               </button>
             ))}
           </div>

@@ -532,8 +532,12 @@ export default function DocsPage(): JSX.Element {
                   </Link>
                   . The runs above are <Hi>Phase 1</Hi> (one chronological
                   season); <Hi>Phase 2</Hi> — the reincarnation experiment
-                  (the SAME season lived three times, then a learning-frozen
-                  cold-start holdout) — lives at{" "}
+                  (one life from bet #1; death restarts at #1 carrying
+                  experience but never the money, until a life survives the
+                  season or the cap; then a learning-frozen cold-start
+                  holdout), now with the <Hi>A9 emergence kit</Hi> (a storm
+                  percept, conditional gate levers, and a counterfactual
+                  ledger, tested across four arms) — lives at{" "}
                   <Link
                     href="/reincarnation"
                     data-testid="docs-reincarnation-link"

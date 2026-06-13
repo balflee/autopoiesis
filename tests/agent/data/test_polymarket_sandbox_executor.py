@@ -25,7 +25,7 @@ import asyncio
 import json
 import socket
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +42,12 @@ from agent.data.polymarket_sandbox_executor import (
     UnknownMarketError,
     _derive_expected_settle_ts,
 )
-from agent.data.sandbox_state import BetRecord, SandboxStateWriter, iter_jsonl
-
+from agent.data.sandbox_state import (
+    BetRecord,
+    SandboxStateWriter,
+    bet_record_jsonl_dict,
+    iter_jsonl,
+)
 
 # --------------------------------------------------------------------------- #
 # Fixtures
@@ -344,7 +348,7 @@ class _FixedClock:
 
 def test_injected_clock_controls_ts(writer: SandboxStateWriter) -> None:
     """The executor uses the injected clock for the bet's ``ts`` field."""
-    fixed = datetime(2026, 5, 26, 20, 0, 0, tzinfo=timezone.utc)
+    fixed = datetime(2026, 5, 26, 20, 0, 0, tzinfo=UTC)
     ex = SandboxExecutor(
         state_writer=writer,
         market_resolver=_resolver(_default_market_table()),
@@ -394,7 +398,13 @@ def test_derive_expected_settle_ts_rejects_garbage() -> None:
 def test_returned_bet_record_matches_jsonl(
     executor: SandboxExecutor, writer: SandboxStateWriter,
 ) -> None:
-    """``SandboxOrderResult.bet`` is the same record that was written."""
+    """``SandboxOrderResult.bet`` is the same record that was written.
+
+    The disk-shape oracle is :func:`bet_record_jsonl_dict` (A9 r13 M-2 —
+    the old ``disk JSON == model_dump()`` equality was deliberately
+    retired: None-valued storm stamps are OMITTED from JSONL rows so
+    flag-off rows keep the pre-kit shape).
+    """
     result = asyncio.run(
         executor.place_order(
             market_id="m1", side="YES", price=0.42, size_usd=7.5,
@@ -402,9 +412,36 @@ def test_returned_bet_record_matches_jsonl(
     )
     assert isinstance(result, SandboxOrderResult)
     assert isinstance(result.bet, BetRecord)
-    # Round-trip the on-disk line through Pydantic and compare.
     on_disk = json.loads(writer.open_bets_path.read_text(encoding="utf-8").strip())
-    assert on_disk == result.bet.model_dump()
+    assert on_disk == bet_record_jsonl_dict(result.bet)
+    # Flag-off rows carry NO storm keys — pre-kit byte shape.
+    assert not any(k.endswith("_at_bet") for k in on_disk)
+
+
+def test_storm_stamps_persisted_and_omitted_when_none(
+    executor: SandboxExecutor, writer: SandboxStateWriter,
+) -> None:
+    """A9: the five ``*_at_bet`` stamps persist when given; absent rows
+    never gain the keys."""
+    asyncio.run(
+        executor.place_order(
+            market_id="m1",
+            side="NO",
+            price=0.42,
+            size_usd=7.5,
+            storm_at_bet=0.6,
+            edge_at_bet=0.08,
+            min_edge_at_bet=0.05,
+            gamma_at_bet=0.1,
+            eff_min_edge_at_bet=0.11,
+        )
+    )
+    on_disk = json.loads(writer.open_bets_path.read_text(encoding="utf-8").strip())
+    assert on_disk["storm_at_bet"] == 0.6
+    assert on_disk["edge_at_bet"] == 0.08
+    assert on_disk["min_edge_at_bet"] == 0.05
+    assert on_disk["gamma_at_bet"] == 0.1
+    assert on_disk["eff_min_edge_at_bet"] == 0.11
 
 
 # --------------------------------------------------------------------------- #

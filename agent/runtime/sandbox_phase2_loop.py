@@ -253,6 +253,14 @@ the wall-clock cadence — for sandbox the 60-min decision cadence
 implicitly absorbs the 15-min poll guarantee 4× over."""
 
 
+STORM_HALF_LIFE_HOURS: Final[float] = 48.0
+"""A9 storm percept: wall-clock decay half-life (world parameter, disclosed).
+
+The storm EMA state halves every 48 h of WORLD time regardless of how many
+event-driven ticks elapse — the backtest schedule has no regular cadence, so
+any per-tick decay would make the percept stop-density-dependent.
+"""
+
 SANDBOX_FORCE_TERMINAL_ENV_VAR: Final[str] = "SANDBOX_FORCE_TERMINAL"
 """Environment-variable name for the T-B-021 forced-terminal hook.
 
@@ -870,6 +878,13 @@ class SandboxPhase2Loop:
         tribute_policy: TributePolicy | None = None,
         tribute_rng: random.Random | None = None,
         tribute_breath: float = 35.0,
+        # A9 storm percept (backtest-only; plan 2026-06-13): a single EMA
+        # over the tick-level REAL breath delta with wall-clock half-life
+        # decay, threaded into ``decide(storm=)``. ``False`` (default) =
+        # byte-identical — no state, no decide kwarg, no bet stamps.
+        storm_enabled: bool = False,
+        storm_tau: float = 0.05,
+        storm_scale: float | None = None,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -902,6 +917,39 @@ class SandboxPhase2Loop:
         self._tribute_policy: TributePolicy | None = tribute_policy
         self._tribute_rng: random.Random | None = tribute_rng
         self._tribute_breath: float = tribute_breath
+        # A9 storm percept — boundary validation (r2 M-5 / r4 M-2 / r9 M-4).
+        if storm_enabled and not value_betting:
+            raise RuntimeError(
+                "storm_enabled requires value_betting — legacy mode has no "
+                "min-edge gate for the storm wire to act on"
+            )
+        if storm_enabled and initial_breath <= 0.0:
+            raise RuntimeError(
+                "storm_enabled requires initial_breath > 0 (the default "
+                "storm scale is initial_breath * 0.10)"
+            )
+        if not math.isfinite(storm_tau) or not 0.0 < storm_tau <= 1.0:
+            raise RuntimeError(
+                f"storm_tau must be finite in (0, 1] (got {storm_tau})"
+            )
+        if storm_scale is not None and (
+            not math.isfinite(storm_scale) or storm_scale <= 0.0
+        ):
+            raise RuntimeError(
+                f"storm_scale must be finite and > 0 (got {storm_scale})"
+            )
+        self._storm_enabled: bool = storm_enabled
+        self._storm_tau: float = storm_tau
+        self._storm_scale: float = (
+            storm_scale if storm_scale is not None else initial_breath * 0.10
+        )
+        # In-memory ONLY by design — no snapshot field (restart-rejected
+        # in _reconstruct_from_disk; backtest lives start in fresh dirs).
+        self._storm_state: float = 0.0
+        self._storm: float = 0.0
+        self._last_refreshed_breath: float | None = None
+        self._last_storm_ts: datetime | None = None
+        self._storm_skip_next: bool = False
         self._writer: SandboxStateWriter = (
             state_writer
             if state_writer is not None
@@ -1397,6 +1445,27 @@ class SandboxPhase2Loop:
         the operator-visibility log; also mutates the loop's in-memory
         fields verbatim.
         """
+        # A9 restart safety (r7 M-3 / r12 M-1): storm state is in-memory
+        # only, so a storm-enabled loop must never resume PRIOR state —
+        # and "prior state" means ANY non-empty durable stream, not just
+        # the snapshot (a missing agent_state.json still folds open_bets
+        # and resumes decisions below). Checked BEFORE any folding.
+        if self._storm_enabled:
+            durable_streams = (
+                self._writer.snapshot_path,
+                self._writer.open_bets_path,
+                self._writer.settled_bets_path,
+                self._writer.decisions_path,
+                self._writer.proposals_path,
+                self._writer.reflections_path,
+            )
+            for stream in durable_streams:
+                if stream.exists() and stream.stat().st_size > 0:
+                    raise RuntimeError(
+                        "storm state is not restart-safe — backtest-only "
+                        f"feature (found prior state: {stream.name})"
+                    )
+
         # --- Step 1: agent_state.json snapshot ----------------------------
         snapshot_path = self._writer.snapshot_path
         cold_start = not snapshot_path.exists()
@@ -1568,6 +1637,9 @@ class SandboxPhase2Loop:
             # One-shot: clear AFTER the drive so a re-entry inside the
             # same tick is structurally impossible.
             self._force_terminal_pending = False
+            # A9: the forced drive to zero is operator-domain, not world
+            # physics — the storm EMA must not ingest it (one-shot skip).
+            self._storm_skip_next = True
             logger.warning(
                 "sandbox_phase2_loop tick=%d: forced-terminal hook fired — "
                 "chain breath driven from %.4f to 0",
@@ -1576,6 +1648,11 @@ class SandboxPhase2Loop:
 
         # The chain has its own breath after settlement updates; refresh.
         self._breath = await self._chain_adapter.read_breath()
+
+        # A9 storm percept — ONE update site, strictly post-refresh /
+        # pre-decision (the settlement-learner ordering contract).
+        if self._storm_enabled:
+            self._update_storm(now)
 
         # Step 3 — per-tick decision inputs.
         inputs = self._tick_inputs.inputs_for(asof_ts=now, tick=tick)
@@ -1622,6 +1699,7 @@ class SandboxPhase2Loop:
                 market_id=inputs.market_id,
                 desperate=self._desperate,
                 **({"price": inputs.price} if self._value_betting else {}),
+                **({"storm": self._storm} if self._storm_enabled else {}),
             )
             market_id_for_record = inputs.market_id
 
@@ -1659,12 +1737,33 @@ class SandboxPhase2Loop:
             # above (Step 4) so the same flat {engine_name: score} map feeds
             # both the executor and the v0.3.0 decision-frame telemetry.
             assert signal_scores is not None  # narrowed: inputs is not None
+            # A9 stamps: the gate AS APPLIED at placement, read from the
+            # engine's typed diagnostics companion immediately post-decide
+            # (single-threaded per-life engine). Gated by the ONE explicit
+            # flag — storm off ⇒ place_order never sees the kwargs and the
+            # JSONL rows never gain the keys (r4 H-1 / r6 H-1).
+            storm_stamps: dict[str, float] = {}
+            if self._storm_enabled:
+                diag = self._decision.last_gate_diagnostics
+                if diag is None:
+                    raise RuntimeError(
+                        "storm stamps require gate diagnostics on a BET — "
+                        "decide() must populate them in value mode"
+                    )
+                storm_stamps = {
+                    "storm_at_bet": diag.storm,
+                    "edge_at_bet": diag.edge_abs,
+                    "min_edge_at_bet": diag.min_edge_base,
+                    "gamma_at_bet": diag.gamma,
+                    "eff_min_edge_at_bet": diag.eff_min_edge,
+                }
             order_result = await self._executor.place_order(
                 market_id=inputs.market_id,
                 side=_side_to_literal(action.side),
                 price=inputs.price,
                 size_usd=action.size_usd,
                 signal_scores=signal_scores,
+                **storm_stamps,
             )
             # bet_id == executor order_id (one uuid minted for both); this
             # is the settlement<->decision correlation key the WS decision
@@ -1823,6 +1922,43 @@ class SandboxPhase2Loop:
     # A7 — the altar (deathbed tribute).
     # ------------------------------------------------------------------ #
 
+    def _update_storm(self, now: datetime) -> None:
+        """A9: one EMA over the tick-level REAL breath delta.
+
+        The input is ``self._breath − last_refreshed`` — the physics
+        that kills (settlement netting + loss multiplier included,
+        nothing re-derived) — NEVER the loop's raw
+        ``settlements_pnl_total``. Decay is WALL-CLOCK (the backtest
+        tick is event-driven, not time-regular): state halves every
+        ``STORM_HALF_LIFE_HOURS`` regardless of stop density, and the
+        τ-blend runs ONLY on nonzero-delta ticks (the ``(1−τ)`` factor
+        is itself an event-count decay and must never run on no-event
+        ticks). A tribute grant resets the baseline in place (see
+        :meth:`_attempt_tribute`); the forced-terminal drive keeps a
+        one-shot skip flag (operator-domain, not world physics).
+        """
+        if self._last_storm_ts is not None:
+            dt_hours = (now - self._last_storm_ts).total_seconds() / 3600.0
+            if dt_hours > 0.0:
+                self._storm_state *= 0.5 ** (dt_hours / STORM_HALF_LIFE_HOURS)
+        prev = self._last_refreshed_breath
+        delta = (
+            0.0
+            if (prev is None or self._storm_skip_next)
+            else self._breath - prev
+        )
+        self._storm_skip_next = False
+        self._last_refreshed_breath = self._breath
+        self._last_storm_ts = now
+        if delta != 0.0:
+            tau = self._storm_tau
+            # Clamped at 0 (r3 M-2): wins must not bank NEGATIVE storm
+            # credit that delays the response to a later loss cluster.
+            self._storm_state = max(
+                0.0, (1.0 - tau) * self._storm_state + tau * (-delta)
+            )
+        self._storm = min(1.0, max(0.0, self._storm_state / self._storm_scale))
+
     async def _attempt_tribute(self, *, tick: int, now: datetime) -> bool:
         """Consult the tribute policy at the deathbed; roll the gods' dice.
 
@@ -1878,6 +2014,10 @@ class SandboxPhase2Loop:
                 self._tribute_breath - cur
             )
             self._breath = await self._chain_adapter.read_breath()
+            # A9 (r6 M-2): the grant is operator-domain — reset the storm
+            # baseline IN PLACE so the +35 never enters the EMA but the
+            # NEXT tick's real settlement physics does (no skip flag).
+            self._last_refreshed_breath = self._breath
             post_tribute_snapshot = AgentStateSnapshot(
                 snapshot_ts=_iso_utc(now),
                 phase=_phase_to_literal(self._phase),

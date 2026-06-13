@@ -68,6 +68,7 @@ math here means tests don't need mocks.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Final
 
@@ -133,6 +134,24 @@ NO_BET_PRICE_FLOOR: Final[str] = "effective_price_below_floor"
 
 
 @dataclass(frozen=True)
+class GateDiagnostics:
+    """What the value-mode edge gate saw on the last :meth:`decide` call.
+
+    A9 storm kit (plan 2026-06-13): the loop stamps these five values
+    onto the BetRecord at placement so the post-hoc counterfactual
+    ledger can replay the gate AS APPLIED. Value-mode only — legacy
+    mode has no min-edge gate, so the field stays ``None`` there and on
+    every pre-edge abstain path (missing signals / low confidence).
+    """
+
+    storm: float
+    edge_abs: float
+    min_edge_base: float
+    gamma: float
+    eff_min_edge: float
+
+
+@dataclass(frozen=True)
 class FusionResult:
     """Intermediate breakdown emitted by :func:`_fuse_signals`.
 
@@ -170,6 +189,8 @@ class DecisionEngine:
         min_edge: float = 0.0,
         kappa: float = DEFAULT_KAPPA,
         entry_price_floor: float | None = None,
+        gate_storm_sensitivity: float = 0.0,
+        risk_storm_sensitivity: float = 0.0,
     ) -> None:
         if max_breath_risk_pct <= 0.0 or max_breath_risk_pct > 1.0:
             raise ValueError(
@@ -193,6 +214,14 @@ class DecisionEngine:
             raise ValueError(
                 f"entry_price_floor must be in [0, 1) (got {entry_price_floor})"
             )
+        for label, gamma in (
+            ("gate_storm_sensitivity", gate_storm_sensitivity),
+            ("risk_storm_sensitivity", risk_storm_sensitivity),
+        ):
+            if not math.isfinite(gamma) or abs(gamma) > 1.0:
+                raise ValueError(
+                    f"{label} must be finite with |x| <= 1 (got {gamma})"
+                )
         self._max_breath_risk_pct = max_breath_risk_pct
         self._conversion_rate = conversion_rate
         self._min_bet_size_usd = min_bet_size_usd
@@ -200,6 +229,11 @@ class DecisionEngine:
         self._min_edge = min_edge
         self._kappa = kappa
         self._entry_price_floor = entry_price_floor
+        self._gate_storm_sensitivity = gate_storm_sensitivity
+        self._risk_storm_sensitivity = risk_storm_sensitivity
+        # Observer telemetry, read by the loop immediately post-decide
+        # (single-threaded per-life engine). Cleared at decide() entry.
+        self.last_gate_diagnostics: GateDiagnostics | None = None
 
     async def decide(
         self,
@@ -216,6 +250,7 @@ class DecisionEngine:
         market_id: str,
         desperate: bool = False,
         price: float | None = None,
+        storm: float = 0.0,
     ) -> Action:
         """Run fusion + bet sizing for one tick.
 
@@ -230,7 +265,21 @@ class DecisionEngine:
         edge, ``min_edge`` gate, side-aware effective-price floor, and
         odds-aware Kelly. ``edge_pct`` then carries the true price edge
         (|fused| in legacy mode).
+
+        ``storm`` (A9 regime percept, default 0.0 = byte-identical):
+        normalized to finite [0, 1]; tightens the value-mode edge gate by
+        ``gate_storm_sensitivity·storm`` and scales ``rho_eff`` by
+        ``(1 − risk_storm_sensitivity·storm)``. With both sensitivities
+        at their 0.0 defaults the arithmetic is the identity.
         """
+        # A9: normalize storm + clear stale diagnostics BEFORE any
+        # early return (r7 L-4 — pre-edge abstains must never leave a
+        # previous call's gate snapshot behind).
+        if not math.isfinite(storm):
+            storm = 0.0
+        storm = max(0.0, min(1.0, storm))
+        self.last_gate_diagnostics = None
+
         # ── 1. Missing-signal guard ───────────────────────────────────
         # Every engine must have produced a signal — a missing one is
         # a topology error (engine crashed mid-fanout) so we route to
@@ -297,7 +346,20 @@ class DecisionEngine:
                     kind=ActionKind.NO_BET,
                     no_bet_reason=f"{NO_BET_PRICE_FLOOR}:{eff:.4f}",
                 )
-            if edge_abs < self._min_edge:
+            # A9: the storm-conditional gate (γ=0 ⇒ x + 0·storm == x).
+            # Diagnostics are populated BEFORE the gate fires so gated
+            # abstains also record what the gate saw.
+            eff_min_edge = max(
+                0.0, self._min_edge + self._gate_storm_sensitivity * storm
+            )
+            self.last_gate_diagnostics = GateDiagnostics(
+                storm=storm,
+                edge_abs=edge_abs,
+                min_edge_base=self._min_edge,
+                gamma=self._gate_storm_sensitivity,
+                eff_min_edge=eff_min_edge,
+            )
+            if edge_abs < eff_min_edge:
                 return Action(
                     kind=ActionKind.NO_BET,
                     no_bet_reason=f"{NO_BET_NO_EDGE}:{edge_abs:.4f}",
@@ -310,7 +372,10 @@ class DecisionEngine:
             )
 
         # ── 5. 4-constraint min ───────────────────────────────────────
-        rho_eff = max(0.0, min(1.0, rho))
+        # A9: storm scales the Kelly damper (γ2=0 ⇒ identity).
+        rho_eff = max(
+            0.0, min(1.0, rho * (1.0 - self._risk_storm_sensitivity * storm))
+        )
         desired = rho_eff * kelly * fusion.mean_confidence * bankroll_usd
         breath_cap = breath * self._max_breath_risk_pct / self._conversion_rate
         bet_size_cap = (
@@ -448,4 +513,5 @@ __all__ = [
     "TENNIS_TECHNICAL",
     "DecisionEngine",
     "FusionResult",
+    "GateDiagnostics",
 ]

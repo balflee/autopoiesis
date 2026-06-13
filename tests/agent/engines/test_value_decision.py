@@ -179,3 +179,211 @@ def test_ctor_validation() -> None:
         DecisionEngine(kappa=1.5)
     with pytest.raises(ValueError):
         DecisionEngine(entry_price_floor=1.0)
+
+
+# ── A9 storm percept: γ gate wire + diagnostics (plan 2026-06-13) ────
+
+
+def test_storm_gate_tightens_min_edge() -> None:
+    """γ=+0.1, storm=1.0: a bet whose edge clears min_edge at storm 0 is
+    BLOCKED at storm 1 (eff_min_edge = 0.05 + 0.1·1 = 0.15 > 0.08)."""
+    eng = _engine(min_edge=0.05, kappa=0.25, gate_storm_sensitivity=0.1)
+    calm = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.0, **_CALL
+        )
+    )
+    assert calm.kind is ActionKind.BET
+    assert calm.edge_pct == pytest.approx(0.08)
+    stormy = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=1.0, **_CALL
+        )
+    )
+    assert stormy.kind is ActionKind.NO_BET
+    assert stormy.no_bet_reason is not None
+    assert stormy.no_bet_reason.startswith(NO_BET_NO_EDGE)
+
+
+def test_storm_gate_negative_gamma_loosens() -> None:
+    """Sign-symmetric: γ=−0.1, storm=1.0 ⇒ eff_min_edge = max(0, 0.1−0.1)
+    = 0 — a bet blocked at storm 0 passes in the storm."""
+    eng = _engine(min_edge=0.1, kappa=0.25, gate_storm_sensitivity=-0.1)
+    calm = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.0, **_CALL
+        )
+    )
+    assert calm.kind is ActionKind.NO_BET
+    stormy = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=1.0, **_CALL
+        )
+    )
+    assert stormy.kind is ActionKind.BET
+
+
+def test_storm_scales_rho() -> None:
+    """γ2=0.5, storm=1.0 halves rho_eff ⇒ desired-bound size halves."""
+    call = dict(_CALL, liquidity_cap_usd=1000.0, bankroll_usd=100.0)
+    eng = _engine(min_edge=0.0, kappa=0.25, risk_storm_sensitivity=0.5)
+    calm = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.0, **call
+        )
+    )
+    stormy = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=1.0, **call
+        )
+    )
+    assert calm.kind is ActionKind.BET and stormy.kind is ActionKind.BET
+    assert calm.size_usd is not None and stormy.size_usd is not None
+    assert stormy.size_usd == pytest.approx(calm.size_usd / 2)
+
+
+def test_storm_zero_gamma_is_identity() -> None:
+    """γ=γ2=0 (defaults): storm=1.0 is arithmetically byte-identical to
+    storm=0.0 (x + 0·storm == x; rho·(1−0·storm) == rho)."""
+    eng = _engine(min_edge=0.05, kappa=0.25)
+    a = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.0, **_CALL
+        )
+    )
+    b = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=1.0, **_CALL
+        )
+    )
+    assert a == b
+
+
+def test_storm_non_finite_normalized_to_zero() -> None:
+    """NaN/inf storm is normalized to 0.0 — a NaN can never poison the
+    γ=0 identity nor a γ>0 gate."""
+    eng = _engine(min_edge=0.05, kappa=0.25, gate_storm_sensitivity=0.1)
+    base = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.0, **_CALL
+        )
+    )
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        got = asyncio.run(
+            eng.decide(
+                signals=dict(_uniform_signals(0.4)), price=0.5, storm=bad, **_CALL
+            )
+        )
+        assert got == base
+
+
+def test_storm_clamped_to_unit_interval() -> None:
+    """storm is clamped to [0, 1]: storm=5.0 behaves as storm=1.0."""
+    eng = _engine(min_edge=0.05, kappa=0.25, gate_storm_sensitivity=0.1)
+    big = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=5.0, **_CALL
+        )
+    )
+    one = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=1.0, **_CALL
+        )
+    )
+    assert big == one
+
+
+def test_storm_ctor_validation() -> None:
+    with pytest.raises(ValueError):
+        DecisionEngine(gate_storm_sensitivity=1.5)
+    with pytest.raises(ValueError):
+        DecisionEngine(gate_storm_sensitivity=float("nan"))
+    with pytest.raises(ValueError):
+        DecisionEngine(risk_storm_sensitivity=-1.5)
+    with pytest.raises(ValueError):
+        DecisionEngine(risk_storm_sensitivity=float("inf"))
+
+
+def test_gate_diagnostics_populated_on_value_bet() -> None:
+    # storm 0.25: eff_min_edge = 0.05 + 0.1·0.25 = 0.075 < edge 0.08 ⇒ BET.
+    eng = _engine(min_edge=0.05, kappa=0.25, gate_storm_sensitivity=0.1)
+    action = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.25, **_CALL
+        )
+    )
+    assert action.kind is ActionKind.BET
+    d = eng.last_gate_diagnostics
+    assert d is not None
+    assert d.storm == pytest.approx(0.25)
+    assert d.edge_abs == pytest.approx(0.08)
+    assert d.min_edge_base == pytest.approx(0.05)
+    assert d.gamma == pytest.approx(0.1)
+    assert d.eff_min_edge == pytest.approx(0.075)
+
+
+def test_gate_diagnostics_populated_on_gated_no_bet() -> None:
+    """The min_edge gate fires AFTER diagnostics exist — gated abstains
+    still record what the gate saw."""
+    eng = _engine(min_edge=0.05, kappa=0.25, gate_storm_sensitivity=0.1)
+    action = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=1.0, **_CALL
+        )
+    )
+    assert action.kind is ActionKind.NO_BET
+    d = eng.last_gate_diagnostics
+    assert d is not None and d.eff_min_edge == pytest.approx(0.15)
+
+
+def test_gate_diagnostics_cleared_on_pre_edge_abstains() -> None:
+    """Missing-signal and low-confidence paths return BEFORE the edge gate
+    and must never leave STALE diagnostics behind (r7 L-4)."""
+    eng = _engine(min_edge=0.05, kappa=0.25, gate_storm_sensitivity=0.1)
+    # Seed stale diagnostics with a successful value BET.
+    asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.5, **_CALL
+        )
+    )
+    assert eng.last_gate_diagnostics is not None
+    # Missing-signal path.
+    asyncio.run(eng.decide(signals={}, price=0.5, storm=0.5, **_CALL))
+    assert eng.last_gate_diagnostics is None
+    # Re-seed, then low-confidence path.
+    asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.5, **_CALL
+        )
+    )
+    assert eng.last_gate_diagnostics is not None
+    strict = DecisionEngine(
+        min_bet_size_usd=1.0,
+        min_confidence=0.9,
+        min_edge=0.05,
+        kappa=0.25,
+        gate_storm_sensitivity=0.1,
+    )
+    asyncio.run(
+        strict.decide(
+            signals=dict(_uniform_signals(0.4, confidence=0.1)),
+            price=0.5,
+            storm=0.5,
+            **_CALL,
+        )
+    )
+    assert strict.last_gate_diagnostics is None
+
+
+def test_gate_diagnostics_none_in_legacy_mode() -> None:
+    """price=None (legacy) has no min-edge gate — diagnostics stay None
+    even after a prior value call populated them."""
+    eng = _engine(min_edge=0.05, kappa=0.25)
+    asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)), price=0.5, storm=0.0, **_CALL
+        )
+    )
+    assert eng.last_gate_diagnostics is not None
+    asyncio.run(eng.decide(signals=dict(_uniform_signals(0.4)), **_CALL))
+    assert eng.last_gate_diagnostics is None

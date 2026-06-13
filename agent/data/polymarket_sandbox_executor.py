@@ -157,7 +157,10 @@ class Executor(Protocol):
     Sandbox + production both implement this Protocol; the type
     checker enforces shape parity. The signature is the locked T-B-018
     acceptance contract — adding a parameter is a Protocol break and
-    triggers a track_b_backend interface bump.
+    triggers a track_b_backend interface bump. (A9 2026-06-13: the five
+    optional ``*_at_bet`` storm stamps were added as keyword params with
+    ``None`` defaults across the Protocol, the executor, and every test
+    fake — sanctioned by the A9 plan; ``None`` ⇒ pre-kit behaviour.)
     """
 
     async def place_order(
@@ -168,6 +171,11 @@ class Executor(Protocol):
         price: float,
         size_usd: float,
         signal_scores: dict[str, float] | None = None,
+        storm_at_bet: float | None = None,
+        edge_at_bet: float | None = None,
+        min_edge_at_bet: float | None = None,
+        gamma_at_bet: float | None = None,
+        eff_min_edge_at_bet: float | None = None,
     ) -> SandboxOrderResult: ...
 
 
@@ -243,6 +251,11 @@ class SandboxExecutor:
         price: float,
         size_usd: float,
         signal_scores: dict[str, float] | None = None,
+        storm_at_bet: float | None = None,
+        edge_at_bet: float | None = None,
+        min_edge_at_bet: float | None = None,
+        gamma_at_bet: float | None = None,
+        eff_min_edge_at_bet: float | None = None,
     ) -> SandboxOrderResult:
         """Record an order in the sandbox JSONL — never broadcast.
 
@@ -306,6 +319,11 @@ class SandboxExecutor:
             expected_settle_ts=expected_settle_ts,
             status="open",
             signal_scores=dict(signal_scores) if signal_scores else {},
+            storm_at_bet=storm_at_bet,
+            edge_at_bet=edge_at_bet,
+            min_edge_at_bet=min_edge_at_bet,
+            gamma_at_bet=gamma_at_bet,
+            eff_min_edge_at_bet=eff_min_edge_at_bet,
         )
         self.state_writer.append_open_bet(bet)
 

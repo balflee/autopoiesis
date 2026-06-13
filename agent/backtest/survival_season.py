@@ -722,6 +722,15 @@ class SurvivalStep:
     cum_pnl: float
     running_win_rate: float
     reflection: str | None = None
+    # A9 storm stamps — extracted from the poller-flattened settlement
+    # signals (the BetRecord → poller → SurvivalStep durable path).
+    # ``None`` = storm off; :func:`_step_to_dict` OMITS None keys so
+    # flag-off artifacts keep the pre-kit keyset.
+    storm_at_bet: float | None = None
+    edge_at_bet: float | None = None
+    min_edge_at_bet: float | None = None
+    gamma_at_bet: float | None = None
+    eff_min_edge_at_bet: float | None = None
 
 
 @dataclass(frozen=True)
@@ -958,6 +967,9 @@ class SurvivalRecorder:
             for k, v in signals.items()
             if k.startswith("score_")
         }
+        # A9: the five storm stamps ride the same flattened channel.
+        def _stamp(key: str) -> float | None:
+            return float(signals[key]) if key in signals else None
 
         self._cum_pnl += pnl
         if pnl > 0.0:
@@ -992,6 +1004,11 @@ class SurvivalRecorder:
                 cum_pnl=self._cum_pnl,
                 running_win_rate=win_rate,
                 reflection=reflection,
+                storm_at_bet=_stamp("storm_at_bet"),
+                edge_at_bet=_stamp("edge_at_bet"),
+                min_edge_at_bet=_stamp("min_edge_at_bet"),
+                gamma_at_bet=_stamp("gamma_at_bet"),
+                eff_min_edge_at_bet=_stamp("eff_min_edge_at_bet"),
             )
         )
 
@@ -1530,6 +1547,9 @@ def _build_life_loop(
     tribute_policy: TributePolicy | None = None,
     tribute_rng: _random.Random | None = None,
     tribute_breath: float = 35.0,
+    storm_enabled: bool = False,
+    storm_tau: float = 0.05,
+    storm_scale: float | None = None,
 ) -> SandboxPhase2Loop:
     """Construct ONE fresh life loop (codex H2 + R5 + R8 + R2-MED).
 
@@ -1681,6 +1701,10 @@ def _build_life_loop(
         tribute_policy=tribute_policy,
         tribute_rng=tribute_rng,
         tribute_breath=tribute_breath,
+        # A9 storm percept (False = byte-identical pre-kit physics).
+        storm_enabled=storm_enabled,
+        storm_tau=storm_tau,
+        storm_scale=storm_scale,
     )
     # Bind the deferred loop reference so the clock can pin now() to
     # stops[loop.tick_counter].
@@ -1729,6 +1753,9 @@ def run_survival_season(
     tribute_policy: TributePolicy | None = None,
     tribute_rng: _random.Random | None = None,
     tribute_breath: float = 35.0,
+    storm_enabled: bool = False,
+    storm_tau: float = 0.05,
+    storm_scale: float | None = None,
 ) -> SeasonResult:
     """Drive a multi-life FRESH-loop survival season (A2).
 
@@ -1826,6 +1853,9 @@ def run_survival_season(
             tribute_policy=tribute_policy,
             tribute_rng=tribute_rng,
             tribute_breath=tribute_breath,
+            storm_enabled=storm_enabled,
+            storm_tau=storm_tau,
+            storm_scale=storm_scale,
         )
 
         max_ticks = len(schedule.stops)
@@ -2263,6 +2293,18 @@ def _step_to_dict(step: SurvivalStep) -> dict[str, Any]:
     # (no reflection field at all) is byte-identical to the pre-B3 export.
     if step.reflection is not None:
         out["reflection"] = step.reflection
+    # A9 (r5 M-4): the storm stamps are OPTIONAL keys — omitted when None
+    # so flag-off journey/reincarnation artifacts keep the pre-kit keyset.
+    for stamp_key in (
+        "storm_at_bet",
+        "edge_at_bet",
+        "min_edge_at_bet",
+        "gamma_at_bet",
+        "eff_min_edge_at_bet",
+    ):
+        stamp_val = getattr(step, stamp_key)
+        if stamp_val is not None:
+            out[stamp_key] = stamp_val
     return out
 
 

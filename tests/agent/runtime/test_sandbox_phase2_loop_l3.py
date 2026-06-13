@@ -47,6 +47,7 @@ Hermetic invariants
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -299,6 +300,10 @@ def _build_loop(
     effective_entry_price_floor: float | None = None,
     decision_engine: Any | None = None,
     tick_inputs: Any | None = None,
+    storm_enabled: bool = False,
+    storm_tau: float = 0.05,
+    storm_scale: float | None = None,
+    chain_adapter: Any | None = None,
 ) -> tuple[
     SandboxPhase2Loop,
     _FakeStateHook,
@@ -312,7 +317,8 @@ def _build_loop(
     writer = SandboxStateWriter(root=state_dir)
     clock = _FixedClock(start=datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC))
     sleeper = _FakeSleeper()
-    chain_adapter = _FakeChainAdapter(current_breath=100.0)
+    if chain_adapter is None:
+        chain_adapter = _FakeChainAdapter(current_breath=100.0)
     state_hook = _FakeStateHook()
     weight_updater = _FakeWeightUpdater()
 
@@ -358,6 +364,9 @@ def _build_loop(
         side_correct_pricing=side_correct_pricing,
         value_betting=value_betting,
         effective_entry_price_floor=effective_entry_price_floor,
+        storm_enabled=storm_enabled,
+        storm_tau=storm_tau,
+        storm_scale=storm_scale,
         **({"decision_engine": decision_engine} if decision_engine is not None else {}),
     )
     return loop, state_hook, writer, clock
@@ -970,3 +979,224 @@ def test_advisor_window_env_flag_non_one_stays_off(tmp_path: Path) -> None:
     assert window.recent_reflections == []
     assert window.recent_pnl == []
     assert window.weight_trajectory == []
+
+
+# --------------------------------------------------------------------------- #
+# A9 storm percept (plan 2026-06-13) — loop-side wire, dynamics, stamps,
+# restart safety.
+# --------------------------------------------------------------------------- #
+
+
+def test_storm_requires_value_betting(tmp_path: Path) -> None:
+    """r9 M-4: legacy mode has no min-edge gate — the ctor rejects
+    storm without value betting."""
+    with pytest.raises(RuntimeError, match="value_betting"):
+        _build_loop(tmp_path=tmp_path, storm_enabled=True)
+
+
+def test_storm_ctor_validates_tau_and_scale(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="storm_tau"):
+        _build_loop(
+            tmp_path=tmp_path / "a", storm_enabled=True,
+            value_betting=True, storm_tau=0.0,
+        )
+    with pytest.raises(RuntimeError, match="storm_tau"):
+        _build_loop(
+            tmp_path=tmp_path / "b", storm_enabled=True,
+            value_betting=True, storm_tau=float("nan"),
+        )
+    with pytest.raises(RuntimeError, match="storm_scale"):
+        _build_loop(
+            tmp_path=tmp_path / "c", storm_enabled=True,
+            value_betting=True, storm_scale=0.0,
+        )
+
+
+def test_storm_kwarg_passed_into_decide_iff_enabled(tmp_path: Path) -> None:
+    """storm_enabled=True ⇒ decide() receives ``storm=``; default off ⇒
+    NO storm kwarg (legacy decide signature, byte-unchanged)."""
+    no_bet = Action(kind=ActionKind.NO_BET, no_bet_reason="scripted")
+
+    eng_off = _RecordingDecisionEngine(action=no_bet)
+    loop, _, _, clock = _build_loop(
+        tmp_path=tmp_path / "off", decision_engine=eng_off,
+        value_betting=True,
+    )
+    _drive(loop, n=1, clock=clock)
+    assert "storm" not in eng_off.calls[0]
+
+    eng_on = _RecordingDecisionEngine(action=no_bet)
+    loop_on, _, _, clock_on = _build_loop(
+        tmp_path=tmp_path / "on", decision_engine=eng_on,
+        value_betting=True, storm_enabled=True,
+    )
+    _drive(loop_on, n=1, clock=clock_on)
+    assert eng_on.calls[0]["storm"] == pytest.approx(0.0)
+
+
+def test_storm_rises_on_loss_and_decays_by_wall_clock(tmp_path: Path) -> None:
+    """Unit on the ONE update site: a breath loss blends in (τ=0.05);
+    a 48 h calendar gap then halves the state — by the PUBLISHED
+    half-life, not one blend step (r7 H-1 / r8 H-1)."""
+    loop, _, _, _ = _build_loop(
+        tmp_path=tmp_path, value_betting=True,
+        storm_enabled=True, storm_scale=1.0,
+    )
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    loop._breath = 35.0
+    loop._update_storm(t0)  # first tick — baseline only
+    assert loop._storm == 0.0
+    loop._breath = 30.0  # −5 breath loss
+    loop._update_storm(t0 + timedelta(hours=1))
+    assert loop._storm == pytest.approx(0.25)  # τ·5 / scale 1.0
+    # 48 h of quiet wall-clock time ⇒ exactly one half-life.
+    loop._update_storm(t0 + timedelta(hours=49))
+    assert loop._storm == pytest.approx(0.125)
+
+
+def test_storm_same_gap_different_stop_density_identical(
+    tmp_path: Path,
+) -> None:
+    """r9 H-1: zero-delta ticks decay by wall clock ALONE — the same
+    calendar gap under different no-op stop density yields IDENTICAL
+    storm (the (1−τ) blend factor must never run on no-event ticks)."""
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+
+    def _storm_after(gap_stops: list[float]) -> float:
+        loop, _, _, _ = _build_loop(
+            tmp_path=tmp_path / f"d{len(gap_stops)}", value_betting=True,
+            storm_enabled=True, storm_scale=1.0,
+        )
+        loop._breath = 35.0
+        loop._update_storm(t0)
+        loop._breath = 30.0
+        loop._update_storm(t0 + timedelta(hours=1))
+        for h in gap_stops:
+            loop._update_storm(t0 + timedelta(hours=1 + h))
+        return loop._storm
+
+    sparse = _storm_after([48.0])
+    dense = _storm_after([6.0, 12.0, 24.0, 36.0, 48.0])
+    assert sparse == pytest.approx(dense)
+    assert sparse == pytest.approx(0.125)
+
+
+def test_storm_grant_baseline_reset_then_loss_rises(tmp_path: Path) -> None:
+    """r6 M-2: a tribute grant resets the EMA baseline (the +33 never
+    enters) but the NEXT real loss DOES raise storm."""
+    loop, _, _, _ = _build_loop(
+        tmp_path=tmp_path, value_betting=True,
+        storm_enabled=True, storm_scale=1.0,
+    )
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    loop._breath = 5.0
+    loop._update_storm(t0)
+    # The grant: breath 5 → 35; _attempt_tribute resets the baseline.
+    loop._breath = 35.0
+    loop._last_refreshed_breath = 35.0
+    before = loop._storm
+    loop._update_storm(t0 + timedelta(minutes=1))
+    # The +30 jump never entered the EMA (delta computed off the reset
+    # baseline is 0) — storm did not move except wall-clock decay.
+    assert loop._storm <= before + 1e-12
+    # An immediately following REAL loss raises storm.
+    loop._breath = 30.0
+    loop._update_storm(t0 + timedelta(minutes=2))
+    assert loop._storm > before
+
+
+@dataclass
+class _ScriptedBreathChain:
+    """Chain adapter whose read_breath() returns a scripted sequence —
+    breath physics decoupled from settlements entirely."""
+
+    breaths: list[float] = field(default_factory=list)
+    pnl_updates: list[float] = field(default_factory=list)
+    _i: int = 0
+
+    async def update_breath_from_pnl(self, pnl_usd: float) -> None:
+        self.pnl_updates.append(pnl_usd)
+
+    async def read_breath(self) -> float:
+        b = self.breaths[min(self._i, len(self.breaths) - 1)]
+        self._i += 1
+        return b
+
+    async def kill_and_mint_tombstone(self, **kwargs: Any) -> DeathReceipt:
+        raise NotImplementedError
+
+
+def test_storm_follows_breath_not_raw_pnl(tmp_path: Path) -> None:
+    """r10 L-3: the EMA input is the refreshed BREATH delta — with ZERO
+    settlements this tick (settlements_pnl_total == 0) a scripted breath
+    drop must still raise storm."""
+    no_bet = Action(kind=ActionKind.NO_BET, no_bet_reason="scripted")
+    eng = _RecordingDecisionEngine(action=no_bet)
+    # read_breath calls: reconstruct step 4, then one per tick.
+    chain = _ScriptedBreathChain(breaths=[100.0, 100.0, 75.0])
+    loop, _, _, clock = _build_loop(
+        tmp_path=tmp_path, decision_engine=eng, value_betting=True,
+        storm_enabled=True, storm_scale=1.0, chain_adapter=chain,
+    )
+    _drive(loop, n=2, clock=clock)
+    # tick 1 set the baseline at 100; tick 2 saw 75 ⇒ delta −25 ⇒
+    # state τ·25 = 1.25 ⇒ storm clamped/scaled = min(1, 1.25/1.0).
+    assert loop._storm == pytest.approx(1.0)
+
+
+def test_storm_stamps_written_on_bet(tmp_path: Path) -> None:
+    """A BET under storm_enabled carries the five gate stamps onto the
+    open_bets.jsonl row (the BetRecord → poller → SurvivalStep durable
+    path starts here); flag-off rows never gain the keys."""
+    loop, _, writer, clock = _build_loop(
+        tmp_path=tmp_path, value_betting=True, storm_enabled=True,
+    )
+    _drive(loop, n=1, clock=clock)
+    rows = [
+        json.loads(line)
+        for line in writer.open_bets_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    bets = [r for r in rows if r.get("status") == "open"]
+    assert bets, "expected the bullish scripted tick to place a BET"
+    row = bets[0]
+    assert row["storm_at_bet"] == pytest.approx(0.0)
+    assert row["gamma_at_bet"] == pytest.approx(0.0)
+    assert row["min_edge_at_bet"] == pytest.approx(0.0)
+    assert row["eff_min_edge_at_bet"] == pytest.approx(0.0)
+    assert row["edge_at_bet"] > 0.0
+
+
+def test_storm_restart_rejected_with_prior_state(tmp_path: Path) -> None:
+    """r7 M-3 / r12 M-1: storm state is in-memory only — a storm loop
+    must refuse to resume ANY non-empty durable stream, including the
+    deleted-snapshot-with-JSONL-history case."""
+    # Seed prior state with a storm run on a fresh dir (this is fine).
+    loop_a, _, writer, clock = _build_loop(
+        tmp_path=tmp_path, value_betting=True, storm_enabled=True,
+    )
+    _drive(loop_a, n=1, clock=clock)
+    assert writer.decisions_path.exists()
+
+    # A second storm loop on the SAME dir must refuse to start.
+    loop_b, _, _, clock_b = _build_loop(
+        tmp_path=tmp_path, value_betting=True, storm_enabled=True,
+    )
+    with pytest.raises(RuntimeError, match="not restart-safe"):
+        _drive(loop_b, n=1, clock=clock_b)
+
+    # r12 M-1: a missing snapshot is NOT "no prior state" — JSONL
+    # history alone still rejects.
+    if writer.snapshot_path.exists():
+        writer.snapshot_path.unlink()
+    loop_c, _, _, clock_c = _build_loop(
+        tmp_path=tmp_path, value_betting=True, storm_enabled=True,
+    )
+    with pytest.raises(RuntimeError, match="not restart-safe"):
+        _drive(loop_c, n=1, clock=clock_c)
+
+    # Control: a NON-storm loop resumes the same dir without complaint.
+    loop_d, _, _, clock_d = _build_loop(tmp_path=tmp_path)
+    _drive(loop_d, n=1, clock=clock_d)

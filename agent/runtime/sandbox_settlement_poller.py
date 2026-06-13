@@ -573,6 +573,12 @@ class SandboxSettlementPoller:
                 expected_settle_ts=bet.expected_settle_ts,
                 status="settled",
                 signal_scores=dict(bet.signal_scores),
+                # A9: storm stamps survive the status flip verbatim.
+                storm_at_bet=bet.storm_at_bet,
+                edge_at_bet=bet.edge_at_bet,
+                min_edge_at_bet=bet.min_edge_at_bet,
+                gamma_at_bet=bet.gamma_at_bet,
+                eff_min_edge_at_bet=bet.eff_min_edge_at_bet,
             )
         )
 
@@ -588,6 +594,20 @@ class SandboxSettlementPoller:
         signals["bet_direction"] = 1.0 if bet.side == "YES" else -1.0
         for engine, score in bet.signal_scores.items():
             signals[f"score_{engine}"] = float(score)
+        # A9: flatten the storm stamps exactly like score_<engine> so the
+        # recorder can extract them into SurvivalStep (the BetRecord →
+        # poller → SurvivalStep path is the ONLY durable channel — the
+        # state hook is observer telemetry). Absent when storm is off.
+        for stamp_key in (
+            "storm_at_bet",
+            "edge_at_bet",
+            "min_edge_at_bet",
+            "gamma_at_bet",
+            "eff_min_edge_at_bet",
+        ):
+            stamp_val = getattr(bet, stamp_key)
+            if stamp_val is not None:
+                signals[stamp_key] = float(stamp_val)
         await self.weight_updater.update(
             phase=self.sandbox_phase,
             signals=signals,

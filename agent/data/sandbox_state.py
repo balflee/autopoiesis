@@ -155,6 +155,39 @@ class BetRecord(BaseModel):
     # to {} so pre-L3 readers + records stay valid (append-only JSONL —
     # written once at order time, never mutated).
     signal_scores: dict[str, float] = Field(default_factory=dict)
+    # A9 storm-kit stamps (plan 2026-06-13): the gate AS APPLIED at
+    # placement, for the post-hoc counterfactual ledger. ``None`` =
+    # storm off; :func:`bet_record_jsonl_dict` OMITS None keys so
+    # flag-off JSONL rows stay byte-identical to the pre-kit shape.
+    storm_at_bet: float | None = None
+    edge_at_bet: float | None = None
+    min_edge_at_bet: float | None = None
+    gamma_at_bet: float | None = None
+    eff_min_edge_at_bet: float | None = None
+
+
+# A9 (r13 M-2): the SINGLE source for BetRecord's on-disk JSONL shape.
+# The storm-stamp keys are omitted when None so flag-off rows stay
+# byte-identical to the pre-kit shape (this repo serializes defaults —
+# nullness alone cannot gate the keys). The writer AND the executor
+# disk-shape tests both consume this helper; the old
+# ``disk JSON == model_dump()`` equality contract is deliberately retired.
+_STORM_STAMP_KEYS: Final[tuple[str, ...]] = (
+    "storm_at_bet",
+    "edge_at_bet",
+    "min_edge_at_bet",
+    "gamma_at_bet",
+    "eff_min_edge_at_bet",
+)
+
+
+def bet_record_jsonl_dict(bet: BetRecord) -> dict[str, object]:
+    """The on-disk JSONL row for one :class:`BetRecord`."""
+    row = bet.model_dump()
+    for key in _STORM_STAMP_KEYS:
+        if row.get(key) is None:
+            row.pop(key, None)
+    return row
 
 
 class SettledBetRecord(BaseModel):
@@ -408,8 +441,13 @@ class SandboxStateWriter:
         bytes, so concurrent appenders interleave whole lines never
         half-lines. The :attr:`_lock` belt-and-braces serialises
         in-process callers besides.
+
+        Serialized via :func:`bet_record_jsonl_dict` (A9): None-valued
+        storm stamps are omitted so flag-off rows keep the pre-kit shape.
         """
-        self._append_jsonl(self.open_bets_path, bet.model_dump_json())
+        self._append_jsonl(
+            self.open_bets_path, json.dumps(bet_record_jsonl_dict(bet))
+        )
 
     def append_settled_bet(self, bet: SettledBetRecord) -> None:
         """Append one settled-bet line to ``settled_bets.jsonl``."""
@@ -551,5 +589,6 @@ __all__ = [
     "DecisionRecord",
     "SandboxStateWriter",
     "SettledBetRecord",
+    "bet_record_jsonl_dict",
     "iter_jsonl",
 ]

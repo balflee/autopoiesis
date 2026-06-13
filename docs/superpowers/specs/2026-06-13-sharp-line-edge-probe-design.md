@@ -122,10 +122,10 @@ p_pinnacle(reference) = raw_ref / (raw_w + raw_l)   # 两路按比例归一去 v
 - 2a（纯 tennis-data）：参考 = 字母序在前的姓；`y` 同理。
 - （不要用「永远算赢家的隐含概率」——那样 `y≡1`、Brier 退化成只测信心强度，且对三源不可比。）
 
-**逐场配对 Brier 检验（修订：配对，非聚合差）**：两个 Brier 在**同一批**比赛上测、`y` 与 `p` 高度相关，故正确统计量是**逐场配对差**：
-- 2a：`d_i = (p_pinnacle−y_i)^2 − (p_avg−y_i)^2`
-- 2b：`d_i = (p_pinnacle−y_i)^2 − (p_polymarket−y_i)^2`
-- 对 `mean(d_i)` 做**配对 bootstrap CI**（重采样单位=比赛，≥1000 次）或 Wilcoxon signed-rank。Brier 本身复用 `_brier`（`probe_llm_fusion.py:130-131`）。
+**逐场配对 Brier 检验（修订：配对，非聚合差）**：两个 Brier 在**同一批**比赛上测、`y` 与 `p` 高度相关，故正确统计量是**逐场配对差**。**符号约定（与 plan/`agent/backtest/sharp_line.py` 的 `brier_edge` 一致）：`edge_i = (p_soft−y)² − (p_pin−y)²`，正值 = 锐线更准**：
+- 2a：`edge_i = (p_avg−y_i)^2 − (p_pinnacle−y_i)^2`
+- 2b：`edge_i = (p_polymarket−y_i)^2 − (p_pinnacle−y_i)^2`
+- 对 `mean(edge_i)` 做**配对 bootstrap CI**（重采样单位=比赛，≥1000 次）或 Wilcoxon signed-rank；与下方 Go 判定的 `(Brier_soft − Brier_pinnacle)` 下界>0 同号自洽。Brier 本身复用 `_brier`（`probe_llm_fusion.py:130-131`）。
 
 **功效 / MDE 预估（运行前写出）**：每场 Brier 差的配对 SD ≈ 0.05；文献/A13 给的效应量约 0.001–0.004 Brier。按 80% 功效：效应=0.004 需 n≈750 场，效应=0.0016 需 n≈4,600 场。**2a**（全量 tennis-data，每年数千场，不受匹配衰减）功效充足；**2b** 受 §5 衰减限制，n 可能只有数十到低百，**很可能欠功效**——必须在报告里写出 2b 的**最小可检测效应（MDE）**。
 

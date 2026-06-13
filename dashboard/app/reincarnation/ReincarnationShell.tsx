@@ -28,6 +28,52 @@ const money = (n: number): string =>
     maximumFractionDigits: 0,
   })}`;
 
+// A9 four-arm result — the can-say / cannot-say ledger, locked by an
+// adversarial agent panel that rejected every strong "emergence" claim
+// before publishing. These are statements about the EXPERIMENT, not one
+// arm; rendered whenever a kit arm (with a falsification metric) is in view.
+const A9_CLAIMS_LEDGER: readonly { readonly can: string; readonly cannot: string }[] = [
+  {
+    can: "The full kit moved death ~+19 percentage points deeper (settled 826→895, +69 bets), and that depth held across all 18 lives after the inc-2 genome mutation.",
+    cannot:
+      "…that this is a durable, repeatedly-confirmed adaptive capability — it is ONE genome mutation carried forward (effective n=1 on the treatment), not 18 independent confirmations.",
+  },
+  {
+    can: "Under permadeath economics the kit did not win: every G1 life died, headline $0, no survivor — it moved death deeper, not past the finish line.",
+    cannot: "…that the kit 'works', aids survival, or produced a survivor in the real season.",
+  },
+  {
+    can: "The pre-registered falsification test is INCONCLUSIVE — evaluable=false on both legs (G1 had 1 of the 3 required productive death reviews; G2 had 0).",
+    cannot:
+      "…that the falsification test passed, or that 'environment-tracking over prior' (emergence) was demonstrated — it was neither passed nor refuted.",
+  },
+  {
+    can: "Terminal γ (+0.050 real season, 0.000 shuffled) is reported only as a descriptive artifact.",
+    cannot:
+      "…that the +0.050/0.000 split is even directional evidence of environment-tracking — the two values came from different (and on G2, null) processes, not comparable readings of one mechanism.",
+  },
+  {
+    can: "The inc-2 advisor applied the storm levers (γ, γ2 0→0.05) AND a storm-unconditional sizing cut (max_breath_risk 0.95→0.85) together, as a single bundle.",
+    cannot:
+      "…that the deeper death is attributable to the storm percept rather than the plain sizing cut — the bundle is unattributable absent a three-cell ablation, and the cut alone could explain slower breath bleed.",
+  },
+  {
+    can: "Death in this season appears regime-structural: holding kit, physics, markets, and genome fixed and changing ONLY timestamp order flipped G1-inc1 death (settled 759) to G2-inc1 whole-season survival.",
+    cannot:
+      "…that destroying clustering guarantees survival — G2 is a single shuffle seed with a razor-thin +$5.67 margin and was never adjudicated.",
+  },
+  {
+    can: "The mutated genome was inert out of sample: G1's frozen holdout was byte-identical (+$422.77) to the kit-off arm despite walking in with γ=0.05 and max_breath_risk=0.85.",
+    cannot:
+      "…that the inert holdout proves the levers are genuinely storm-conditional — a $5 liquidity dead-zone could equally mask the change.",
+  },
+  {
+    can: "The one productive advisor proposal moved AGAINST its own realized-PnL counterfactual (tightening would forgo +$343.70 of pnl), consistent with trading PnL for breath/survival.",
+    cannot:
+      "…that the tightening was demonstrably regime-causal and deliberate rather than a fixed pro-tightening prior — n=1, below the n≥3 gate, cannot separate the two.",
+  },
+];
+
 function SectionHead({
   index,
   kicker,
@@ -387,6 +433,20 @@ export function ReincarnationShell({
           className="flex flex-col gap-4 rounded-xl border border-[var(--ab-glow)]/30 bg-[var(--ab-bg-2)]/60 p-6"
         >
           <SectionHead index="04" kicker="the verdict" title="did it learn to live?" />
+          {fixture.falsification_metric ? (
+            <p
+              data-testid="reincarnation-verdict-banner"
+              className="rounded-lg border border-[var(--ab-death)]/40 bg-[var(--ab-bg-2)]/70 px-4 py-3 font-mono text-[11px] leading-relaxed text-[var(--ab-text)]"
+            >
+              <span className="font-display text-sm uppercase tracking-[0.2em] text-[var(--ab-death)]">
+                inconclusive — not emergence.{" "}
+              </span>
+              The kit moved death ~19 points deeper (settled 826→895) yet still
+              died every life at $0, and by our own pre-registered criterion —
+              1 of 3 productive reviews on the real leg, 0 on the shuffled leg
+              — emergence was neither demonstrated nor refuted.
+            </p>
+          ) : null}
           {fixture.survived ? (
             <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
               Incarnation{" "}
@@ -691,7 +751,46 @@ export function ReincarnationShell({
           </ol>
         </section>
 
-        {/* ── §8 back-links ─────────────────────────────────────────── */}
+        {/* ── §8 claims ledger (A9 kit arms only) ───────────────────── */}
+        {fixture.falsification_metric ? (
+          <section
+            data-testid="reincarnation-claims-ledger"
+            className="flex flex-col gap-4 rounded-xl border border-[var(--ab-death)]/30 bg-[var(--ab-bg-2)]/40 p-6"
+          >
+            <SectionHead
+              index="08"
+              kicker="the bright line"
+              title="what we can and cannot claim"
+            />
+            <p className="max-w-3xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
+              An adversarial agent panel audited the four-arm result before
+              publication and rejected every strong &quot;emergence&quot;
+              claim. This is the surviving bright line — read it as the binding
+              interpretation of the numbers above.
+            </p>
+            <ul className="flex max-w-3xl flex-col gap-3">
+              {A9_CLAIMS_LEDGER.map((c, i) => (
+                <li
+                  key={i}
+                  className="flex flex-col gap-1 rounded-lg border border-[var(--ab-moss)]/25 bg-[var(--ab-bg-2)]/50 p-3 font-mono text-[10px] leading-relaxed"
+                >
+                  <span className="text-[var(--ab-glow)]">
+                    <span className="text-[var(--ab-text)]">we can say ▸ </span>
+                    {c.can}
+                  </span>
+                  <span className="text-[var(--ab-death)]">
+                    <span className="text-[var(--ab-text)]">
+                      we cannot say ▸{" "}
+                    </span>
+                    {c.cannot}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {/* ── §9 back-links ─────────────────────────────────────────── */}
         <nav className="flex flex-col gap-2 border-t border-[var(--ab-moss)]/30 pt-6">
           <Link
             href="/survival"

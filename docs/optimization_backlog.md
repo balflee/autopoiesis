@@ -123,9 +123,17 @@
   --storm / --shuffle-timestamps-seed；arm 命令见 scripts/run_reincarnation.py
   docstring。Dashboard：genome 位移 chips + regime ledger 行 + shuffled
   徽章 + INCONCLUSIVE 渲染 + 停机/换挡判读。
-- **臂**：N=已发布对照（永不重跑）；G0=kit-off LLM 消融（六权重 advisor+tribute，
-  =原 task #23）；G1=全套件 treatment；G2=洗牌赛季证伪。MiniMax-M3 为主
-  （用户 2026-06-13 指令），Gemini 配额恢复后可替代。
+- **臂**：N=已发布对照（永不重跑）；G0=kit-off LLM 消融（六权重 advisor+tribute）；
+  G1=全套件 treatment；G2=洗牌赛季证伪。MiniMax-M3（用户 2026-06-13 指令）。
+- **实测结果（cap=20，对抗 agent 面板审计后定稿——结论 INCONCLUSIVE 非涌现）**：
+  G0 复现 826 死亡平台（深度 52%）；G1 inc2 唯一一次 productive review 打包动了
+  γ+0.05/γ2+0.05/max_breath_risk 0.95→0.85，之后 18 世稳定 858–895（69–72%），
+  比对照深 ~19pp 但**仍每世必死、headline $0**；G2 洗牌赛季**第 1 世即活过整季**
+  （$5.67），佐证死亡是 regime 结构性现象。**不主张涌现**：按预注册标准 INCONCLUSIVE
+  ——G1 仅 1/3 productive review（MiniMax 18/19 空/失败），G2 没死过 advisor 从未触发
+  （γ=0 是默认非决策）；深度增益被普通 sizing 削减捆绑无法归因；学到的 genome 在
+  holdout 与 kit-off 字节相同（+$422.77，被 $5 死区掩盖）。完整 can/cannot ledger
+  在 /reincarnation 页。
 
 #### 原审计记录（保留）— ### A9 · 牛熊涌现原料包 v2（经对抗审计修订）
 - **审计结论**：原 K1-K5 方案（storm 感知 + γ 条件门 + A1 解锁 + B1 真帽 + 买命账单）

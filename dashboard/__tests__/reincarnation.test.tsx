@@ -507,6 +507,20 @@ describe("A9 storm kit — validator + rendering", () => {
     expect(
       screen.getByTestId("reincarnation-participation").textContent,
     ).toMatch(/SHUTDOWN/);
+    // The inconclusive verdict banner + the can/cannot claims ledger.
+    expect(
+      screen.getByTestId("reincarnation-verdict-banner").textContent,
+    ).toMatch(/inconclusive — not emergence/i);
+    const ledger = screen.getByTestId("reincarnation-claims-ledger");
+    expect(ledger.textContent).toMatch(/what we can and cannot claim/i);
+    expect(ledger.textContent).toMatch(/we cannot say/);
+    expect(ledger.textContent).toMatch(/n=1/);
+  });
+
+  it("shows no verdict banner or claims ledger on the kit-off control", () => {
+    render(<ReincarnationShell numerical={buildFixture({})} ai={null} />);
+    expect(screen.queryByTestId("reincarnation-verdict-banner")).toBeNull();
+    expect(screen.queryByTestId("reincarnation-claims-ledger")).toBeNull();
   });
 
   it("renders the mode-switch participation call when betting continues", () => {

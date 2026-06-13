@@ -33,6 +33,7 @@ COMPOSITION — the ``SignalRow`` is carried verbatim on ``SurvivalRow.signal``.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import random as _random
 from dataclasses import dataclass, field
@@ -1368,7 +1369,12 @@ _GATE_PROBE_WINDOW: Final[PerformanceWindow] = PerformanceWindow(
 )
 
 
-def preflight_ai_advisor_applicable(client: _LLMClient, *, model: str = "") -> None:
+def preflight_ai_advisor_applicable(
+    client: _LLMClient,
+    *,
+    model: str = "",
+    allowed_keys: tuple[str, ...] | None = None,
+) -> None:
     """Probe the STRICT advisor once; raise :class:`AIPreflightError` if it can't
     produce a single APPLICABLE weight delta (T-D-018 fail-FAST gate).
 
@@ -1397,6 +1403,9 @@ def preflight_ai_advisor_applicable(client: _LLMClient, *, model: str = "") -> N
         # override a provider-pure MiniMax leg's preflight would still send
         # DEFAULT_GEMINI_MODEL. "" ⇒ the client self-resolves its default.
         model=model,
+        # A9 (r2 M-6): the probe uses the SAME key vocabulary the run will
+        # use — a genome-mode run must preflight the genome schema.
+        allowed_keys=allowed_keys,
     )
     try:
         proposals = advisor.review_window(_GATE_PROBE_WINDOW)
@@ -1499,6 +1508,10 @@ def _decision_engine_from_seed(
         min_edge=seed.min_edge,
         kappa=seed.kappa,
         entry_price_floor=effective_entry_price_floor,
+        # A9 genome: the storm-conditional gate levers ride the seed
+        # (0.0 defaults = byte-identical pre-kit arithmetic).
+        gate_storm_sensitivity=seed.gate_storm_sensitivity,
+        risk_storm_sensitivity=seed.risk_storm_sensitivity,
     )
 
 
@@ -2217,15 +2230,15 @@ def fragile_seed_from_config(
     mb = base.min_bet_size_usd if min_bet_size_usd is None else min_bet_size_usd
     mb = min(mb, 4.0)
     mc = base.min_confidence if min_confidence is None else min_confidence
-    return StrategyConfig(
-        weights=base.weights,
+    # A9 (r11 L-3): derivative seeds use dataclasses.replace — a
+    # field-by-field rebuild would silently DROP any genome field added
+    # later (γ/γ2 today, anything tomorrow). Only the deliberately
+    # overridden knobs are named; everything else carries verbatim.
+    return dataclasses.replace(
+        base,
         max_breath_risk_pct=max_breath_risk_pct,
         min_confidence=mc,
         min_bet_size_usd=mb,
-        # Realism v3: the value-mode knobs are part of the strategy identity —
-        # the fragile derivation preserves them exactly like the weights.
-        min_edge=base.min_edge,
-        kappa=base.kappa,
     )
 
 

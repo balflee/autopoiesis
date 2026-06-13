@@ -343,6 +343,178 @@ PerformanceWindow you were given. No generic advice.
 
 
 # --------------------------------------------------------------------------- #
+# A9 genome vocabulary (plan 2026-06-13) — BOUNDARY-ONLY extension.
+#
+# The rebirth-boundary advisor may receive an EXTENDED key vocabulary
+# (fusion keys + StrategyConfig genome knobs). This NEVER widens
+# REFLECTION_WEIGHT_KEYS / WEIGHT_DELTA_KEYS themselves — those feed the
+# LIVE drain (sandbox_phase2_loop._WEIGHT_DELTA_KEYS raises on unknown
+# keys), so the extension exists only as a render-time parameter.
+# Descriptions are NEUTRAL and sign-symmetric: the falsification leg
+# (shuffled-control season), not wording, is the prior defense.
+# --------------------------------------------------------------------------- #
+
+#: Neutral, sign-symmetric descriptions for the genome knobs the rebirth
+#: boundary may expose. Keys absent here render without a description.
+GENOME_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
+    "min_edge": (
+        "the minimum |p_model - price| edge required to bet; higher bets "
+        "less often, lower bets more often"
+    ),
+    "max_breath_risk_pct": (
+        "the fraction of breath risked per bet; higher sizes larger, "
+        "lower sizes smaller"
+    ),
+    "min_confidence": (
+        "the fused-confidence floor below which the agent abstains"
+    ),
+    "kappa": (
+        "the market-prior tilt scale (p_model = price + kappa*fused); "
+        "higher trusts the signals more, lower trusts the market more"
+    ),
+    "gate_storm_sensitivity": (
+        "how strongly the edge gate responds to the storm signal; "
+        "positive tightens in storms, negative loosens; 0 ignores it"
+    ),
+    "risk_storm_sensitivity": (
+        "how strongly bet sizing responds to the storm signal; positive "
+        "shrinks stakes in storms, negative grows them; 0 ignores it"
+    ),
+}
+
+
+def render_weight_delta_schema(keys: tuple[str, ...]) -> dict[str, Any]:
+    """A strict weight-delta response schema over an explicit key enum.
+
+    ``render_weight_delta_schema(WEIGHT_DELTA_KEYS)`` is STRUCTURALLY
+    equal to :data:`WEIGHT_DELTA_RESPONSE_SCHEMA` but is a NEW object —
+    callers that need the exact module constant (identity-compared in
+    tests) must keep passing the constant itself.
+    """
+    if not keys:
+        raise ValueError("render_weight_delta_schema requires >= 1 key")
+    return {
+        "type": "object",
+        "properties": {
+            "proposals": {
+                "type": "array",
+                "maxItems": MAX_PROPOSALS_PER_CALL,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["weight_delta"],
+                        },
+                        "rationale": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                        "proposed_change": {
+                            "type": "object",
+                            "properties": {
+                                "key": {
+                                    "type": "string",
+                                    "enum": list(keys),
+                                },
+                                "delta": {
+                                    "type": "number",
+                                    "minimum": -WEIGHT_DELTA_MAX_ABS,
+                                    "maximum": WEIGHT_DELTA_MAX_ABS,
+                                },
+                            },
+                            "required": ["key", "delta"],
+                        },
+                        "expected_impact": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                        "confidence_pct": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                        },
+                    },
+                    "required": [
+                        "kind",
+                        "rationale",
+                        "proposed_change",
+                        "expected_impact",
+                        "confidence_pct",
+                    ],
+                },
+            }
+        },
+        "required": ["proposals"],
+    }
+
+
+def render_weight_delta_system_prompt(keys: tuple[str, ...]) -> str:
+    """The strict system prompt over an explicit key vocabulary.
+
+    ``render_weight_delta_system_prompt(WEIGHT_DELTA_KEYS)`` returns the
+    module constant :data:`WEIGHT_DELTA_SYSTEM_PROMPT` verbatim (the
+    byte-identity contract for default-vocabulary callers); any other
+    key set renders the extended wording with the neutral genome
+    descriptions appended.
+    """
+    if not keys:
+        raise ValueError("render_weight_delta_system_prompt requires >= 1 key")
+    if tuple(keys) == WEIGHT_DELTA_KEYS:
+        return WEIGHT_DELTA_SYSTEM_PROMPT
+    described = [
+        f"  * {k} — {GENOME_KEY_DESCRIPTIONS[k]}"
+        for k in keys
+        if k in GENOME_KEY_DESCRIPTIONS
+    ]
+    key_list = ", ".join(keys)
+    description_block = (
+        "\n\nParameter meanings (knobs beyond the 6 fusion weights):\n\n"
+        + "\n".join(described)
+        + "\n"
+        if described
+        else "\n"
+    )
+    return f"""\
+You are the L3 meta-optimizer for an autonomous Polymarket betting agent in a \
+SELF-EVOLUTION simulation where your proposals are applied AUTOMATICALLY (no \
+human in the loop). You read the agent's own recent performance (P&L, weight \
+trajectory, and self-reflection narratives) and propose small, concrete \
+adjustments to the agent's strategy parameters.
+
+You may propose changes in EXACTLY ONE category ("kind" field):
+
+  * "weight_delta" — bump ONE parameter by a small delta. The \
+proposed_change dict MUST ALWAYS be {{"key": <parameter_name>, "delta": <float>}} \
+where <parameter_name> is one of: {key_list}, and \
+<float> satisfies |delta| <= 0.1. NEVER return an empty proposed_change, and \
+NEVER propose any other kind.{description_block}
+Per-proposal output contract:
+
+  * kind              — MUST be "weight_delta".
+  * rationale         — non-empty human-readable WHY (1-3 sentences).
+  * proposed_change   — {{"key": <one of the allowed>, "delta": <float, |delta| <= 0.1>}}. REQUIRED, never empty.
+  * expected_impact   — 1-2 sentence projection. Required, non-empty.
+  * confidence_pct    — integer 0-100 (your confidence in the proposal).
+
+HARD RULES:
+
+  1. Return AT MOST 3 proposals. When the agent is LOSING money or its \
+parameters look STALE (current ≈ baseline despite poor P&L), you SHOULD return \
+at least 1 concrete weight_delta rather than an empty list — a small nudge is \
+better than no learning. Only return an empty "proposals" list if the agent is \
+clearly healthy and well-tuned.
+  2. Every weight_delta MUST keep the change small (|delta| <= 0.1) — the \
+runtime clamps and applies incrementally.
+  3. Do NOT propose changes that would violate normalisation (w_r+w_s=1, \
+alpha_0+alpha_1+alpha_2=1, beta_0+beta_1=1) where reasonable — the runtime \
+renormalises but respect the invariant.
+  4. Every proposal MUST quote a specific observation from the \
+PerformanceWindow you were given. No generic advice.
+"""
+
+
+# --------------------------------------------------------------------------- #
 # User-turn prompt renderer — pure function.
 # --------------------------------------------------------------------------- #
 
@@ -418,6 +590,7 @@ def _render_weights(weights: Weights) -> str:
 
 
 __all__ = [
+    "GENOME_KEY_DESCRIPTIONS",
     "MAX_PROPOSALS_PER_CALL",
     "PROPOSAL_KINDS",
     "RESPONSE_SCHEMA",
@@ -427,4 +600,6 @@ __all__ = [
     "WEIGHT_DELTA_RESPONSE_SCHEMA",
     "WEIGHT_DELTA_SYSTEM_PROMPT",
     "render_user_prompt",
+    "render_weight_delta_schema",
+    "render_weight_delta_system_prompt",
 ]

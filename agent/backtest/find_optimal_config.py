@@ -55,7 +55,20 @@ KAPPA_BOUNDS = (0.05, 0.50)  # market-prior tilt scale
 
 @dataclass(frozen=True)
 class StrategyConfig:
-    """One point in the joint ①+②(+③ value-mode) strategy space."""
+    """One point in the joint ①+②(+③ value-mode) strategy space.
+
+    A9 genome (plan 2026-06-13): ``gate_storm_sensitivity`` (γ) and
+    ``risk_storm_sensitivity`` (γ2) are the storm-conditional gate levers
+    — 0.0 defaults keep every pre-kit construction byte-identical. They
+    live HERE, never on :class:`Weights` (the EMA learner rebuilds
+    Weights from scratch each settle, so a Weights-resident γ would
+    reset one settle after any delta). Together with min_edge /
+    max_breath_risk_pct / min_confidence / kappa they form the
+    rebirth-advisable genome; ``min_bet_size_usd`` is deliberately
+    NON-advisable (it gates participation all-or-nothing against the
+    $5 liquidity floor — one push over the floor would silently zero
+    participation and confound the γ/participation readout).
+    """
 
     weights: Weights
     max_breath_risk_pct: float
@@ -63,6 +76,8 @@ class StrategyConfig:
     min_bet_size_usd: float
     min_edge: float = 0.0
     kappa: float = 0.25
+    gate_storm_sensitivity: float = 0.0
+    risk_storm_sensitivity: float = 0.0
 
 
 def _scale(unit: float, bounds: tuple[float, float]) -> float:

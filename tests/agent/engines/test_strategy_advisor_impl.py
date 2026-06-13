@@ -747,3 +747,112 @@ def test_strict_mode_inclusive_delta_bound() -> None:
     )
     advisor_b, _ = _make_strict_advisor(fake=just_over)
     assert advisor_b.review_window(_build_window()) == []
+
+
+# ========================================================================= #
+# A9 — boundary-only genome vocabulary (allowed_keys).
+# ========================================================================= #
+
+
+def test_allowed_keys_requires_strict_mode() -> None:
+    """The genome vocabulary exists ONLY on the strict rebirth channel."""
+    fake = _FakeLLM(responses=[])
+    with pytest.raises(ValueError, match="weight_delta_only"):
+        StrategyAdvisorImpl(
+            llm_client=fake,
+            cost_guard=L3CostGuard(hard_cap_usd=1.0),
+            allowed_keys=("w_r", "gate_storm_sensitivity"),
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        StrategyAdvisorImpl(
+            llm_client=fake,
+            cost_guard=L3CostGuard(hard_cap_usd=1.0),
+            weight_delta_only=True,
+            allowed_keys=(),
+        )
+
+
+def test_allowed_keys_none_passes_exact_module_schema_object() -> None:
+    """r1 L-8: the default vocabulary passes the EXACT module constant
+    (identity, not just equality) — the byte-identity contract."""
+    fake = _FakeLLM(responses=[{"proposals": [_wd_item()]}])
+    advisor, _ = _make_strict_advisor(fake=fake)
+    advisor.review_window(_build_window())
+    assert fake.calls[0]["schema"] is WEIGHT_DELTA_RESPONSE_SCHEMA
+
+
+def test_genome_mode_schema_enum_and_parse_agree() -> None:
+    """The rendered schema enum and the parser key set are the SAME
+    VALUE: a gate_storm_sensitivity delta passes the strict parser."""
+    keys = (
+        "w_r", "alpha_0", "alpha_1", "alpha_2", "beta_0", "rho",
+        "min_edge", "gate_storm_sensitivity",
+    )
+    fake = _FakeLLM(
+        responses=[
+            {
+                "proposals": [
+                    _wd_item(
+                        proposed_change={
+                            "key": "gate_storm_sensitivity",
+                            "delta": 0.1,
+                        }
+                    )
+                ]
+            }
+        ]
+    )
+    cost_guard = L3CostGuard(hard_cap_usd=1.0)
+    advisor = StrategyAdvisorImpl(
+        llm_client=fake,
+        cost_guard=cost_guard,
+        per_call_usd_estimate=0.006,
+        weight_delta_only=True,
+        allowed_keys=keys,
+    )
+    result = advisor.review_window(_build_window())
+    # The schema the LLM saw carries the extended enum (a NEW object, not
+    # the module constant).
+    schema = fake.calls[0]["schema"]
+    assert schema is not WEIGHT_DELTA_RESPONSE_SCHEMA
+    enum = schema["properties"]["proposals"]["items"]["properties"][
+        "proposed_change"
+    ]["properties"]["key"]["enum"]
+    assert tuple(enum) == keys
+    # The parser ACCEPTED the genome key (same vocabulary).
+    assert len(result) == 1
+    assert result[0].proposed_change == {
+        "key": "gate_storm_sensitivity",
+        "delta": 0.1,
+    }
+
+
+def test_genome_mode_still_rejects_keys_outside_vocabulary() -> None:
+    """min_bet_size_usd (excluded by design) and unknown keys are DROPPED
+    even in genome mode."""
+    keys = ("w_r", "min_edge", "gate_storm_sensitivity")
+    fake = _FakeLLM(
+        responses=[
+            {
+                "proposals": [
+                    _wd_item(
+                        proposed_change={
+                            "key": "min_bet_size_usd",
+                            "delta": 0.1,
+                        }
+                    ),
+                    _wd_item(
+                        proposed_change={"key": "nope", "delta": 0.1}
+                    ),
+                ]
+            }
+        ]
+    )
+    advisor = StrategyAdvisorImpl(
+        llm_client=fake,
+        cost_guard=L3CostGuard(hard_cap_usd=1.0),
+        per_call_usd_estimate=0.006,
+        weight_delta_only=True,
+        allowed_keys=keys,
+    )
+    assert advisor.review_window(_build_window()) == []

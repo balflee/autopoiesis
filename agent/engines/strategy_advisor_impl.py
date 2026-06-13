@@ -92,6 +92,8 @@ from agent.engines._strategy_prompts import (
     WEIGHT_DELTA_RESPONSE_SCHEMA,
     WEIGHT_DELTA_SYSTEM_PROMPT,
     render_user_prompt,
+    render_weight_delta_schema,
+    render_weight_delta_system_prompt,
 )
 from agent.engines._strategy_proposal_schema import StrategyProposal
 from agent.llm.cost_guard import L3CostGuard
@@ -192,6 +194,7 @@ class StrategyAdvisorImpl:
         model: str = DEFAULT_GEMINI_MODEL,
         per_call_usd_estimate: float = _L3_PER_CALL_USD,
         weight_delta_only: bool = False,
+        allowed_keys: tuple[str, ...] | None = None,
     ) -> None:
         self._llm = llm_client
         self._cost_guard = cost_guard
@@ -203,6 +206,19 @@ class StrategyAdvisorImpl:
             )
         self._per_call_usd = per_call_usd_estimate
         self._weight_delta_only = weight_delta_only
+        # A9 genome vocabulary (plan 2026-06-13): an EXTENDED key enum for
+        # the rebirth-boundary channel only. ``None`` (default) keeps
+        # today's behaviour byte-identical INCLUDING passing the exact
+        # module-constant WEIGHT_DELTA_RESPONSE_SCHEMA object. Scoped to
+        # strict mode — the prod 3-kind path has no key enum to extend.
+        if allowed_keys is not None and not weight_delta_only:
+            raise ValueError(
+                "allowed_keys requires weight_delta_only=True (the genome "
+                "vocabulary exists only on the strict rebirth channel)"
+            )
+        if allowed_keys is not None and not allowed_keys:
+            raise ValueError("allowed_keys must be non-empty when given")
+        self._allowed_keys = allowed_keys
 
     # ------------------------------------------------------------------
     # Public Protocol method — sync entrypoint.
@@ -303,9 +319,17 @@ class StrategyAdvisorImpl:
         # Strict survival-sim mode swaps in the weight_delta-only prompt +
         # schema so a real LLM is steered to ALWAYS emit a filled, applicable
         # proposed_change; default mode keeps the prod 3-kind contract.
+        # A9: an extended allowed_keys renders the genome schema/prompt;
+        # None passes the EXACT module constants (identity contract).
         if self._weight_delta_only:
-            system_prompt = WEIGHT_DELTA_SYSTEM_PROMPT
-            schema = WEIGHT_DELTA_RESPONSE_SCHEMA
+            if self._allowed_keys is None:
+                system_prompt = WEIGHT_DELTA_SYSTEM_PROMPT
+                schema = WEIGHT_DELTA_RESPONSE_SCHEMA
+            else:
+                system_prompt = render_weight_delta_system_prompt(
+                    self._allowed_keys
+                )
+                schema = render_weight_delta_schema(self._allowed_keys)
         else:
             system_prompt = SYSTEM_PROMPT
             schema = RESPONSE_SCHEMA
@@ -353,7 +377,14 @@ class StrategyAdvisorImpl:
                 continue
             try:
                 proposal = self._build_proposal(
-                    item, now=now, weight_delta_only=self._weight_delta_only
+                    item,
+                    now=now,
+                    weight_delta_only=self._weight_delta_only,
+                    allowed_keys=(
+                        self._allowed_keys
+                        if self._allowed_keys is not None
+                        else WEIGHT_DELTA_KEYS
+                    ),
                 )
             except (ValueError, TypeError, KeyError) as exc:
                 logger.warning(
@@ -374,6 +405,7 @@ class StrategyAdvisorImpl:
         *,
         now: datetime,
         weight_delta_only: bool = False,
+        allowed_keys: tuple[str, ...] = WEIGHT_DELTA_KEYS,
     ) -> StrategyProposal:
         """Project one wrapper item into a full :class:`StrategyProposal`.
 
@@ -427,10 +459,10 @@ class StrategyAdvisorImpl:
             # (sandbox_phase2_loop._apply_weight_delta) and ADD the inclusive
             # magnitude bound (the runtime does not bound magnitude).
             key = proposed_change.get("key")
-            if not isinstance(key, str) or key not in WEIGHT_DELTA_KEYS:
+            if not isinstance(key, str) or key not in allowed_keys:
                 raise ValueError(
                     "weight_delta proposed_change.key must be one of "
-                    f"{list(WEIGHT_DELTA_KEYS)} (got {key!r})"
+                    f"{list(allowed_keys)} (got {key!r})"
                 )
             raw_delta = proposed_change.get("delta")
             # Reject bool (a bool IS an int in Python); accept int | float.

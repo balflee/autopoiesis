@@ -61,10 +61,16 @@ from agent.runtime.tribute import (
 )
 
 __all__ = [
+    "EXTENDED_REBIRTH_KEYS",
+    "GENOME_KEYS",
+    "GENOME_MIN_BREATH_RISK_PCT",
     "LLMTributePolicy",
+    "apply_genome_deltas",
     "apply_weight_deltas",
     "build_death_window",
     "build_rebirth_window",
+    "classify_proposals",
+    "genome_dict",
     "run_groundhog_export",
     "run_reincarnation_export",
     "sanitize_rebirth_note",
@@ -76,6 +82,121 @@ __all__ = [
 _DELTA_CAP = 0.1
 _DELTA_KEYS = ("w_r", "alpha_0", "alpha_1", "alpha_2", "beta_0", "rho")
 _NOTE_MAX_CHARS = 500
+
+# --------------------------------------------------------------------------- #
+# A9 genome (plan 2026-06-13): the rebirth-advisable StrategyConfig knobs.
+#
+# min_bet_size_usd is deliberately ABSENT (r8 M-3): against the $5
+# liquidity floor it is an all-or-nothing participation switch — one
+# +0.1-class push over the floor silently zeroes participation and
+# confounds the γ/participation readout. The advisable set is EXACTLY
+# this table, nothing implicit.
+# --------------------------------------------------------------------------- #
+
+#: r11 M-2: an open bound (0, 1] is not an implementable clamp — the
+#: DecisionEngine ctor REJECTS max_breath_risk_pct <= 0, so repeated
+#: −0.1 deltas need a concrete positive floor.
+GENOME_MIN_BREATH_RISK_PCT: Final[float] = 0.05
+
+#: key -> (lo, hi) inclusive clamp bounds for ``apply_genome_deltas``.
+GENOME_KEYS: Final[dict[str, tuple[float, float]]] = {
+    "min_edge": (0.0, 0.5),
+    "max_breath_risk_pct": (GENOME_MIN_BREATH_RISK_PCT, 1.0),
+    "min_confidence": (0.0, 1.0),
+    "kappa": (0.01, 1.0),
+    "gate_storm_sensitivity": (-1.0, 1.0),
+    "risk_storm_sensitivity": (-1.0, 1.0),
+}
+
+#: The extended rebirth-boundary vocabulary: the six fusion keys plus the
+#: genome knobs. Threaded as ``allowed_keys`` into the strict advisor AND
+#: the preflight probe when the kit is on — NEVER into the live drain
+#: (REFLECTION_WEIGHT_KEYS stays untouched).
+EXTENDED_REBIRTH_KEYS: Final[tuple[str, ...]] = _DELTA_KEYS + tuple(
+    GENOME_KEYS
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class ClassifiedDeltas:
+    """r10 M-2: the ONE classifier output — the apply path and every
+    applied-count/telemetry consumer read the same lists, so application
+    and accounting can never diverge."""
+
+    fusion: list[dict[str, object]]
+    genome: list[dict[str, object]]
+    skipped: list[dict[str, object]]
+
+    @property
+    def applied(self) -> int:
+        return len(self.fusion) + len(self.genome)
+
+
+def classify_proposals(
+    deltas: list[dict[str, object]], *, genome_enabled: bool = False
+) -> ClassifiedDeltas:
+    """Fork proposals by key family (fusion → Weights; genome → seed).
+
+    The applicability predicate matches ``apply_weight_deltas`` /
+    ``apply_genome_deltas`` exactly: known key + non-bool numeric delta.
+    With ``genome_enabled=False`` every genome key is SKIPPED (the
+    kit-off vocabulary is the six fusion keys, byte-identical to today).
+    """
+    fusion: list[dict[str, object]] = []
+    genome: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    for d in deltas:
+        key = d.get("key")
+        delta = d.get("delta")
+        numeric = isinstance(delta, (int, float)) and not isinstance(
+            delta, bool
+        )
+        if numeric and key in _DELTA_KEYS:
+            fusion.append(d)
+        elif numeric and genome_enabled and key in GENOME_KEYS:
+            genome.append(d)
+        else:
+            skipped.append(d)
+    return ClassifiedDeltas(fusion=fusion, genome=genome, skipped=skipped)
+
+
+def apply_genome_deltas(
+    seed: StrategyConfig, deltas: list[dict[str, object]]
+) -> StrategyConfig:
+    """Apply genome deltas onto the carried seed, fail-soft.
+
+    Mirrors :func:`apply_weight_deltas`' posture: |delta| capped to 0.1,
+    unknown keys / non-numeric deltas SKIPPED, every result clamped to
+    the GENOME_KEYS bounds via ``dataclasses.replace`` (the seed is a
+    frozen dataclass). ``weights`` is never touched here — fusion keys
+    have their own home.
+    """
+    updates: dict[str, float] = {}
+    for d in deltas:
+        key = d.get("key")
+        delta = d.get("delta")
+        if (
+            not isinstance(key, str)
+            or key not in GENOME_KEYS
+            or isinstance(delta, bool)
+            or not isinstance(delta, (int, float))
+        ):
+            continue
+        dv = max(-_DELTA_CAP, min(_DELTA_CAP, float(delta)))
+        lo, hi = GENOME_KEYS[key]
+        cur = updates.get(key, float(getattr(seed, key)))
+        updates[key] = max(lo, min(hi, cur + dv))
+    if not updates:
+        return seed
+    # The kwargs are dynamic (key-clamped floats onto float fields) — mypy
+    # cannot prove the mapping against replace()'s typed signature.
+    return dataclasses.replace(seed, **updates)  # type: ignore[arg-type]
+
+
+def genome_dict(seed: StrategyConfig) -> dict[str, float]:
+    """The SINGLE source for the advisable-knob dict (r9 H-2) — feeds the
+    artifact genome fields and the death-window readout."""
+    return {key: float(getattr(seed, key)) for key in GENOME_KEYS}
 
 
 def _entry_ts(row: SurvivalRow) -> datetime:
@@ -375,7 +496,7 @@ def run_reincarnation_export(
     )
 
     shared_inner = WeightUpdater()
-    carry = fragile.weights
+    carry_seed: StrategyConfig = fragile
     rebirth_note: str | None = None
     pass_entries: list[dict[str, Any]] = []
     all_eff_prices: list[float] = []
@@ -388,7 +509,7 @@ def run_reincarnation_export(
             recorder = SurvivalRecorder(
                 rows=train, loss_multiplier=loss_multiplier
             )
-            pass_seed = dataclasses.replace(fragile, weights=carry)
+            pass_seed = carry_seed
             result = run_survival_season(
                 rows=train,
                 snapshots=snapshots,
@@ -413,7 +534,9 @@ def run_reincarnation_export(
             )
 
             terminal = (
-                result.lives[-1].terminal_weights if result.lives else carry
+                result.lives[-1].terminal_weights
+                if result.lives
+                else carry_seed.weights
             )
             per_life_pnls = [
                 sum(s.pnl_usd for s in recorder.steps if s.life_idx == life.idx)
@@ -429,7 +552,7 @@ def run_reincarnation_export(
                         lives=len(result.lives),
                     ),
                     "per_life_pnls": per_life_pnls,
-                    "start_weights": carry.model_dump(),
+                    "start_weights": carry_seed.weights.model_dump(),
                     "terminal_weights": terminal.model_dump(),
                     "curve": _curve_points(recorder),
                     "rebirth_note": rebirth_note,
@@ -444,7 +567,7 @@ def run_reincarnation_export(
             )
 
             # Pass boundary: carry the experience into the next incarnation.
-            carry = terminal
+            carry_seed = dataclasses.replace(carry_seed, weights=terminal)
             rebirth_note = None
             if rebirth_llm is not None and i < passes:
                 window = build_rebirth_window(
@@ -472,9 +595,12 @@ def run_reincarnation_export(
                 )
                 proposals = advisor.review_window(window)
                 if proposals:
-                    carry = apply_weight_deltas(
-                        terminal,
-                        [dict(p.proposed_change) for p in proposals],
+                    carry_seed = dataclasses.replace(
+                        carry_seed,
+                        weights=apply_weight_deltas(
+                            terminal,
+                            [dict(p.proposed_change) for p in proposals],
+                        ),
                     )
                     rebirth_note = sanitize_rebirth_note(
                         "; ".join(p.rationale for p in proposals)
@@ -484,8 +610,7 @@ def run_reincarnation_export(
         holdout_dict, holdout_eff = _run_frozen_holdout(
             holdout=holdout,
             snapshots=snapshots,
-            fragile=fragile,
-            carry=carry,
+            carry=carry_seed,
             state_dir=root / "holdout",
             loss_multiplier=loss_multiplier,
             initial_breath=initial_breath,
@@ -573,8 +698,7 @@ def _run_frozen_holdout(
     *,
     holdout: list[SurvivalRow],
     snapshots: list[MarketSnapshot],
-    fragile: StrategyConfig,
-    carry: Weights,
+    carry: StrategyConfig,
     state_dir: Path,
     loss_multiplier: float,
     initial_breath: float,
@@ -582,6 +706,7 @@ def _run_frozen_holdout(
     max_lives: int,
     max_bet_pnl_usd: float | None,
     eff_floor: float | None,
+    storm: bool = False,
 ) -> tuple[dict[str, Any], list[float]]:
     """The frozen cold-start verdict + the three baselines on the held-out
     window — shared by BOTH experiment designs (3-pass and groundhog).
@@ -592,7 +717,10 @@ def _run_frozen_holdout(
     """
     _require_fresh_dir(state_dir)
     recorder = SurvivalRecorder(rows=holdout, loss_multiplier=loss_multiplier)
-    seed = dataclasses.replace(fragile, weights=carry)
+    # r1 M-6 (the holdout trap): the carried MUTATED seed IS the holdout
+    # seed — rebuilding from the original fragile would drop every learned
+    # genome knob exactly at the verdict.
+    seed = carry
     result = run_survival_season(
         rows=holdout,
         snapshots=snapshots,
@@ -607,6 +735,7 @@ def _run_frozen_holdout(
         value_betting=True,
         effective_entry_price_floor=eff_floor,
         learning_enabled=False,
+        storm_enabled=storm,
     )
     eff_prices = _validate_learner_physics(
         recorder, max_bet_pnl_usd=max_bet_pnl_usd, label="holdout"
@@ -660,7 +789,8 @@ def _run_frozen_holdout(
     summary["learning_enabled"] = False
     holdout_dict: dict[str, Any] = {
         "summary": summary,
-        "start_weights": carry.model_dump(),
+        "start_weights": carry.weights.model_dump(),
+        **({"start_genome": genome_dict(carry)} if storm else {}),
         "curve": _curve_points(recorder),
         "baselines": {
             "static": static_curve[-1].cum_pnl if static_curve else 0.0,
@@ -881,20 +1011,6 @@ class LLMTributePolicy:
         self.telemetry["offers"] += 1
         return min(float(amount), bankroll_usd)
 
-def _count_applicable(deltas: list[dict[str, object]]) -> int:
-    """How many proposals ``apply_weight_deltas`` will actually consume
-    (same predicate: known key + non-bool numeric delta)."""
-    n = 0
-    for d in deltas:
-        key = d.get("key")
-        delta = d.get("delta")
-        if (
-            key in _DELTA_KEYS
-            and isinstance(delta, (int, float))
-            and not isinstance(delta, bool)
-        ):
-            n += 1
-    return n
 
 
 def run_groundhog_export(
@@ -920,6 +1036,7 @@ def run_groundhog_export(
     tribute: bool = False,
     tribute_rng_factory: Callable[[int], _grandom.Random] | None = None,
     state_root: Path | None = None,
+    storm: bool = False,
 ) -> dict[str, Any]:
     """TRUE reincarnation (design v2, user-locked): one incarnation = ONE
     life from the season's FIRST market (``max_lives=1`` — no internal
@@ -959,7 +1076,13 @@ def run_groundhog_export(
     # AI preflight: a misconfigured key/model must abort BEFORE the loop, not
     # produce ~cap fail-soft no-ops masquerading as "no change" advice.
     if rebirth_llm is not None and preflight:
-        preflight_ai_advisor_applicable(rebirth_llm, model=rebirth_model)
+        preflight_ai_advisor_applicable(
+            rebirth_llm,
+            model=rebirth_model,
+            # A9 (r2 M-6): the probe must exercise the SAME vocabulary
+            # the run will use — genome mode preflights the genome schema.
+            allowed_keys=EXTENDED_REBIRTH_KEYS if storm else None,
+        )
     # Run-scoped cost guard: resolved ONCE — a per-death from_env() fallback
     # would hand every death a fresh budget, making the cap a lie.
     run_guard = (
@@ -967,7 +1090,10 @@ def run_groundhog_export(
     )
 
     shared_inner = WeightUpdater()
-    carry = fragile.weights
+    # r1 M-6: the carried state is the FULL StrategyConfig (weights live
+    # inside it) — structurally impossible to drop the genome at any
+    # boundary, including the holdout.
+    carry_seed: StrategyConfig = fragile
     rebirth_note: str | None = None
     tribute_llm_policies: list[LLMTributePolicy] = []
     incarnations: list[dict[str, Any]] = []
@@ -1012,7 +1138,7 @@ def run_groundhog_export(
             result = run_survival_season(
                 rows=train,
                 snapshots=snapshots,
-                seed=dataclasses.replace(fragile, weights=carry),
+                seed=carry_seed,
                 state_root=root / f"inc_{k}",
                 initial_breath=initial_breath,
                 initial_bankroll_usd=initial_bankroll_usd,
@@ -1026,6 +1152,7 @@ def run_groundhog_export(
                 tribute_policy=inc_tribute_policy,
                 tribute_rng=inc_tribute_rng,
                 tribute_breath=initial_breath,
+                storm_enabled=storm,
             )
             all_eff_prices.extend(
                 _validate_learner_physics(
@@ -1081,11 +1208,26 @@ def run_groundhog_export(
                 "settled": settled,
                 "bets": life.bets_placed,
                 "win_rate": (wins / settled) if settled else 0.0,
-                "start_weights": carry.model_dump(),
+                "start_weights": carry_seed.weights.model_dump(),
                 "terminal_weights": terminal.model_dump(),
                 "rebirth_note": rebirth_note,
                 "prayer": None,
                 "advisor": {"called": False, "proposals": 0, "applied": 0},
+                # A9 genome trajectory (r4 M-4) — keys exist ONLY when the
+                # kit is on (r4 H-1 keyset identity). The genome is frozen
+                # within a life, so terminal == start; persisted anyway
+                # for schema stability.
+                **(
+                    {
+                        "start_genome": genome_dict(carry_seed),
+                        "terminal_genome_before_advice": genome_dict(
+                            carry_seed
+                        ),
+                        "carry_genome_after_advice": None,
+                    }
+                    if storm
+                    else {}
+                ),
                 **(
                     {
                         "tributes": inc_tributes,
@@ -1107,7 +1249,7 @@ def run_groundhog_export(
                 entry["curve"] = _curve_points(recorder)
             incarnations.append(entry)
 
-            carry = terminal
+            carry_seed = dataclasses.replace(carry_seed, weights=terminal)
             rebirth_note = None
             if not died:
                 survived = True
@@ -1161,31 +1303,48 @@ def run_groundhog_export(
                     cost_guard=run_guard,
                     weight_delta_only=True,
                     model=rebirth_model,
+                    # r9 M-3: the REAL death-boundary channel gets the
+                    # extended vocabulary when the kit is on.
+                    allowed_keys=EXTENDED_REBIRTH_KEYS if storm else None,
                 )
                 proposals = advisor.review_window(window)
                 rebirth_calls += 1
                 deltas = [dict(p.proposed_change) for p in proposals]
-                applied = _count_applicable(deltas)
+                # r10 M-2: ONE classifier feeds the apply path AND every
+                # applied count — application and telemetry cannot diverge.
+                classified = classify_proposals(deltas, genome_enabled=storm)
                 if proposals:
                     rebirth_productive += 1
-                    carry = apply_weight_deltas(terminal, deltas)
+                    carry_seed = dataclasses.replace(
+                        carry_seed,
+                        weights=apply_weight_deltas(
+                            terminal, classified.fusion
+                        ),
+                    )
+                    if storm and classified.genome:
+                        carry_seed = apply_genome_deltas(
+                            carry_seed, classified.genome
+                        )
                     rebirth_note = sanitize_rebirth_note(
                         "; ".join(p.rationale for p in proposals)
                     )
+                    if storm:
+                        entry["carry_genome_after_advice"] = genome_dict(
+                            carry_seed
+                        )
                 rebirth_proposals += len(proposals)
-                rebirth_applied += applied
+                rebirth_applied += classified.applied
                 entry["advisor"] = {
                     "called": True,
                     "proposals": len(proposals),
-                    "applied": applied,
+                    "applied": classified.applied,
                 }
 
         # -- The cold-start verdict: held-out window, learning FROZEN. -------
         holdout_dict, holdout_eff = _run_frozen_holdout(
             holdout=holdout,
             snapshots=snapshots,
-            fragile=fragile,
-            carry=carry,
+            carry=carry_seed,
             state_dir=root / "holdout",
             loss_multiplier=loss_multiplier,
             initial_breath=initial_breath,
@@ -1193,6 +1352,7 @@ def run_groundhog_export(
             max_lives=holdout_max_lives,
             max_bet_pnl_usd=max_bet_pnl_usd,
             eff_floor=eff_floor,
+            storm=storm,
         )
     all_eff_prices.extend(holdout_eff)
 
@@ -1308,6 +1468,18 @@ def run_groundhog_export(
             "proposals": rebirth_proposals,
             "applied": rebirth_applied,
         },
+        # A9 falsification metric (r8 M-4): ONE unambiguous persisted
+        # field the G2 verdict reads; INCONCLUSIVE unless the advisor had
+        # >= 3 productive death-boundary chances to move γ.
+        **(
+            {
+                "falsification_metric": _falsification_metric(
+                    incarnations, productive_calls=rebirth_productive
+                )
+            }
+            if storm
+            else {}
+        ),
         "incarnations": incarnations,
         "holdout": holdout_dict,
     }
@@ -1318,6 +1490,42 @@ def run_groundhog_export(
         json.dumps(artifact, sort_keys=True, indent=2), encoding="utf-8"
     )
     return artifact
+
+
+_FALSIFICATION_KEY = "gate_storm_sensitivity"
+_FALSIFICATION_THRESHOLD = 0.05
+_FALSIFICATION_MIN_PRODUCTIVE = 3
+
+
+def _falsification_metric(
+    incarnations: list[dict[str, Any]], *, productive_calls: int
+) -> dict[str, Any]:
+    """The pre-registered G2 metric: terminal γ from ONE persisted source
+    — carry_genome_after_advice of the last incarnation with a successor,
+    else start_genome of the final incarnation (defined for both endings:
+    survivor early-stop and capped death)."""
+    value: float | None = None
+    source = "start_genome of the final incarnation"
+    for inc in reversed(incarnations):
+        after = inc.get("carry_genome_after_advice")
+        if after is not None:
+            value = float(after[_FALSIFICATION_KEY])
+            source = (
+                "carry_genome_after_advice of the last incarnation with a "
+                "successor"
+            )
+            break
+    if value is None:
+        value = float(incarnations[-1]["start_genome"][_FALSIFICATION_KEY])
+    return {
+        "key": _FALSIFICATION_KEY,
+        "threshold": _FALSIFICATION_THRESHOLD,
+        "source": source,
+        "value": value,
+        "productive_calls": productive_calls,
+        "min_productive_required": _FALSIFICATION_MIN_PRODUCTIVE,
+        "evaluable": productive_calls >= _FALSIFICATION_MIN_PRODUCTIVE,
+    }
 
 
 def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:

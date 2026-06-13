@@ -1040,3 +1040,259 @@ def test_groundhog_default_has_no_tribute_keys(tmp_path) -> None:
     for inc in artifact["incarnations"]:
         assert "tributes" not in inc
         assert "pnl_net" not in inc
+
+
+# ========================================================================= #
+# A9 Task 2 — genome on StrategyConfig + boundary-only advisor vocabulary.
+# ========================================================================= #
+
+
+def test_apply_genome_deltas_clamps_and_skips() -> None:
+    from agent.backtest.reincarnation import (
+        GENOME_KEYS,
+        GENOME_MIN_BREATH_RISK_PCT,
+        apply_genome_deltas,
+    )
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    seed = _fragile_seed()
+    out = apply_genome_deltas(
+        seed,
+        [
+            {"key": "min_edge", "delta": 0.04},
+            {"key": "gate_storm_sensitivity", "delta": 0.1},
+        ],
+    )
+    assert out.min_edge == pytest.approx(min(0.5, seed.min_edge + 0.04))
+    assert out.gate_storm_sensitivity == pytest.approx(0.1)
+    # Weights untouched by genome application.
+    assert out.weights == seed.weights
+
+    # |delta| capped at 0.1 before clamping.
+    out2 = apply_genome_deltas(seed, [{"key": "kappa", "delta": 0.7}])
+    assert out2.kappa == pytest.approx(min(1.0, seed.kappa + 0.1))
+
+    # Unknown keys, the EXCLUDED min_bet_size_usd (r8 M-3), and non-numeric
+    # deltas are SKIPPED fail-soft — never a crash, never an effect.
+    out3 = apply_genome_deltas(
+        seed,
+        [
+            {"key": "min_bet_size_usd", "delta": 0.1},
+            {"key": "w_r", "delta": 0.1},
+            {"key": "no_such_knob", "delta": 0.1},
+            {"key": "min_edge", "delta": True},
+        ],
+    )
+    assert out3 == seed
+    assert "min_bet_size_usd" not in GENOME_KEYS
+    assert GENOME_MIN_BREATH_RISK_PCT == pytest.approx(0.05)
+
+
+def test_genome_breath_risk_floor_keeps_engine_constructible() -> None:
+    """r11 M-2: repeated −0.1 deltas drive max_breath_risk_pct to the
+    NAMED floor (0.05), never to 0 — the engine ctor must stay valid."""
+    from agent.backtest.reincarnation import (
+        GENOME_MIN_BREATH_RISK_PCT,
+        apply_genome_deltas,
+    )
+    from agent.backtest.survival_season import _decision_engine_from_seed
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    seed = _fragile_seed()
+    for _ in range(20):
+        seed = apply_genome_deltas(
+            seed, [{"key": "max_breath_risk_pct", "delta": -0.1}]
+        )
+    assert seed.max_breath_risk_pct == pytest.approx(
+        GENOME_MIN_BREATH_RISK_PCT
+    )
+    engine = _decision_engine_from_seed(seed)  # must NOT raise
+    assert engine is not None
+
+
+def test_classify_proposals_single_classifier() -> None:
+    """r10 M-2: ONE classifier feeds the apply path AND every applied
+    count — fusion/genome/skipped never diverge."""
+    from agent.backtest.reincarnation import classify_proposals
+
+    deltas = [
+        {"key": "alpha_2", "delta": 0.04},
+        {"key": "min_edge", "delta": 0.05},
+        {"key": "gate_storm_sensitivity", "delta": 0.1},
+        {"key": "min_bet_size_usd", "delta": 0.1},
+        {"key": "nope", "delta": 0.1},
+        {"key": "rho", "delta": True},
+    ]
+    on = classify_proposals(deltas, genome_enabled=True)
+    assert [d["key"] for d in on.fusion] == ["alpha_2"]
+    assert [d["key"] for d in on.genome] == [
+        "min_edge", "gate_storm_sensitivity",
+    ]
+    assert len(on.skipped) == 3
+
+    off = classify_proposals(deltas, genome_enabled=False)
+    assert [d["key"] for d in off.fusion] == ["alpha_2"]
+    assert off.genome == []
+    assert len(off.skipped) == 5
+
+
+def test_genome_schema_enum_matches_parser_keys() -> None:
+    """r3 M-5: the rendered schema enum and the strict parser's allowed
+    keys are the SAME VALUE in genome mode; min_bet_size_usd is absent."""
+    from agent.backtest.reincarnation import _DELTA_KEYS, EXTENDED_REBIRTH_KEYS
+    from agent.engines._strategy_prompts import (
+        WEIGHT_DELTA_KEYS,
+        render_weight_delta_schema,
+        render_weight_delta_system_prompt,
+    )
+
+    assert EXTENDED_REBIRTH_KEYS[: len(_DELTA_KEYS)] == _DELTA_KEYS
+    schema = render_weight_delta_schema(EXTENDED_REBIRTH_KEYS)
+    enum = schema["properties"]["proposals"]["items"]["properties"][
+        "proposed_change"
+    ]["properties"]["key"]["enum"]
+    assert tuple(enum) == EXTENDED_REBIRTH_KEYS
+    assert "min_bet_size_usd" not in enum
+    assert "gate_storm_sensitivity" in enum
+    # The default-vocabulary prompt renders the module constant VERBATIM.
+    from agent.engines._strategy_prompts import WEIGHT_DELTA_SYSTEM_PROMPT
+
+    assert (
+        render_weight_delta_system_prompt(WEIGHT_DELTA_KEYS)
+        is WEIGHT_DELTA_SYSTEM_PROMPT
+    )
+    # The extended prompt names every key + the neutral γ description.
+    prompt = render_weight_delta_system_prompt(EXTENDED_REBIRTH_KEYS)
+    assert "gate_storm_sensitivity" in prompt
+    assert "positive tightens in storms, negative loosens" in prompt
+
+
+def test_groundhog_storm_genome_end_to_end(tmp_path) -> None:
+    """r9 M-3 end-to-end: a fake advisor response carrying BOTH an
+    alpha_2 (fusion) and a gate_storm_sensitivity (genome) delta flows
+    through the groundhog rebirth boundary — each lands on its home
+    (Weights vs seed), the holdout receives the MUTATED genome, and the
+    falsification_metric field is persisted."""
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    from agent.backtest.reincarnation import run_groundhog_export
+    from agent.llm.cost_guard import L3CostGuard
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    @dataclass
+    class _GenomeFakeLLM:
+        calls: list[dict[str, Any]] = field(default_factory=list)
+
+        async def structured_call(
+            self, *, model: str, prompt: str, schema: dict[str, Any]
+        ) -> dict[str, Any]:
+            self.calls.append(
+                {"model": model, "prompt": prompt, "schema": schema}
+            )
+            props = schema.get("properties", {})
+            if "wish" in props:
+                return {"wish": "let me feel the storm"}
+            return {
+                "proposals": [
+                    {
+                        "kind": "weight_delta",
+                        "rationale": "trim alpha_2 after the loss streak",
+                        "proposed_change": {"key": "alpha_2", "delta": 0.04},
+                        "expected_impact": "reduce drawdown",
+                        "confidence_pct": 60,
+                    },
+                    {
+                        "kind": "weight_delta",
+                        "rationale": (
+                            "deaths cluster in storms; tighten the gate "
+                            "when storm is high"
+                        ),
+                        "proposed_change": {
+                            "key": "gate_storm_sensitivity",
+                            "delta": 0.1,
+                        },
+                        "expected_impact": "fewer storm bets",
+                        "confidence_pct": 55,
+                    },
+                ]
+            }
+
+    rows, snaps = _clustered_dying_fixture()
+    fake = _GenomeFakeLLM()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_genome.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        rebirth_llm=fake,
+        rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
+        storm=True,
+    )
+    incs = artifact["incarnations"]
+    # The genome delta landed on the carried seed, visible at inc 2 start.
+    assert incs[0]["start_genome"]["gate_storm_sensitivity"] == 0.0
+    assert incs[0]["carry_genome_after_advice"][
+        "gate_storm_sensitivity"
+    ] == pytest.approx(0.1)
+    assert incs[1]["start_genome"]["gate_storm_sensitivity"] == pytest.approx(
+        0.1
+    )
+    # The fusion delta landed on Weights (its home), not the genome.
+    assert "alpha_2" not in incs[0]["start_genome"]
+    # BOTH deltas counted by the ONE classifier (r10 M-2).
+    assert incs[0]["advisor"] == {"called": True, "proposals": 2, "applied": 2}
+    # The schema the advisor saw carries the extended enum.
+    advisor_schemas = [
+        c["schema"]
+        for c in fake.calls
+        if "proposals" in c["schema"].get("properties", {})
+    ]
+    enums = [
+        s["properties"]["proposals"]["items"]["properties"][
+            "proposed_change"
+        ]["properties"]["key"]["enum"]
+        for s in advisor_schemas
+    ]
+    assert all("gate_storm_sensitivity" in e for e in enums)
+    # The holdout consumed the MUTATED genome (the holdout trap, r1 M-6).
+    assert artifact["holdout"]["start_genome"][
+        "gate_storm_sensitivity"
+    ] == pytest.approx(0.1)
+    # Pre-registered falsification metric (r8 M-4): persisted, evaluable
+    # only with >= 3 productive death-boundary calls (here: 1).
+    fm = artifact["falsification_metric"]
+    assert fm["key"] == "gate_storm_sensitivity"
+    assert fm["value"] == pytest.approx(0.1)
+    assert fm["productive_calls"] == 1
+    assert fm["min_productive_required"] == 3
+    assert fm["evaluable"] is False
+
+
+def test_groundhog_flag_off_has_no_genome_keys(tmp_path) -> None:
+    """r4 H-1 keyset identity: with the kit OFF the artifact carries NO
+    regime fields anywhere — incarnations, holdout, top level."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "g_off.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert "falsification_metric" not in artifact
+    assert "start_genome" not in artifact["holdout"]
+    for inc in artifact["incarnations"]:
+        assert "start_genome" not in inc
+        assert "terminal_genome_before_advice" not in inc
+        assert "carry_genome_after_advice" not in inc

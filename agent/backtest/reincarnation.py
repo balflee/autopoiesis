@@ -1887,6 +1887,20 @@ def run_groundhog_export(
                 "tithe_revenue": sum(
                     inc.get("tithe_cash_paid", 0.0) for inc in incarnations
                 ),
+                # The LIVE business metric (mirrors gods_revenue_best_
+                # incarnation): the gods' best SINGLE-life cash rent — what
+                # an operator pockets per life. A non-earning agent caps at
+                # its starting bankroll; an earning one pays far more.
+                "tithe_revenue_best_incarnation": max(
+                    (inc.get("tithe_cash_paid", 0.0) for inc in incarnations),
+                    default=0.0,
+                ),
+                "tithe_revenue_mean_incarnation": (
+                    sum(inc.get("tithe_cash_paid", 0.0) for inc in incarnations)
+                    / len(incarnations)
+                    if incarnations
+                    else 0.0
+                ),
                 "tithe_breath_taken_total": sum(
                     inc.get("tithe_breath_lost", 0.0) for inc in incarnations
                 ),
@@ -2007,6 +2021,15 @@ def _validate_groundhog_scoring(artifact: dict[str, Any]) -> None:
                 "tithe accounting: tithe_revenue != sum of per-incarnation "
                 "tithe_cash_paid; artifact NOT written"
             )
+        if "tithe_revenue_best_incarnation" in artifact:
+            best = max(
+                (inc.get("tithe_cash_paid", 0.0) for inc in incs), default=0.0
+            )
+            if abs(artifact["tithe_revenue_best_incarnation"] - best) > 1e-6:
+                raise RuntimeError(
+                    "tithe accounting: tithe_revenue_best_incarnation != max "
+                    "of per-incarnation tithe_cash_paid; artifact NOT written"
+                )
     if not survived:
         if headline != 0.0 or pointer is not None or not all(
             inc["died"] for inc in incs

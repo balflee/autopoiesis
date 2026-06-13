@@ -209,6 +209,11 @@ export interface ReincarnationFixture {
   /** A10 divine tithe — the gods' periodic RENT (distinct from the deathbed
    * RANSOM `gods_revenue`). Present only on --divine-tithe artifacts. */
   readonly tithe_revenue?: number;
+  /** The LIVE business metric: the gods' best SINGLE-life cash rent (what an
+   * operator pockets per life). Optional — older artifacts lack it; the page
+   * derives it from per-incarnation `tithe_cash_paid` as a fallback. */
+  readonly tithe_revenue_best_incarnation?: number;
+  readonly tithe_revenue_mean_incarnation?: number;
   readonly tithe_breath_taken_total?: number;
   readonly tithe?: {
     readonly every: number;
@@ -446,6 +451,25 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
     }
     if (Math.abs(revenue - total) > 1e-6) {
       fail("tithe accounting: tithe_revenue != sum of per-incarnation cash");
+    }
+    if (data.tithe_revenue_best_incarnation !== undefined) {
+      const best = asNumber(
+        data.tithe_revenue_best_incarnation,
+        "tithe_revenue_best_incarnation",
+      );
+      let maxPaid = 0;
+      for (const inc of incs) {
+        const rec = inc as Record<string, unknown>;
+        if (typeof rec.tithe_cash_paid === "number" && rec.tithe_cash_paid > maxPaid) {
+          maxPaid = rec.tithe_cash_paid;
+        }
+      }
+      if (Math.abs(best - maxPaid) > 1e-6) {
+        fail(
+          "tithe accounting: tithe_revenue_best_incarnation != max of " +
+            "tithe_cash_paid",
+        );
+      }
     }
     if (data.tithe !== undefined && !isRecord(data.tithe)) {
       fail("tithe block malformed");

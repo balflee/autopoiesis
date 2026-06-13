@@ -559,7 +559,20 @@ export function ReincarnationShell({
               <span className="font-display text-xl text-[var(--ab-glow)] ab-glow-text">
                 {money(fixture.tithe_revenue)}
               </span>{" "}
-              in cash rent
+              in cash rent ·{" "}
+              <span className="text-[var(--ab-text)]">best single life </span>
+              <span data-testid="reincarnation-tithe-best">
+                {money(
+                  fixture.tithe_revenue_best_incarnation ??
+                    incs.reduce(
+                      (acc, i) => Math.max(acc, i.tithe_cash_paid ?? 0),
+                      0,
+                    ),
+                )}
+              </span>
+              {" — "}the per-life rent an operator actually pockets (a
+              non-earning agent caps at its starting bankroll; an earning one
+              pays far more)
               {fixture.tithe_breath_taken_total !== undefined &&
               fixture.tithe_breath_taken_total > 0 ? (
                 <>

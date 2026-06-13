@@ -1717,6 +1717,14 @@ def test_groundhog_divine_tithe_accounting(tmp_path) -> None:
             )
         total_cash += inc["tithe_cash_paid"]
     assert artifact["tithe_revenue"] == pytest.approx(total_cash)
+    # Per-life metrics: best == max, mean == average.
+    cash_per_inc = [i["tithe_cash_paid"] for i in artifact["incarnations"]]
+    assert artifact["tithe_revenue_best_incarnation"] == pytest.approx(
+        max(cash_per_inc)
+    )
+    assert artifact["tithe_revenue_mean_incarnation"] == pytest.approx(
+        total_cash / len(cash_per_inc)
+    )
 
 
 def test_groundhog_flag_off_has_no_tithe_keys(tmp_path) -> None:

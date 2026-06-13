@@ -698,6 +698,50 @@ describe("A10 divine tithe — validator + revenue card", () => {
     expect(card.textContent).toMatch(/the gods' rent/);
     expect(card.textContent).toMatch(/every 20 markets/);
     expect(card.textContent).toMatch(/stayed solvent enough to always pay cash/);
+    // Per-life best — DERIVED from per-incarnation cash (no top-level field
+    // on this fixture, mirroring the in-flight G1 artifact): max(40, 20) = $40.
+    expect(card.textContent).toMatch(/best single life/);
+    expect(screen.getByTestId("reincarnation-tithe-best").textContent).toBe("$40");
+  });
+
+  it("prefers the authoritative per-life best field when present", () => {
+    const fx = buildFixture({
+      incarnations: [
+        {
+          ...inc(1),
+          tithes: [{ tick: 20, amount_usd: 20, breath_cost: 0 }],
+          tithe_cash_paid: 20,
+          tithe_breath_lost: 0,
+        },
+        inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+      ],
+      surviving_incarnation: 2,
+      tithe_revenue: 20,
+      tithe_revenue_best_incarnation: 20,
+      tithe: { every: 20, amount_usd: 20, breath_cost: 5 },
+    });
+    render(<ReincarnationShell numerical={fx} ai={null} />);
+    expect(screen.getByTestId("reincarnation-tithe-best").textContent).toBe("$20");
+  });
+
+  it("rejects a per-life best that disagrees with the max per-incarnation cash", () => {
+    expect(() =>
+      buildFixture({
+        incarnations: [
+          {
+            ...inc(1),
+            tithes: [{ tick: 20, amount_usd: 20, breath_cost: 0 }],
+            tithe_cash_paid: 20,
+            tithe_breath_lost: 0,
+          },
+          inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+        ],
+        surviving_incarnation: 2,
+        tithe_revenue: 20,
+        tithe_revenue_best_incarnation: 999, // LIE: should be 20
+        tithe: { every: 20, amount_usd: 20, breath_cost: 5 },
+      }),
+    ).toThrow(/tithe_revenue_best_incarnation/);
   });
 
   it("flags the breath drain when broke agents paid in breath", () => {

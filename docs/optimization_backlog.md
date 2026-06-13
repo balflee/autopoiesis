@@ -69,6 +69,16 @@
 - **信息流约束**：祈祷输出除 artifact 外不进任何下游（下一世的 advisor 窗口里
   必须不含祈祷文本——用测试执法）。
 - **成本**：小-中（祈祷调用 + artifact/validator/页面 + 信息流测试 + 重跑 Gemini 腿）。
+- **实证发现（2026-06-13，49 条去重祈祷）：套件改变了 agent "知道自己需要什么"。**
+  - **套件前**（数值/Gemini 腿）：清一色求**不可授予的神谕**——"下注前给我真实胜率"、
+    "完美预知哪些市场会输"、"看到全部 3431 场赛程"。本质是要求看未来（look-ahead 作弊）。
+  - **套件后**（G1 storm 腿）：祈祷**质变为可实现的工程请求**，且**引用自己的反事实账本**——
+    "我要前瞻 storm 分类器（当前只在亏损落到 breath 后才反应）；反事实证实把
+    gate_storm_sensitivity 0.05→0.20 能拦 258 注省 $592.88 breath，但结算前我无法
+    识别哪些是高 storm"；"随 storm 强度反比缩放注码的 storm_stake_scalar"；
+    "连续 0-1 的 storm 概率而非门用的粗糙 0/1"。
+  - **意义**：给了仪表，agent 就从"乞求作弊"转为"提出可造的下一个特征、甚至报出
+    最优参数值"。这直接生成了 A11（前瞻 storm 分类器）立项；属套件最强副产品，值得进叙事。
 
 ### A7 · 供奉机制（tribute：钱换命，神有私心）— `DONE`（2026-06-13 上线；Gemini treatment 腿待配额恢复补跑）
 - **动机**：死亡解剖显示 agent 死时怀揣 $2,459 现金（双账本：钱包富、呼吸穿零）；
@@ -163,6 +173,48 @@
   （rho 仍钉 0.993 时放大注 = 熊市死更快 + 摧毁基线可比性）。
 - **第四取证（2026-06-13）**：rho 被牛市推到 0.993 饱和后，1,000 注熊市拉不回
   0.001（logit 饱和梯度消失）——现有唯一自适应通道会被首个 regime 反向洗脑。
+
+### A10 · 神之地租（divine tithe：经常性收租，关闭弃权苟活漏洞）— `代码 DONE`（2026-06-13；G2t 跑批中）
+- **动机（取证）**：G2 证伪腿"存活"的真相 = agent 被早期两记 ×5 亏损掐进 breath≈0.67 的
+  **零代谢昏迷**（全季 3431 场只下 7 注），因为 **NO_BET 在 sim 里不扣 breath**（PRD 原本
+  写过 "NO_BET is NOT a free skip" 但 survival sim 从没实现闲置成本）——存活 = 没死成，不是活得好。
+- **规则（用户定）**：每 20 场，神收一次租——**优先扣 $20 bankroll；付不起则扣 5 breath**
+  （cash-preferred 自动规则）。参数测试后调。
+- **自动自选命中无收入者**（验证：agent 死时很富 $2,200+）：活跃臂永远付得起现金 →
+  breath/regime 死亡动态不变、地租只刮赢利进神口袋；昏迷 agent 不赚 → 破产挨 breath 刀 →
+  约第 120 场耗死 → advisor 触发 → **证伪腿变 evaluable**。一举三得：主题统一（神从临终
+  勒索→经常性收租）、堵昏迷漏洞、修 G2 evaluable。
+- **实现**：loop `_attempt_tithe`（cash-preferred，扣 breath 走 canonical 通道→死亡检查抓到）；
+  rent 是 operator-domain → 扣 breath 时重置 storm baseline（不污染 regime 感知）；holdout
+  不收租（沿用 tribute 先例保可比）；`tithe_revenue` 单列 + fail-closed 不变量；默认关=字节恒等。
+  披露 realism rule #5。commits f5d81ab(loop/season/reincarnation)、ee076ed(dashboard 卡片)。
+- **诚实预期**：地租能修好"advisor 从不触发"（让 G2 死），但**能否 evaluable 仍取决于
+  MiniMax productivity**（G1 时 19 次仅 1 次 productive）——死够多 + 凑够 ≥3 productive
+  才 evaluable；否则仍 INCONCLUSIVE，但至少证明地租成功关闭了昏迷漏洞。
+
+### A11 · 前瞻 storm 分类器（forward regime signal）— `PROPOSED`（agent 自己最常求的功能；最高杠杆）
+- **来源**：A6 祈祷代际进化——套件后 agent 反复祈求"一个**前瞻的** storm 信号，从可观测
+  市场特征在**下注前**预测 regime，而不是当前只在亏损落到 breath 后才反应的 EMA"（祈祷
+  #33/34/40/46，多条引用账本数字）。
+- **痛点**：A9 的 storm 感知是**反应式**（tick 级 breath delta 的 EMA）——它只能在伤害
+  发生**之后**升高，所以 agent 永远在"亡羊补牢"。这正是 G1 即使有 γ 杠杆也只能"死得更深"
+  却无法**预先避开**熊市连击的根因（reactive ⇒ 总慢一拍）。
+- **改什么**：新增一个**前瞻 storm 估计**——从**当前可观测特征**（成交量波动、价格离散度、
+  近期结算时间聚集度等，**绝不含未来结算结果**，无 look-ahead）回归出"未来 N 场的 storm
+  概率(0-1)"，喂进 decide() 与 γ 门，替代/叠加反应式 EMA。可顺带满足祈祷 #48（连续而非 0/1）
+  + #49（per-bet breath-cost 投影 = storm×edge×stake 合成一个"这注若中 5x 会掉多少 breath"）。
+- **对 G2**：在洗牌赛季上检验 agent 是否跟一个**被打散的合成前瞻信号**走——若它仍据此收紧，
+  那是先验；强化证伪。
+- **风险/纪律**：必须经 look-ahead 审计（特征只能用 ≤ 决策时刻可得的数据）；默认关、字节恒等；
+  走 plan-loop。
+
+### A12 · G2 证伪腿强化 — `PROPOSED`（让"死亡是 regime 结构性"从轶事变统计）
+- **取证**：当前 G2 是 **n=1 洗牌种子**、razor +$5.67 边际、且（旧版）survived 即未裁决。
+- **改什么**：①**多 shuffle 种子**（seed 2/3/4/5）跑 G2，看"打散 regime→死亡消失/变浅"
+  是否稳健，把单点轶事升级为统计证据；②**MiniMax productivity 瓶颈**——1/19 的 productive 率
+  是 G2 即使死也凑不够 ≥3 productive 门槛的真正限制因素：改 structured-output 提示/schema
+  提升解析率，或 Gemini 配额恢复后换 provider；③（依赖 A10）地租已让 G2 会死。
+- **成本**：多种子是重复跑（每个 ~1 臂时间）；productivity 改进是提示工程 + 重跑。
 
 ### A4 · 结算吞吐/滞后 — `PROPOSED`（v3 起遗留）
 - **取证**：~38-55% 已下注从未结算（agent 死时仍 open，作废）。

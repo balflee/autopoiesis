@@ -591,6 +591,7 @@ def join_one_to_one(
     tennis-data Winner.
     """
     candidates: list[tuple[dict[str, object], bool]] = []
+    ambiguous = False
     base = game_start.date()
     for delta in range(-date_tol_days, date_tol_days + 1):
         key = (base + timedelta(days=delta)).isoformat()
@@ -599,10 +600,25 @@ def join_one_to_one(
             loser = tennis_data_surname(str(row.get("Loser", "")))
             if w is None or loser is None:
                 continue
-            if surname_matches(w, ref_display) and surname_matches(loser, other_display):
+            forward = surname_matches(w, ref_display) and surname_matches(
+                loser, other_display
+            )
+            reverse = surname_matches(loser, ref_display) and surname_matches(
+                w, other_display
+            )
+            if forward and reverse:
+                # Both orientations match (e.g. same surname / suffix collision):
+                # orientation cannot be determined result-independently. Flag
+                # ambiguous — do NOT let code order pick the forward branch,
+                # which would make 2b inclusion result-dependent (kept iff the
+                # reference happened to win).
+                ambiguous = True
+            elif forward:
                 candidates.append((row, True))
-            elif surname_matches(loser, ref_display) and surname_matches(w, other_display):
+            elif reverse:
                 candidates.append((row, False))
+    if ambiguous:
+        return None, False, "ambiguous_join"
     if not candidates:
         return None, False, "date_miss"
     if len(candidates) > 1:

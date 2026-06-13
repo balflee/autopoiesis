@@ -408,6 +408,19 @@ class TestJoin:
         )
         assert reason == "ambiguous_join"
 
+    def test_same_surname_both_orientations_ambiguous(self) -> None:
+        # Same surname on both legs -> a single row matches BOTH orientations
+        # -> orientation undeterminable -> ambiguous_join (NOT silently forward,
+        # which would make 2b inclusion result-dependent). Orientation-free by
+        # construction, so this holds whether the reference won or lost.
+        gs = datetime(2025, 6, 10, 13, 0, tzinfo=UTC)
+        td = {"2025-06-10": [self._td_row("Williams B.", "Williams S.")]}
+        _, _, reason = join_one_to_one(
+            ref_display="Bob Williams", other_display="Sam Williams",
+            game_start=gs, td_by_date=td,
+        )
+        assert reason == "ambiguous_join"
+
 
 class TestBuild2A:
     def _row(self, **kw: object) -> dict[str, object]:

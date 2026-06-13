@@ -53,6 +53,15 @@ export interface ReincarnationIncarnation {
   /** The user's headline metric: pnl earned AFTER the first altar visit
    * (did buying life buy any income?). Null when no tribute fired. */
   readonly revival_earnings?: number | null;
+  /** A10 divine-tithe events for this life (periodic rent: $ XOR breath).
+   * Present only on --divine-tithe artifacts. */
+  readonly tithes?: readonly {
+    readonly tick: number;
+    readonly amount_usd: number;
+    readonly breath_cost: number;
+  }[];
+  readonly tithe_cash_paid?: number;
+  readonly tithe_breath_lost?: number;
   readonly advisor: {
     readonly called: boolean;
     readonly proposals: number;
@@ -197,6 +206,15 @@ export interface ReincarnationFixture {
   /** A9 (r8 M-4): the pre-registered G2 metric; INCONCLUSIVE unless
    * evaluable. Present only on --storm artifacts. */
   readonly falsification_metric?: ReincarnationFalsificationMetric;
+  /** A10 divine tithe — the gods' periodic RENT (distinct from the deathbed
+   * RANSOM `gods_revenue`). Present only on --divine-tithe artifacts. */
+  readonly tithe_revenue?: number;
+  readonly tithe_breath_taken_total?: number;
+  readonly tithe?: {
+    readonly every: number;
+    readonly amount_usd: number;
+    readonly breath_cost: number;
+  };
   readonly incarnations: readonly ReincarnationIncarnation[];
   readonly holdout: ReincarnationHoldout;
 }
@@ -386,7 +404,53 @@ export function validateReincarnation(data: unknown): ReincarnationFixture {
         );
       });
     }
+    // A10 tithe accounting (when present): per-incarnation cash/breath sums
+    // must equal the event list — BOOKKEEPING, enforced like the Python side.
+    if (inc.tithes !== undefined) {
+      if (!Array.isArray(inc.tithes)) fail(`incarnations[${idx}].tithes`);
+      let cash = 0;
+      let breath = 0;
+      for (const t of inc.tithes) {
+        if (!isRecord(t)) fail(`incarnations[${idx}].tithes entry`);
+        asNumber(t.tick, `incarnations[${idx}].tithes.tick`);
+        cash += asNumber(t.amount_usd, `incarnations[${idx}].tithes.amount_usd`);
+        breath += asNumber(
+          t.breath_cost,
+          `incarnations[${idx}].tithes.breath_cost`,
+        );
+      }
+      const declaredCash = asNumber(
+        inc.tithe_cash_paid,
+        `incarnations[${idx}].tithe_cash_paid`,
+      );
+      const declaredBreath = asNumber(
+        inc.tithe_breath_lost,
+        `incarnations[${idx}].tithe_breath_lost`,
+      );
+      if (Math.abs(declaredCash - cash) > 1e-6) {
+        fail(`tithe accounting: incarnations[${idx}].tithe_cash_paid != sum`);
+      }
+      if (Math.abs(declaredBreath - breath) > 1e-6) {
+        fail(`tithe accounting: incarnations[${idx}].tithe_breath_lost != sum`);
+      }
+    }
   });
+
+  // A10: top-level tithe revenue must equal the per-incarnation cash sum.
+  if (data.tithe_revenue !== undefined) {
+    const revenue = asNumber(data.tithe_revenue, "tithe_revenue");
+    let total = 0;
+    for (const inc of incs) {
+      const rec = inc as Record<string, unknown>;
+      if (typeof rec.tithe_cash_paid === "number") total += rec.tithe_cash_paid;
+    }
+    if (Math.abs(revenue - total) > 1e-6) {
+      fail("tithe accounting: tithe_revenue != sum of per-incarnation cash");
+    }
+    if (data.tithe !== undefined && !isRecord(data.tithe)) {
+      fail("tithe block malformed");
+    }
+  }
 
   // A9 (r8 M-4): the falsification metric's evaluable gate is BOOKKEEPING —
   // enforced exactly like the Python side.

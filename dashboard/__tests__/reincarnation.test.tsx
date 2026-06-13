@@ -618,3 +618,99 @@ describe("A9 experiment arms — multi-arm toggle", () => {
     expect(screen.queryByTestId("reincarnation-mode-toggle")).toBeNull();
   });
 });
+
+
+describe("A10 divine tithe — validator + revenue card", () => {
+  function titheFixture(opts: { breathTaken?: number } = {}): ReincarnationFixture {
+    const breathTaken = opts.breathTaken ?? 0;
+    return buildFixture({
+      incarnations: [
+        {
+          ...inc(1),
+          tithes: [
+            { tick: 20, amount_usd: 20, breath_cost: 0 },
+            { tick: 40, amount_usd: 20, breath_cost: 0 },
+          ],
+          tithe_cash_paid: 40,
+          tithe_breath_lost: 0,
+        },
+        {
+          ...inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+          tithes:
+            breathTaken > 0
+              ? [{ tick: 20, amount_usd: 0, breath_cost: breathTaken }]
+              : [{ tick: 20, amount_usd: 20, breath_cost: 0 }],
+          tithe_cash_paid: breathTaken > 0 ? 0 : 20,
+          tithe_breath_lost: breathTaken,
+        },
+      ],
+      surviving_incarnation: 2,
+      tithe_revenue: breathTaken > 0 ? 40 : 60,
+      tithe_breath_taken_total: breathTaken,
+      tithe: { every: 20, amount_usd: 20, breath_cost: 5 },
+    });
+  }
+
+  it("accepts a coherent tithe artifact and rejects broken revenue", () => {
+    const fx = titheFixture();
+    expect(fx.tithe_revenue).toBe(60);
+    expect(fx.tithe?.every).toBe(20);
+    expect(() =>
+      buildFixture({
+        incarnations: [
+          {
+            ...inc(1),
+            tithes: [{ tick: 20, amount_usd: 20, breath_cost: 0 }],
+            tithe_cash_paid: 20,
+            tithe_breath_lost: 0,
+          },
+          inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+        ],
+        surviving_incarnation: 2,
+        tithe_revenue: 999, // LIE: should be 20
+        tithe: { every: 20, amount_usd: 20, breath_cost: 5 },
+      }),
+    ).toThrow(/tithe_revenue/);
+  });
+
+  it("rejects a per-incarnation tithe_cash_paid that disagrees with events", () => {
+    expect(() =>
+      buildFixture({
+        incarnations: [
+          {
+            ...inc(1),
+            tithes: [{ tick: 20, amount_usd: 20, breath_cost: 0 }],
+            tithe_cash_paid: 999, // LIE
+            tithe_breath_lost: 0,
+          },
+          inc(2, { died: false, progress_pct: 100, pnl_at_death: 188 }),
+        ],
+        surviving_incarnation: 2,
+        tithe_revenue: 999,
+        tithe: { every: 20, amount_usd: 20, breath_cost: 5 },
+      }),
+    ).toThrow(/tithe_cash_paid != sum/);
+  });
+
+  it("renders the gods' rent card (cash-only run)", () => {
+    render(<ReincarnationShell numerical={titheFixture()} ai={null} />);
+    const card = screen.getByTestId("reincarnation-tithe-revenue");
+    expect(card.textContent).toMatch(/the gods' rent/);
+    expect(card.textContent).toMatch(/every 20 markets/);
+    expect(card.textContent).toMatch(/stayed solvent enough to always pay cash/);
+  });
+
+  it("flags the breath drain when broke agents paid in breath", () => {
+    render(
+      <ReincarnationShell numerical={titheFixture({ breathTaken: 15 })} ai={null} />,
+    );
+    const card = screen.getByTestId("reincarnation-tithe-revenue");
+    expect(card.textContent).toMatch(/15 breath/);
+    expect(card.textContent).toMatch(/abstention-survival loophole/);
+  });
+
+  it("shows no rent card when tithe is absent (default arms)", () => {
+    render(<ReincarnationShell numerical={buildFixture({})} ai={null} />);
+    expect(screen.queryByTestId("reincarnation-tithe-revenue")).toBeNull();
+  });
+});

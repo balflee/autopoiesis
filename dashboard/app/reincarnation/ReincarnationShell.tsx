@@ -545,6 +545,39 @@ export function ReincarnationShell({
               ) : null}
             </p>
           ) : null}
+          {fixture.tithe_revenue !== undefined && fixture.tithe ? (
+            <p
+              data-testid="reincarnation-tithe-revenue"
+              className="font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]"
+            >
+              <span className="text-[var(--ab-text)]">
+                the gods&apos; rent ▸{" "}
+              </span>
+              every {fixture.tithe.every} markets the agent owed{" "}
+              {money(fixture.tithe.amount_usd)} or {fixture.tithe.breath_cost}{" "}
+              breath — over the run they collected{" "}
+              <span className="font-display text-xl text-[var(--ab-glow)] ab-glow-text">
+                {money(fixture.tithe_revenue)}
+              </span>{" "}
+              in cash rent
+              {fixture.tithe_breath_taken_total !== undefined &&
+              fixture.tithe_breath_taken_total > 0 ? (
+                <>
+                  {" "}
+                  and{" "}
+                  <span className="text-[var(--ab-death)]">
+                    {fixture.tithe_breath_taken_total.toFixed(0)} breath
+                  </span>{" "}
+                  from broke agents (rent for existence — distinct from the
+                  deathbed ransom above; this is what closes the
+                  abstention-survival loophole)
+                </>
+              ) : (
+                " (the agent stayed solvent enough to always pay cash)"
+              )}
+              .
+            </p>
+          ) : null}
           {fixture.falsification_metric ? (
             <p
               data-testid="reincarnation-falsification"

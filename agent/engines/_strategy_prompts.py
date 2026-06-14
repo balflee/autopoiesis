@@ -380,6 +380,12 @@ GENOME_KEY_DESCRIPTIONS: Final[dict[str, str]] = {
         "how strongly bet sizing responds to the storm signal; positive "
         "shrinks stakes in storms, negative grows them; 0 ignores it"
     ),
+    "kappa_xm": (
+        "the scale of the additive cross-market tilt term in the value model "
+        "(p_model += kappa_xm·cross_market_signal); the term is sign-symmetric "
+        "— the signal can shift the estimate in either direction; 0 disables "
+        "the cross-market component"
+    ),
 }
 
 

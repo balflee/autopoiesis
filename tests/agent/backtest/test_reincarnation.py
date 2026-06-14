@@ -1166,6 +1166,26 @@ def test_genome_schema_enum_matches_parser_keys() -> None:
     prompt = render_weight_delta_system_prompt(EXTENDED_REBIRTH_KEYS)
     assert "gate_storm_sensitivity" in prompt
     assert "positive tightens in storms, negative loosens" in prompt
+    # kappa_xm must be in the extended prompt once its description is added (M3).
+    assert "kappa_xm" in prompt
+
+
+def test_genome_keys_subset_of_genome_key_descriptions() -> None:
+    """M3 structural invariant: every rebirth-advisable genome key must have a
+    neutral description so the advisor has semantic context for each knob.
+    A missing description would silently render without meaning."""
+    from agent.backtest.reincarnation import EXTENDED_REBIRTH_KEYS, GENOME_KEYS
+    from agent.engines._strategy_prompts import (
+        GENOME_KEY_DESCRIPTIONS,
+        render_weight_delta_system_prompt,
+    )
+
+    missing = set(GENOME_KEYS) - set(GENOME_KEY_DESCRIPTIONS)
+    assert not missing, f"genome keys without descriptions: {missing!r}"
+
+    # kappa_xm must actually render in the extended prompt (not silently drop).
+    prompt = render_weight_delta_system_prompt(EXTENDED_REBIRTH_KEYS)
+    assert "kappa_xm" in prompt
 
 
 def test_groundhog_storm_genome_end_to_end(tmp_path) -> None:
@@ -1399,10 +1419,12 @@ def test_death_window_renders_ledger_genome_and_tribute() -> None:
     + value), the storm split, the tightening-only counterfactual with
     the loosening caveat, and the K5 tribute line — but NEVER a market
     identity (information hygiene)."""
+    from agent.backtest.find_optimal_config import StrategyConfig
     from agent.backtest.reincarnation import (
         GENOME_KEYS,
         build_death_window,
         build_regime_ledger,
+        genome_dict,
     )
     from agent.core.state import Weights
 
@@ -1415,14 +1437,19 @@ def test_death_window_renders_ledger_genome_and_tribute() -> None:
         _stamped_step(pnl=4.0, storm=0.0),
     ]
     ledger = build_regime_ledger(steps, loss_multiplier=5.0)
-    genome = {
-        "min_edge": 0.035,
-        "max_breath_risk_pct": 0.95,
-        "min_confidence": 0.08,
-        "kappa": 0.49,
-        "gate_storm_sensitivity": 0.0,
-        "risk_storm_sensitivity": 0.0,
-    }
+    # M2 (r4 LOW-D): derive from an explicit StrategyConfig so the dynamic
+    # GENOME_KEYS loop (below) stays green when kappa_xm is added, while
+    # the literal "min_edge 0.035" / "kappa 0.490" asserts remain non-tautological.
+    _seed = StrategyConfig(
+        weights=w,
+        min_edge=0.035,
+        kappa=0.49,
+        kappa_xm=0.0,
+        max_breath_risk_pct=0.95,
+        min_confidence=0.08,
+        min_bet_size_usd=2.0,
+    )
+    genome = genome_dict(_seed)
     window = build_death_window(
         incarnation=3,
         max_incarnations=20,

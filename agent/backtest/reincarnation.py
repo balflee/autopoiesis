@@ -109,6 +109,7 @@ GENOME_KEYS: Final[dict[str, tuple[float, float]]] = {
     "kappa": (0.01, 1.0),
     "gate_storm_sensitivity": (-1.0, 1.0),
     "risk_storm_sensitivity": (-1.0, 1.0),
+    "kappa_xm": (0.0, 1.0),
 }
 
 #: The extended rebirth-boundary vocabulary: the six fusion keys plus the
@@ -786,6 +787,7 @@ def run_reincarnation_export(
             "min_effective_entry_price": min_eff,
             "min_edge": fragile.min_edge,
             "kappa": fragile.kappa,
+            "kappa_xm": fragile.kappa_xm,
         },
         "split": {
             "train_rows": len(train),
@@ -1794,6 +1796,7 @@ def run_groundhog_export(
             "min_effective_entry_price": min_eff,
             "min_edge": fragile.min_edge,
             "kappa": fragile.kappa,
+            "kappa_xm": fragile.kappa_xm,
             # A10 divine tithe — present only when the gods charge rent.
             **(
                 {

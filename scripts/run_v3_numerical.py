@@ -36,6 +36,7 @@ def load_v3_seed(path: Path = SEED_PATH) -> StrategyConfig:
         min_bet_size_usd=raw["min_bet_size_usd"],
         min_edge=raw["min_edge"],
         kappa=raw["kappa"],
+        kappa_xm=raw.get("kappa_xm", 0.0),
     )
 
 

@@ -1115,8 +1115,17 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _force_utf8_streams() -> None:
+    """Make stdout/stderr UTF-8 so unicode in help/progress/report never crashes
+    a Windows cp1252 console (argparse --help + the arrows/primes we print)."""
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
+    _force_utf8_streams()
     args = _build_parser().parse_args(argv)
 
     lhs_seeds = [int(s) for s in args.lhs_seeds.split(",")]

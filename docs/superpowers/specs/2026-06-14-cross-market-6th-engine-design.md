@@ -1,7 +1,13 @@
 # 设计：第6引擎 `cross_market`（赛果共识 → 首盘电平信号）
 
+> **⚠️ SUPERSEDED — 实现走 B′（加法可学标量 κ_xm），非本稿的「第6融合槽」（A）。** 本稿是 approach-A 旧设计，保留作历史；**权威实现计划见 `~/.claude/plans/iridescent-inventing-eclipse.md`**（经 6 轮对抗审查收敛 h0m0）。与本稿的关键差异：
+> 1. **接法**：不扩 `RATIONAL_ENGINES` 3→4 / `Weights.alpha` 4-simplex（那是 ~30 文件全仓迁移）。改为在 value 模型加一项 `p_model = clamp(price + κ·fused + κ_xm·cross_market_signal, 0, 1)`，`κ_xm` 是新 `StrategyConfig` 标量基因。5 引擎融合拓扑/Weights/weight_updater **零改**；κ_xm=0 时与 v3 逐字节等价。**本稿第 4 节「RATIONAL 3→4 全量」整段作废。**
+> 2. **orientation**：本稿 §3 的 `reference = 首盘市场 outcomes[0]` **作废**——离线缓存(`MarketSnapshot` `extra="forbid"`)不存 `outcomes[0]`，A18 的 slug 匹配是无序的、其 orientation 实为实时 refetch。改为**有序-slug**：`tennis_match_resolver.parse_slug` 取 slug 首姓 → name-match tennis-data Winner/Loser → AvgW/AvgL，fail-closed 中性。
+> 3. **判据**：本稿 §7「三臂(baseline/treatment/control归零)」升级为**统计有效双层**：GO edge CI = 路径无关 `score_config` per-row (treatment−placebo) delta 的 `cluster_bootstrap_ci`（placebo 控吸 winner's-curse、walk-forward OOS、禁喂 survival 路径 pnl）；survival 存活闸 = finished-alive + 终值 PnL > baseline（over-LHS-seed 复制）。
+> 4. **prod**：B′ 下 prod 默认 `κ_xm=0` 即**自动 OFF**——实时赛果赔率源是后续工程，未建好前 cross_market 项不生效，无需额外开关。
+
 - 日期：2026-06-14
-- 状态：设计（待批准）
+- 状态：SUPERSEDED by B′（见上方注 + 计划文件）；本稿留作 approach-A 历史
 - 关联：A18（[[project_a18_setprob_signal]]）实证「赛果大盘共识反推首盘概率」比 Polymarket 首盘价更准（n=1704/61簇，点估 +0.0035 Brier > SESOI，但 cluster CI 含 0=偏正未坐实，两市场 23% 分歧≥5%）；A17 census 定论留首盘别迁。本设计把该信号做成 agent 的**第6决策引擎**并跑生存回测,看能否在 backtest 相建立小而真的 edge → 活更久 + 赚更久。
 - 三相定位：**这是对「backtest 相 edge 天花板≈0」的一次正面挑战**——edge 不来自"我方信号比市场聪明"(A13 已否),而来自**两个 Polymarket 市场的效率差**(薄首盘 vs 厚赛果世界的共识),用**公开赛前数据**就能吃,故**可在 backtest 相做**。
 

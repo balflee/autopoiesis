@@ -188,6 +188,7 @@ class DecisionEngine:
         min_confidence: float = DEFAULT_MIN_CONFIDENCE,
         min_edge: float = 0.0,
         kappa: float = DEFAULT_KAPPA,
+        kappa_xm: float = 0.0,
         entry_price_floor: float | None = None,
         gate_storm_sensitivity: float = 0.0,
         risk_storm_sensitivity: float = 0.0,
@@ -210,6 +211,8 @@ class DecisionEngine:
             raise ValueError(f"min_edge must be in [0, 1] (got {min_edge})")
         if kappa <= 0.0 or kappa > 1.0:
             raise ValueError(f"kappa must be in (0, 1] (got {kappa})")
+        if not 0.0 <= kappa_xm <= 1.0:
+            raise ValueError(f"kappa_xm must be in [0, 1] (got {kappa_xm})")
         if entry_price_floor is not None and not 0.0 <= entry_price_floor < 1.0:
             raise ValueError(
                 f"entry_price_floor must be in [0, 1) (got {entry_price_floor})"
@@ -228,6 +231,7 @@ class DecisionEngine:
         self._min_confidence = min_confidence
         self._min_edge = min_edge
         self._kappa = kappa
+        self._kappa_xm = kappa_xm
         self._entry_price_floor = entry_price_floor
         self._gate_storm_sensitivity = gate_storm_sensitivity
         self._risk_storm_sensitivity = risk_storm_sensitivity
@@ -251,6 +255,7 @@ class DecisionEngine:
         desperate: bool = False,
         price: float | None = None,
         storm: float = 0.0,
+        cross_market_signal: float = 0.0,
     ) -> Action:
         """Run fusion + bet sizing for one tick.
 
@@ -278,6 +283,11 @@ class DecisionEngine:
         if not math.isfinite(storm):
             storm = 0.0
         storm = max(0.0, min(1.0, storm))
+        # B′: sanitize cross_market_signal — non-finite → 0.0, then clamp
+        # to [-1, 1] (mirrors storm sanitization).
+        if not math.isfinite(cross_market_signal):
+            cross_market_signal = 0.0
+        cross_market_signal = max(-1.0, min(1.0, cross_market_signal))
         self.last_gate_diagnostics = None
 
         # ── 1. Missing-signal guard ───────────────────────────────────
@@ -328,7 +338,15 @@ class DecisionEngine:
             # p_model anchors on the PRICE so zero signal ⇒ zero edge ⇒
             # abstain (a (1+fused)/2 anchor would systematically fade
             # favorites on no information).
-            p_model = max(0.0, min(1.0, price + self._kappa * fusion.fused))
+            p_model = max(
+                0.0,
+                min(
+                    1.0,
+                    price
+                    + self._kappa * fusion.fused
+                    + self._kappa_xm * cross_market_signal,
+                ),
+            )
             edge_yes = p_model - price
             if edge_yes == 0.0:
                 return Action(

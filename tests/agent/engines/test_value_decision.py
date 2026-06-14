@@ -387,3 +387,195 @@ def test_gate_diagnostics_none_in_legacy_mode() -> None:
     assert eng.last_gate_diagnostics is not None
     asyncio.run(eng.decide(signals=dict(_uniform_signals(0.4)), **_CALL))
     assert eng.last_gate_diagnostics is None
+
+
+# ── kappa_xm: additive cross-market scalar (B′, plan 2026-06-14) ──────
+
+
+def test_kappa_xm_zero_is_valid_ctor() -> None:
+    """kappa_xm=0.0 MUST construct without raising (unlike kappa whose guard
+    rejects 0 — copying kappa's guard would break every baseline/control
+    engine that explicitly passes kappa_xm=0)."""
+    eng = _engine(kappa=0.25, kappa_xm=0.0)
+    assert eng is not None
+
+
+def test_kappa_xm_below_zero_raises() -> None:
+    with pytest.raises(ValueError, match="kappa_xm"):
+        DecisionEngine(kappa_xm=-0.01)
+
+
+def test_kappa_xm_above_one_raises() -> None:
+    with pytest.raises(ValueError, match="kappa_xm"):
+        DecisionEngine(kappa_xm=1.01)
+
+
+def test_byte_identity_kappa_xm_zero_any_cross_signal() -> None:
+    """Engine with kappa_xm=0.0 + decide(..., cross_market_signal=0.7)
+    must return the SAME Action as the same engine with cross_market_signal
+    omitted (0.0 default). The added term is 0*0.7 = 0."""
+    eng = _engine(kappa=0.25, kappa_xm=0.0)
+    baseline = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)),
+            price=0.5,
+            cross_market_signal=0.0,
+            **_CALL,
+        )
+    )
+    with_signal = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.4)),
+            price=0.5,
+            cross_market_signal=0.7,
+            **_CALL,
+        )
+    )
+    assert baseline == with_signal
+
+
+def test_byte_identity_kappa_xm_nonzero_signal_zero() -> None:
+    """kappa_xm > 0 but cross_market_signal=0.0: added term = kappa_xm*0 = 0.
+    Action must equal kappa_xm=0 engine with the same signal=0."""
+    eng_zero = _engine(kappa=0.25, kappa_xm=0.0)
+    eng_nonzero = _engine(kappa=0.25, kappa_xm=0.5)
+    a = asyncio.run(
+        eng_zero.decide(
+            signals=dict(_uniform_signals(0.4)),
+            price=0.5,
+            cross_market_signal=0.0,
+            **_CALL,
+        )
+    )
+    b = asyncio.run(
+        eng_nonzero.decide(
+            signals=dict(_uniform_signals(0.4)),
+            price=0.5,
+            cross_market_signal=0.0,
+            **_CALL,
+        )
+    )
+    assert a == b
+
+
+def test_byte_identity_no_kappa_xm_kwarg_vs_zero() -> None:
+    """An engine built WITHOUT the kappa_xm kwarg (default=0.0) must produce
+    the same Action as one built WITH kappa_xm=0.0 for any cross_market_signal.
+    This is the pre-change / post-change byte-identity contract."""
+    eng_old = _engine(kappa=0.25)          # no kappa_xm kwarg
+    eng_new = _engine(kappa=0.25, kappa_xm=0.0)
+    sigs = dict(_uniform_signals(0.5))
+    a = asyncio.run(
+        eng_old.decide(signals=sigs, price=0.5, **_CALL)
+    )
+    b = asyncio.run(
+        eng_new.decide(signals=sigs, price=0.5, cross_market_signal=0.9, **_CALL)
+    )
+    assert a == b
+
+
+def test_active_positive_cross_market_signal_bets_yes() -> None:
+    """With neutral fused (score=0 → p_model=price with no kappa_xm), adding
+    kappa_xm=0.5 * cross_market_signal=+1.0 shifts p_model from 0.5 to 1.0
+    (clamped) → YES bet; without kappa_xm the zero-fused would be NO_BET."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5, min_edge=0.0)
+    action = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.0)),  # fused = 0
+            price=0.5,
+            cross_market_signal=1.0,
+            **_CALL,
+        )
+    )
+    assert action.kind is ActionKind.BET
+    assert action.side is Side.YES
+    # edge_yes = clamp(0.5 + 0.5*1.0, 0, 1) - 0.5 = 0.5
+    assert action.edge_pct == pytest.approx(0.5)
+
+
+def test_active_negative_cross_market_signal_bets_no() -> None:
+    """Negative cross_market_signal with neutral fused shifts p_model below
+    price → NO side."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5, min_edge=0.0)
+    action = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.0)),
+            price=0.5,
+            cross_market_signal=-1.0,
+            **_CALL,
+        )
+    )
+    assert action.kind is ActionKind.BET
+    assert action.side is Side.NO
+
+
+def test_active_kappa_xm_full_signal_saturates_p_model() -> None:
+    """price=0.5, kappa_xm=0.5, cross_market_signal=+1, fused=0:
+    un-clamped p_model = 0.5 + 0*kappa + 0.5*1 = 1.0 → clamped 1.0,
+    edge_yes = 1.0 - 0.5 = 0.5, YES side."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5, min_edge=0.0)
+    action = asyncio.run(
+        eng.decide(
+            signals=dict(_uniform_signals(0.0)),
+            price=0.5,
+            cross_market_signal=1.0,
+            **_CALL,
+        )
+    )
+    assert action.kind is ActionKind.BET
+    assert action.side is Side.YES
+    assert action.edge_pct == pytest.approx(0.5)
+
+
+def test_cross_market_signal_clamped_above_one() -> None:
+    """cross_market_signal > 1.0 is clamped to 1.0: the result must match
+    passing 1.0 directly."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5, min_edge=0.0)
+    sigs = dict(_uniform_signals(0.0))
+    clamped = asyncio.run(
+        eng.decide(signals=sigs, price=0.5, cross_market_signal=1.0, **_CALL)
+    )
+    above = asyncio.run(
+        eng.decide(signals=sigs, price=0.5, cross_market_signal=5.0, **_CALL)
+    )
+    assert clamped == above
+
+
+def test_cross_market_signal_clamped_below_minus_one() -> None:
+    """cross_market_signal < -1.0 is clamped to -1.0."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5, min_edge=0.0)
+    sigs = dict(_uniform_signals(0.0))
+    clamped = asyncio.run(
+        eng.decide(signals=sigs, price=0.5, cross_market_signal=-1.0, **_CALL)
+    )
+    below = asyncio.run(
+        eng.decide(signals=sigs, price=0.5, cross_market_signal=-5.0, **_CALL)
+    )
+    assert clamped == below
+
+
+def test_cross_market_signal_nan_inf_treated_as_zero() -> None:
+    """NaN and inf in cross_market_signal must be sanitized to 0.0 — a
+    non-finite value must never poison the p_model arithmetic."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5, min_edge=0.0)
+    sigs = dict(_uniform_signals(0.0))
+    base = asyncio.run(
+        eng.decide(signals=sigs, price=0.5, cross_market_signal=0.0, **_CALL)
+    )
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        got = asyncio.run(
+            eng.decide(signals=sigs, price=0.5, cross_market_signal=bad, **_CALL)
+        )
+        assert got == base, f"cross_market_signal={bad} was not treated as 0"
+
+
+def test_legacy_mode_ignores_cross_market_signal() -> None:
+    """price=None (legacy mode) must be byte-identical regardless of
+    cross_market_signal — the additive term must NOT appear in the legacy path."""
+    eng = _engine(kappa=0.25, kappa_xm=0.5)
+    sigs = dict(_uniform_signals(0.5))
+    base = asyncio.run(eng.decide(signals=sigs, **_CALL))  # no price, no signal
+    with_signal = asyncio.run(
+        eng.decide(signals=sigs, cross_market_signal=0.9, **_CALL)
+    )
+    assert base == with_signal

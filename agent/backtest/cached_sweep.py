@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from statistics import pstdev
-from typing import Protocol
+from typing import Literal, Protocol, overload
 
 from agent.backtest.find_optimal_config import StrategyConfig
 from agent.backtest.historical_fetcher import (
@@ -148,6 +148,10 @@ class SignalRow:
     outcome: str = ""
     winning_price: float = 0.0
     liquidity_cap_usd: float = 0.0
+    # B′ cross-market fields (defaulted so old _signal_rows.json loads via
+    # ``SignalRow(**item)`` without error — missing keys take these defaults).
+    cross_market_signal: float = 0.0
+    cluster_key: str = ""
 
 
 def _entry_asof(
@@ -291,6 +295,38 @@ def _aggregate(pnls: list[float], sizes: list[float], wins: int) -> SweepMetrics
     )
 
 
+@overload
+async def score_config(
+    rows: list[SignalRow],
+    cfg: StrategyConfig,
+    *,
+    bankroll: float = ...,
+    breath: float = ...,
+    entry_price_floor: float | None = ...,
+    effective_entry_price_floor: float | None = ...,
+    max_pnl_usd: float | None = ...,
+    side_correct_pricing: bool = ...,
+    value_betting: bool = ...,
+    emit_per_row: Literal[False] = ...,
+) -> SweepMetrics: ...
+
+
+@overload
+async def score_config(
+    rows: list[SignalRow],
+    cfg: StrategyConfig,
+    *,
+    bankroll: float = ...,
+    breath: float = ...,
+    entry_price_floor: float | None = ...,
+    effective_entry_price_floor: float | None = ...,
+    max_pnl_usd: float | None = ...,
+    side_correct_pricing: bool = ...,
+    value_betting: bool = ...,
+    emit_per_row: Literal[True],
+) -> tuple[SweepMetrics, list[tuple[float, str]]]: ...
+
+
 async def score_config(
     rows: list[SignalRow],
     cfg: StrategyConfig,
@@ -302,7 +338,8 @@ async def score_config(
     max_pnl_usd: float | None = None,
     side_correct_pricing: bool = False,
     value_betting: bool = False,
-) -> SweepMetrics:
+    emit_per_row: bool = False,
+) -> SweepMetrics | tuple[SweepMetrics, list[tuple[float, str]]]:
     """Score one ``cfg`` over ``rows`` via the REAL ``DecisionEngine.decide``.
 
     Each row is decided INDEPENDENTLY at a fixed ``bankroll``/``breath`` (no
@@ -317,7 +354,28 @@ async def score_config(
     whose effective side price is below it — even in legacy mode, so
     ``--realism`` alone cannot harvest the mirrored NO-side lottery (r1 M-3);
     ``max_pnl_usd``/``side_correct_pricing`` thread into the payout;
-    ``value_betting`` passes ``price=row.entry_price`` into decide().
+    ``value_betting`` passes ``price=row.entry_price`` and
+    ``cross_market_signal=row.cross_market_signal`` into decide().
+
+    B′ additions (κ_xm=0 default → byte-identical to the pre-B′ sweep):
+    ``cfg.kappa_xm`` is forwarded to the engine; in value mode the engine
+    applies ``p_model += kappa_xm * cross_market_signal``.  With the
+    defaults (``kappa_xm=0.0`` on ``cfg``, ``cross_market_signal=0.0`` on
+    rows) the arithmetic is an identity — no change to any existing caller.
+
+    ``emit_per_row`` (default ``False``) controls the return type:
+
+    * ``False`` → returns ``SweepMetrics`` (existing callers unchanged).
+    * ``True`` → returns ``(SweepMetrics, list[tuple[float, str]])``:
+      the second element is a per-ROW aligned vector over the rows that
+      survive the ``entry_price_floor`` pre-filter, in input order.
+      ``pnl_i = 0.0`` for NO_BET rows and for effective-floor-skipped
+      rows; ``pnl_i = compute_bet_pnl(...)`` for counted BETs.
+      ``cluster_key_i = row.cluster_key``.  The vector is the same length
+      for any two configs run over the same row set (since the pre-filter
+      keys only on ``entry_price``, which is config-independent), so
+      treatment/placebo per-row vectors are element-wise pairable for the
+      GO-CI cluster bootstrap.
     """
     engine = DecisionEngine(
         max_breath_risk_pct=cfg.max_breath_risk_pct,
@@ -325,6 +383,7 @@ async def score_config(
         min_confidence=cfg.min_confidence,
         min_edge=cfg.min_edge,
         kappa=cfg.kappa,
+        kappa_xm=cfg.kappa_xm,
         entry_price_floor=(
             effective_entry_price_floor if value_betting else None
         ),
@@ -336,6 +395,7 @@ async def score_config(
     if entry_price_floor is not None:
         rows = [r for r in rows if r.entry_price >= entry_price_floor]
 
+    per_row: list[tuple[float, str]] = []
     pnls: list[float] = []
     sizes: list[float] = []
     wins = 0
@@ -353,8 +413,14 @@ async def score_config(
             market_id=row.market_id,
             desperate=False,
             **({"price": row.entry_price} if value_betting else {}),
+            **(
+                {"cross_market_signal": row.cross_market_signal}
+                if value_betting
+                else {}
+            ),
         )
         if action.kind is not ActionKind.BET:
+            per_row.append((0.0, row.cluster_key))
             continue
         assert action.side is not None and action.size_usd is not None
         # Post-decision effective-floor skip (r1 M-3): holds in BOTH modes.
@@ -363,6 +429,7 @@ async def score_config(
                 side=action.side.value, yes_price=row.entry_price
             )
             if eff < effective_entry_price_floor:
+                per_row.append((0.0, row.cluster_key))
                 continue
         pnl = compute_bet_pnl(
             side=action.side.value,
@@ -377,7 +444,11 @@ async def score_config(
         sizes.append(action.size_usd)
         if pnl > 0.0:
             wins += 1
-    return _aggregate(pnls, sizes, wins)
+        per_row.append((pnl, row.cluster_key))
+    metrics = _aggregate(pnls, sizes, wins)
+    if emit_per_row:
+        return metrics, per_row
+    return metrics
 
 
 def score_config_sync(

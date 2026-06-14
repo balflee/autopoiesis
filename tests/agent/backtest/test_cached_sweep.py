@@ -495,3 +495,226 @@ def test_rank_configs_default_no_filter() -> None:
     scored = [(cfgs[0], m(1, 0.2)), (cfgs[1], m(0, 0.8))]
     ranked = rank_configs(scored)  # default min_bets=0 keeps all
     assert [kv[1].sharpe for kv in ranked] == [0.8, 0.2]
+
+
+# --- Task 4 (kappa_xm / cross_market): SignalRow new fields, kappa_xm wiring,
+#     per-row emission for GO-CI ---
+
+
+def test_signal_row_loads_old_style_dict_with_defaults() -> None:
+    """SignalRow(**item) with an old-style dict (missing new fields) uses defaults."""
+    old_item: dict[str, object] = {
+        "market_id": "m_old",
+        "slug": "test-Sinner-vs-Shelton",
+        "scores": {},
+        "confidences": {},
+        "entry_price": 0.45,
+        "outcome": "yes",
+        "winning_price": 1.0,
+        "liquidity_cap_usd": 10.0,
+    }
+    row = SignalRow(**old_item)  # type: ignore[arg-type]
+    assert row.cross_market_signal == 0.0
+    assert row.cluster_key == ""
+
+
+def test_signal_row_round_trip_new_fields(tmp_path: Path) -> None:
+    """cross_market_signal + cluster_key survive save_rows → load_rows."""
+    row = SignalRow(
+        market_id="m1",
+        slug="test-Sinner-vs-Shelton",
+        scores={},
+        confidences={},
+        entry_price=0.4,
+        outcome="yes",
+        winning_price=1.0,
+        liquidity_cap_usd=10.0,
+        cross_market_signal=0.5,
+        cluster_key="Wimbledon|2025-W26",
+    )
+    path = tmp_path / "rows.json"
+    save_rows([row], path)
+    loaded = load_rows(path)
+    assert len(loaded) == 1
+    assert loaded[0].cross_market_signal == 0.5
+    assert loaded[0].cluster_key == "Wimbledon|2025-W26"
+    assert loaded[0] == row
+
+
+def test_score_config_kappa_xm_positive_changes_value_bet() -> None:
+    """kappa_xm>0 + cross_market_signal≠0 produces different metrics than kappa_xm=0."""
+    import asyncio
+
+    row = SignalRow(
+        market_id="m1",
+        slug="test-Sinner-vs-Shelton",
+        scores={k: 0.1 for k in _ALL_SLOTS},
+        confidences={k: 0.8 for k in _ALL_SLOTS},
+        entry_price=0.40,
+        outcome="yes",
+        winning_price=1.0,
+        liquidity_cap_usd=20.0,
+        cross_market_signal=0.5,
+        cluster_key="test|W26",
+    )
+    cfg_zero = StrategyConfig(
+        weights=_flat_weights(), max_breath_risk_pct=0.30,
+        min_confidence=0.05, min_bet_size_usd=1.0, kappa_xm=0.0,
+    )
+    cfg_pos = StrategyConfig(
+        weights=_flat_weights(), max_breath_risk_pct=0.30,
+        min_confidence=0.05, min_bet_size_usd=1.0, kappa_xm=0.5,
+    )
+    m_zero = asyncio.run(score_config([row], cfg_zero, value_betting=True))
+    m_pos = asyncio.run(score_config([row], cfg_pos, value_betting=True))
+    # kappa_xm=0.5 with cross_market_signal=0.5 shifts p_model by 0.25 →
+    # changes Kelly fraction → different sizing → different net_pnl.
+    assert m_zero != m_pos
+
+
+def test_score_config_kappa_xm_zero_byte_identical_any_signal() -> None:
+    """kappa_xm=0: result is identical regardless of cross_market_signal value."""
+    import asyncio
+
+    cfg = StrategyConfig(
+        weights=_flat_weights(), max_breath_risk_pct=0.30,
+        min_confidence=0.05, min_bet_size_usd=1.0, kappa_xm=0.0,
+    )
+    row_neutral = SignalRow(
+        market_id="m1", slug="test-Sinner-vs-Shelton",
+        scores={k: 0.6 for k in _ALL_SLOTS},
+        confidences={k: 0.8 for k in _ALL_SLOTS},
+        entry_price=0.40, outcome="yes", winning_price=1.0,
+        liquidity_cap_usd=20.0,
+        cross_market_signal=0.0, cluster_key="",
+    )
+    row_loud = SignalRow(
+        market_id="m1", slug="test-Sinner-vs-Shelton",
+        scores={k: 0.6 for k in _ALL_SLOTS},
+        confidences={k: 0.8 for k in _ALL_SLOTS},
+        entry_price=0.40, outcome="yes", winning_price=1.0,
+        liquidity_cap_usd=20.0,
+        cross_market_signal=0.999, cluster_key="any",
+    )
+    m_neutral = asyncio.run(score_config([row_neutral], cfg, value_betting=True))
+    m_loud = asyncio.run(score_config([row_loud], cfg, value_betting=True))
+    assert m_neutral == m_loud
+
+
+# --- Per-row emission tests --------------------------------------------------
+
+def _per_row_rows() -> list[SignalRow]:
+    """Four rows: three above floor, one below; two bet, one NO_BET, one filtered."""
+    # entry_price_floor=0.35: rows 0,1,2 survive (entry_price >= 0.35);
+    # row 3 (entry_price=0.30) is pre-filtered and never appears in per_row.
+    return [
+        # row 0: high confidence → BET YES (winner)
+        SignalRow(
+            market_id="m0", slug="s0",
+            scores={k: 0.6 for k in _ALL_SLOTS},
+            confidences={k: 0.8 for k in _ALL_SLOTS},
+            entry_price=0.40, outcome="yes", winning_price=1.0,
+            liquidity_cap_usd=20.0, cross_market_signal=0.0, cluster_key="T|W01",
+        ),
+        # row 1: below min_confidence → NO_BET
+        SignalRow(
+            market_id="m1", slug="s1",
+            scores={k: 0.6 for k in _ALL_SLOTS},
+            confidences={k: 0.005 for k in _ALL_SLOTS},
+            entry_price=0.45, outcome="yes", winning_price=1.0,
+            liquidity_cap_usd=20.0, cross_market_signal=0.0, cluster_key="T|W02",
+        ),
+        # row 2: high confidence → BET YES (loser)
+        SignalRow(
+            market_id="m2", slug="s2",
+            scores={k: 0.6 for k in _ALL_SLOTS},
+            confidences={k: 0.8 for k in _ALL_SLOTS},
+            entry_price=0.40, outcome="no", winning_price=1.0,
+            liquidity_cap_usd=20.0, cross_market_signal=0.0, cluster_key="T|W03",
+        ),
+        # row 3: BELOW floor → pre-filtered, never emitted in per_row
+        SignalRow(
+            market_id="m3", slug="s3",
+            scores={k: 0.6 for k in _ALL_SLOTS},
+            confidences={k: 0.8 for k in _ALL_SLOTS},
+            entry_price=0.30, outcome="yes", winning_price=1.0,
+            liquidity_cap_usd=20.0, cross_market_signal=0.0, cluster_key="T|W04",
+        ),
+    ]
+
+
+def test_per_row_emit_length_equals_survivors() -> None:
+    """Per-row vector length == rows surviving entry_price_floor (3 of 4)."""
+    import asyncio
+
+    rows = _per_row_rows()
+    cfg = _cfg(min_confidence=0.05)
+    result = asyncio.run(
+        score_config(rows, cfg, entry_price_floor=0.35, emit_per_row=True)
+    )
+    metrics, per_row = result
+    assert isinstance(metrics, SweepMetrics)
+    assert len(per_row) == 3  # rows 0,1,2 survive; row 3 filtered out
+
+
+def test_per_row_emit_no_bet_row_is_zero() -> None:
+    """NO_BET rows emit pnl_i=0.0; cluster_key is preserved."""
+    import asyncio
+
+    rows = _per_row_rows()
+    cfg = _cfg(min_confidence=0.05)
+    _, per_row = asyncio.run(
+        score_config(rows, cfg, entry_price_floor=0.35, emit_per_row=True)
+    )
+    # row 1 is the second survivor (index 1) and is NO_BET
+    pnl_i, key_i = per_row[1]
+    assert pnl_i == 0.0
+    assert key_i == "T|W02"
+
+
+def test_per_row_emit_pnl_sum_matches_net_pnl() -> None:
+    """Sum of per_row pnl_i (including 0-fills) equals metrics.net_pnl."""
+    import asyncio
+
+    rows = _per_row_rows()
+    cfg = _cfg(min_confidence=0.05)
+    metrics, per_row = asyncio.run(
+        score_config(rows, cfg, entry_price_floor=0.35, emit_per_row=True)
+    )
+    # NO_BET pnl_i are 0.0; BET pnl_i are the actual compute_bet_pnl values;
+    # their sum must equal metrics.net_pnl.
+    total_pnl = sum(p for p, _ in per_row)
+    assert abs(total_pnl - metrics.net_pnl) < 1e-9
+
+
+def test_per_row_emit_cluster_keys_in_order() -> None:
+    """cluster_key_i matches row.cluster_key for each survivor, in order."""
+    import asyncio
+
+    rows = _per_row_rows()
+    cfg = _cfg(min_confidence=0.05)
+    _, per_row = asyncio.run(
+        score_config(rows, cfg, entry_price_floor=0.35, emit_per_row=True)
+    )
+    assert per_row[0][1] == "T|W01"
+    assert per_row[1][1] == "T|W02"
+    assert per_row[2][1] == "T|W03"
+
+
+def test_per_row_emit_two_configs_same_length() -> None:
+    """Two different configs over the same rows produce equal-length per-row vectors."""
+    import asyncio
+
+    rows = _per_row_rows()
+    cfg_a = _cfg(min_confidence=0.05)
+    cfg_b = _cfg(min_confidence=0.99)  # floor so high nothing bets
+    _, per_row_a = asyncio.run(
+        score_config(rows, cfg_a, entry_price_floor=0.35, emit_per_row=True)
+    )
+    _, per_row_b = asyncio.run(
+        score_config(rows, cfg_b, entry_price_floor=0.35, emit_per_row=True)
+    )
+    # Alignment guard: both vectors must have the same length.
+    assert len(per_row_a) == len(per_row_b) == 3
+    # cfg_b bets nothing → all pnl_i are 0.0
+    assert all(p == 0.0 for p, _ in per_row_b)

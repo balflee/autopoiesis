@@ -2707,6 +2707,181 @@ def _build_corpus_resolver() -> TennisMatchResolver:
     return TennisMatchResolver.from_sackmann_loader(loader, year_range=(2024, 2026))
 
 
+def run_survival_over_rows(
+    survival_rows: list[SurvivalRow],
+    snapshots: list[MarketSnapshot],
+    *,
+    base_seed: StrategyConfig = DEFAULT_OPTIMUM_SEED,
+    fragile_max_breath_risk_pct: float = 1.0,
+    loss_multiplier: float = DEFAULT_LOSS_MULTIPLIER,
+    initial_breath: float = DEFAULT_INITIAL_BREATH,
+    initial_bankroll_usd: float = DEFAULT_PHASE2_BANKROLL_USD,
+    max_lives: int = DEFAULT_MAX_LIVES,
+    max_steps: int = DEFAULT_MAX_STEPS,
+    settle_lag: timedelta = DEFAULT_SETTLE_LAG,
+    state_root: Path | None = None,
+    random_seed: int = 0,
+    with_ai: bool = False,
+    ai: AISeasonContext | None = None,
+    preflight: bool = True,
+    require_applied_deltas: bool = False,
+    entry_price_floor: float | None = DEFAULT_ENTRY_PRICE_FLOOR,
+    max_bet_pnl_usd: float | None = DEFAULT_MAX_BET_PNL_USD,
+    side_correct_pricing: bool = True,
+    value_betting: bool = True,
+    effective_entry_price_floor: float | None = MIRROR_ROW_FLOOR,
+) -> dict[str, Any]:
+    """The reusable RUN-HALF of :func:`run_survival_export` (r5/HIGH-1).
+
+    Owns everything from the FRAGILE-seed crank through the down-sampled
+    journey, over an ALREADY-JOINED + ALREADY-FLOORED ``survival_rows`` list:
+
+    1. derives the deliberately FRAGILE seed from ``base_seed`` (A3b — sizing
+       cranked fragile, fusion weights + genome scalars preserved verbatim via
+       :func:`fragile_seed_from_config`'s ``dataclasses.replace``, so κ_xm
+       carries through automatically);
+    2. drives the multi-life FRESH-loop respawn season with a wired
+       :class:`SurvivalRecorder` (loss_multiplier amplifies losing settlements);
+    3. builds the down-sampled :func:`build_survival_journey` dict (with the
+       frozen static + archetype baselines + the headline learner-vs-static
+       delta) and validates the realism invariants BEFORE returning.
+
+    Returns the in-memory journey dict (the SAME structure
+    :func:`run_survival_export` returns — ``summary`` carries
+    ``learner_final_pnl`` / ``deaths`` / ``lives`` / ``learning_vs_static_delta``
+    etc.) WITHOUT the load-half-only ``summary.rows_dropped_by_floor`` key (only
+    :func:`run_survival_export`, which knows the pre-floor row count, injects
+    that). Mirrors :func:`reincarnation._run_frozen_holdout`'s held-out wiring
+    (``SurvivalRecorder`` + ``run_survival_season`` + summary) so the walk-forward
+    TEST evaluation runs the EXACT same physics the in-sample journey does.
+
+    The defaults mirror :func:`run_survival_export`'s so a delegating caller is
+    byte-identical; see that function's docstring for the per-knob contract.
+    """
+    # Realism v3 (r5 M-1): resolve the MIRROR_ROW_FLOOR sentinel — omitted ⇒
+    # the bet-level floor mirrors the row floor's value; explicit None ⇒
+    # disabled; any other float ⇒ that value.
+    eff_floor: float | None
+    if (
+        effective_entry_price_floor is not None
+        and effective_entry_price_floor == MIRROR_ROW_FLOOR
+    ):
+        eff_floor = entry_price_floor
+    else:
+        eff_floor = effective_entry_price_floor
+
+    seed = fragile_seed_from_config(
+        base_seed, max_breath_risk_pct=fragile_max_breath_risk_pct
+    )
+    recorder = SurvivalRecorder(rows=survival_rows, loss_multiplier=loss_multiplier)
+
+    # AI mode: an explicitly-injected ``ai`` context wins (the test path — a fake
+    # LLM, never live Gemini). Otherwise ``with_ai=True`` builds the DEFAULT
+    # production context: a lazy GeminiClient (the SDK import is deferred to here
+    # so the default/test path never pays for it) + the env-driven L3 budget cap.
+    season_ai = ai
+    if season_ai is None and with_ai:
+        from agent.llm.factory import make_llm_client
+
+        season_ai = AISeasonContext(
+            llm_client=make_llm_client(),
+            l3_guard=L3CostGuard.from_env(),
+        )
+
+    # Live-Gemini PRE-FLIGHT (review M1): when the AI run is active, probe the
+    # SAME client the engines will use BEFORE the season runs. NEVER runs on the
+    # numerical path (``season_ai is None``) or when ``preflight`` is disabled.
+    if season_ai is not None and preflight:
+        preflight_ai_connectivity(season_ai.llm_client)
+        preflight_ai_advisor_applicable(season_ai.llm_client, model=season_ai.model)
+
+    import tempfile
+
+    def _run(root: Path) -> SeasonResult:
+        return run_survival_season(
+            rows=survival_rows,
+            snapshots=snapshots,
+            seed=seed,
+            state_root=root,
+            initial_breath=initial_breath,
+            initial_bankroll_usd=initial_bankroll_usd,
+            max_lives=max_lives,
+            settle_lag=settle_lag,
+            max_bet_pnl_usd=max_bet_pnl_usd,
+            recorder=recorder,
+            ai=season_ai,
+            side_correct_pricing=side_correct_pricing,
+            value_betting=value_betting,
+            effective_entry_price_floor=eff_floor,
+        )
+
+    if state_root is not None:
+        result = _run(Path(state_root))
+    else:
+        with tempfile.TemporaryDirectory(prefix="survival_season_") as tmp:
+            result = _run(Path(tmp))
+
+    # HARD zero-delta invariant (review H-1): on an AI run that asked for it,
+    # refuse to build the journey if the LLM never moved the weights.
+    if (
+        season_ai is not None
+        and require_applied_deltas
+        and recorder.proposals_applied == 0
+    ):
+        raise AIPreflightError(
+            "AI run applied ZERO weight deltas "
+            f"(applied={recorder.proposals_applied}, "
+            f"failed={recorder.proposals_apply_failed}); the LLM never moved the "
+            "agent's weights, so this run is NOT genuinely AI-driven. The "
+            "artifact is NOT written. Check the model / connectivity, or relax "
+            "require_applied_deltas for a deliberately-degraded run."
+        )
+
+    journey = build_survival_journey(
+        result=result,
+        recorder=recorder,
+        rows=survival_rows,
+        seed=seed,
+        max_steps=max_steps,
+        bankroll=initial_bankroll_usd,
+        breath=initial_breath,
+        random_seed=random_seed,
+        entry_price_floor=entry_price_floor,
+        max_bet_pnl_usd=max_bet_pnl_usd,
+        side_correct_pricing=side_correct_pricing,
+        value_betting=value_betting,
+        effective_entry_price_floor=eff_floor,
+    )
+
+    # Realism INVARIANT (review r1 M-1): validate the FULL in-memory data —
+    # not the down-sampled ``steps`` — against both rules BEFORE the caller can
+    # write an artifact, so a journey violating its own physics can never land
+    # on disk. The journey summary already carries the full-data maxima/minima.
+    if max_bet_pnl_usd is not None:
+        max_step = journey["summary"]["max_step_pnl"]
+        max_base = journey["summary"]["max_baseline_pnl"]
+        if max_step is not None and max_step > max_bet_pnl_usd:
+            raise RuntimeError(
+                f"realism invariant violated: a learner step's pnl {max_step!r} "
+                f"exceeds max_bet_pnl_usd {max_bet_pnl_usd!r}; artifact NOT written"
+            )
+        if max_base is not None and max_base > max_bet_pnl_usd:
+            raise RuntimeError(
+                f"realism invariant violated: a baseline point's pnl {max_base!r} "
+                f"exceeds max_bet_pnl_usd {max_bet_pnl_usd!r}; artifact NOT written"
+            )
+    if entry_price_floor is not None:
+        min_entry = journey["summary"]["min_entry_price"]
+        if min_entry is not None and min_entry < entry_price_floor:
+            raise RuntimeError(
+                f"realism invariant violated: a survival row's entry_price "
+                f"{min_entry!r} is below entry_price_floor {entry_price_floor!r}; "
+                "artifact NOT written"
+            )
+
+    return journey
+
+
 def run_survival_export(
     *,
     rows_path: Path,
@@ -2823,18 +2998,11 @@ def run_survival_export(
         the artifact is written (review r1 M-1) and the summary discloses the
         knobs + full-data evidence. ``None`` disables (legacy physics).
     """
-    # Realism v3 (r5 M-1): resolve the MIRROR_ROW_FLOOR sentinel — omitted ⇒
-    # the bet-level floor mirrors the row floor's value; explicit None ⇒
-    # disabled; any other float ⇒ that value.
-    eff_floor: float | None
-    if (
-        effective_entry_price_floor is not None
-        and effective_entry_price_floor == MIRROR_ROW_FLOOR
-    ):
-        eff_floor = entry_price_floor
-    else:
-        eff_floor = effective_entry_price_floor
-
+    # LOAD + JOIN half (r5/HIGH-1): load the cached rows + cassette snapshots and
+    # JOIN them into SurvivalRows (the realism floor applied HERE, before any
+    # consumer sees the universe). The RUN-half is delegated to
+    # :func:`run_survival_over_rows` so the walk-forward TEST evaluation can reuse
+    # the EXACT same fragile-crank + recorder + journey physics.
     rows_raw = load_rows(rows_path)
     snapshots = load_all_cached_markets(cache_dir=cache_dir)
     if resolver is None:
@@ -2854,132 +3022,36 @@ def run_survival_export(
     if max_markets is not None:
         survival_rows = survival_rows[:max_markets]
 
-    seed = fragile_seed_from_config(
-        base_seed, max_breath_risk_pct=fragile_max_breath_risk_pct
-    )
-    recorder = SurvivalRecorder(rows=survival_rows, loss_multiplier=loss_multiplier)
-
-    # AI mode: an explicitly-injected ``ai`` context wins (the test path — a fake
-    # LLM, never live Gemini). Otherwise ``with_ai=True`` builds the DEFAULT
-    # production context: a lazy GeminiClient (the SDK import is deferred to here
-    # so the default/test path never pays for it) + the env-driven L3 budget cap.
-    season_ai = ai
-    if season_ai is None and with_ai:
-        from agent.llm.factory import make_llm_client
-
-        season_ai = AISeasonContext(
-            llm_client=make_llm_client(),
-            l3_guard=L3CostGuard.from_env(),
-        )
-
-    # Live-Gemini PRE-FLIGHT (review M1): when the AI run is active, probe the
-    # SAME client the engines will use with ONE minimal structured_call BEFORE
-    # the season runs. If it is unreachable, abort LOUDLY (AIPreflightError) so a
-    # numerical run can never be silently written as the AI run. NEVER runs on the
-    # numerical path (``season_ai is None``) or when ``preflight`` is disabled.
-    if season_ai is not None and preflight:
-        preflight_ai_connectivity(season_ai.llm_client)
-        # Fail-FAST applicability gate (T-D-018): connectivity alone doesn't prove
-        # the model emits FILLED, applicable weight deltas. Probe the strict
-        # advisor once (its OWN isolated budget — never the season's) and abort
-        # BEFORE a long run if it can't produce a single applicable delta.
-        # ctx.model threads in (r7 H-1) so a provider-pure leg's probe never
-        # sends a foreign model id.
-        preflight_ai_advisor_applicable(season_ai.llm_client, model=season_ai.model)
-
-    import tempfile
-
-    def _run(root: Path) -> SeasonResult:
-        return run_survival_season(
-            rows=survival_rows,
-            snapshots=snapshots,
-            seed=seed,
-            state_root=root,
-            initial_breath=initial_breath,
-            initial_bankroll_usd=initial_bankroll_usd,
-            max_lives=max_lives,
-            settle_lag=settle_lag,
-            max_bet_pnl_usd=max_bet_pnl_usd,
-            recorder=recorder,
-            ai=season_ai,
-            side_correct_pricing=side_correct_pricing,
-            value_betting=value_betting,
-            effective_entry_price_floor=eff_floor,
-        )
-
-    if state_root is not None:
-        result = _run(Path(state_root))
-    else:
-        with tempfile.TemporaryDirectory(prefix="survival_season_") as tmp:
-            result = _run(Path(tmp))
-
-    # HARD zero-delta invariant (review H-1): on an AI run that asked for it,
-    # refuse to write the artifact if the LLM never moved the weights. Keyed off
-    # ``season_ai is not None`` (an injected ``ai`` also activates AI mode, so
-    # ``with_ai`` would mis-key it). This catches the case the fail-fast gate
-    # can't: the gate passed but in-run LLM failures fail-softed every real
-    # proposal — exactly the original 2.5h-run failure mode. Raised BEFORE the
-    # write so no bad artifact ever lands.
-    if (
-        season_ai is not None
-        and require_applied_deltas
-        and recorder.proposals_applied == 0
-    ):
-        raise AIPreflightError(
-            "AI run applied ZERO weight deltas "
-            f"(applied={recorder.proposals_applied}, "
-            f"failed={recorder.proposals_apply_failed}); the LLM never moved the "
-            "agent's weights, so this run is NOT genuinely AI-driven. The "
-            "artifact is NOT written. Check the model / connectivity, or relax "
-            "require_applied_deltas for a deliberately-degraded run."
-        )
-
-    journey = build_survival_journey(
-        result=result,
-        recorder=recorder,
-        rows=survival_rows,
-        seed=seed,
+    # RUN half — the reusable run-half owns the fragile seed + recorder + season
+    # + journey + realism invariants. It returns the EXACT journey this function
+    # historically built (the defaults mirror this signature's), so all existing
+    # callers stay byte-identical.
+    journey = run_survival_over_rows(
+        survival_rows,
+        snapshots,
+        base_seed=base_seed,
+        fragile_max_breath_risk_pct=fragile_max_breath_risk_pct,
+        loss_multiplier=loss_multiplier,
+        initial_breath=initial_breath,
+        initial_bankroll_usd=initial_bankroll_usd,
+        max_lives=max_lives,
         max_steps=max_steps,
-        bankroll=initial_bankroll_usd,
-        breath=initial_breath,
+        settle_lag=settle_lag,
+        state_root=state_root,
         random_seed=random_seed,
+        with_ai=with_ai,
+        ai=ai,
+        preflight=preflight,
+        require_applied_deltas=require_applied_deltas,
         entry_price_floor=entry_price_floor,
         max_bet_pnl_usd=max_bet_pnl_usd,
         side_correct_pricing=side_correct_pricing,
         value_betting=value_betting,
-        effective_entry_price_floor=eff_floor,
+        effective_entry_price_floor=effective_entry_price_floor,
     )
     # Universe-drop evidence (computed here — only this scope knows the
-    # pre-floor row count; ``build_survival_journey`` only ever sees the
-    # already-floored list).
+    # pre-floor row count; the run-half only ever sees the already-floored list).
     journey["summary"]["rows_dropped_by_floor"] = rows_dropped_by_floor
-
-    # Realism INVARIANT (review r1 M-1): validate the FULL in-memory data —
-    # not the down-sampled ``steps`` — against both rules BEFORE the write, so
-    # an artifact violating its own physics can never land on disk. The journey
-    # summary already carries the full-data maxima/minima (evidence keys), so
-    # the check is O(1) reads of those plus the recorder scan they came from.
-    if max_bet_pnl_usd is not None:
-        max_step = journey["summary"]["max_step_pnl"]
-        max_base = journey["summary"]["max_baseline_pnl"]
-        if max_step is not None and max_step > max_bet_pnl_usd:
-            raise RuntimeError(
-                f"realism invariant violated: a learner step's pnl {max_step!r} "
-                f"exceeds max_bet_pnl_usd {max_bet_pnl_usd!r}; artifact NOT written"
-            )
-        if max_base is not None and max_base > max_bet_pnl_usd:
-            raise RuntimeError(
-                f"realism invariant violated: a baseline point's pnl {max_base!r} "
-                f"exceeds max_bet_pnl_usd {max_bet_pnl_usd!r}; artifact NOT written"
-            )
-    if entry_price_floor is not None:
-        min_entry = journey["summary"]["min_entry_price"]
-        if min_entry is not None and min_entry < entry_price_floor:
-            raise RuntimeError(
-                f"realism invariant violated: a survival row's entry_price "
-                f"{min_entry!r} is below entry_price_floor {entry_price_floor!r}; "
-                "artifact NOT written"
-            )
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

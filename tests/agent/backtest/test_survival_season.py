@@ -27,14 +27,21 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from agent.backtest.cached_sweep import SignalRow
+from agent.backtest.cached_sweep import SignalRow, load_rows, save_rows
 from agent.backtest.find_optimal_config import StrategyConfig
-from agent.backtest.historical_fetcher import MarketSnapshot, PricePoint
+from agent.backtest.historical_fetcher import (
+    MarketSnapshot,
+    PricePoint,
+    load_all_cached_markets,
+    save_cached_market,
+)
 from agent.backtest.survival_season import (
     SurvivalRow,
     build_archetype_curve,
     build_static_baseline_curve,
     build_survival_rows,
+    run_survival_export,
+    run_survival_over_rows,
 )
 from agent.backtest.tennis_match_resolver import (
     TennisMatchResolver,
@@ -577,3 +584,172 @@ def test_build_survival_journey_seed_dict_contains_kappa_xm() -> None:
     assert out["seed"]["kappa_xm"] == pytest.approx(0.18)
     # Summary disclosure section
     assert out["summary"]["kappa_xm"] == pytest.approx(0.18)
+
+
+# --------------------------------------------------------------------------- #
+# Task 6a — run_survival_over_rows (the reusable RUN-HALF) byte-identity.
+#
+# ``run_survival_export`` is now: load(rows_path) + load_all_cached_markets +
+# build_survival_rows(JOIN) THEN delegate to ``run_survival_over_rows``. The
+# extracted run-half owns the fragile crank + SurvivalRecorder + season +
+# build_survival_journey. These tests prove the delegation is byte-identical:
+# the same joined rows fed through ``run_survival_over_rows`` directly reproduce
+# the EXACT journey ``run_survival_export`` writes (modulo the single
+# ``rows_dropped_by_floor`` summary key, which only the load-half can know).
+# --------------------------------------------------------------------------- #
+
+
+def _xm_empty_resolver() -> TennisMatchResolver:
+    return TennisMatchResolver(name_index={})
+
+
+def _bullish_base_seed_6a() -> StrategyConfig:
+    # Bullish beta (favours YES) so the fragile derivation BETS YES on the
+    # all-"no" fixture markets -> full-stake losses -> the agent dies + learns.
+    return StrategyConfig(
+        weights=Weights(
+            w_r=0.5, w_s=0.5, alpha=[0.34, 0.33, 0.33], beta=[1.0, 0.0], rho=0.6
+        ),
+        max_breath_risk_pct=1.0,
+        min_confidence=0.05,
+        min_bet_size_usd=1.0,
+    )
+
+
+def _snap_6a(
+    market_id: str, *, entry_ts: str, end_date: str, resolution: str
+) -> MarketSnapshot:
+    return MarketSnapshot(
+        market_id=market_id,
+        slug=f"atp-{market_id}-alpha-vs-bravo",
+        end_date_iso=end_date,
+        resolution_ts_iso=resolution,
+        outcome="no",
+        winning_price=1.0,
+        liquidity_cap_usd=20.0,
+        price_ledger=[PricePoint(ts=entry_ts, mid_price=0.50)],
+    )
+
+
+def _row_6a(snap: MarketSnapshot) -> SignalRow:
+    return SignalRow(
+        market_id=snap.market_id,
+        slug=snap.slug,
+        scores={k: 0.8 for k in (
+            "tennis_technical",
+            "market_momentum",
+            "smart_money",
+            "sentiment_llm",
+            "crowd_volume",
+        )},
+        confidences={k: 0.95 for k in (
+            "tennis_technical",
+            "market_momentum",
+            "smart_money",
+            "sentiment_llm",
+            "crowd_volume",
+        )},
+        entry_price=snap.price_ledger[0].mid_price,
+        outcome=snap.outcome or "no",
+        winning_price=snap.winning_price or 1.0,
+        liquidity_cap_usd=snap.liquidity_cap_usd,
+    )
+
+
+def _write_universe_6a(tmp_path: Path) -> tuple[Path, Path]:
+    snaps = [
+        _snap_6a(
+            "m1",
+            entry_ts="2025-06-01T00:00:00+00:00",
+            end_date="2025-06-01T12:00:00+00:00",
+            resolution="2025-06-01T20:00:00+00:00",
+        ),
+        _snap_6a(
+            "m2",
+            entry_ts="2025-06-05T00:00:00+00:00",
+            end_date="2025-06-05T12:00:00+00:00",
+            resolution="2025-06-05T20:00:00+00:00",
+        ),
+        _snap_6a(
+            "m3",
+            entry_ts="2025-06-10T00:00:00+00:00",
+            end_date="2025-06-10T12:00:00+00:00",
+            resolution="2025-06-10T20:00:00+00:00",
+        ),
+    ]
+    cache_dir = tmp_path / "_cache_tennis"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    for s in snaps:
+        save_cached_market(snapshot=s, cache_dir=cache_dir)
+    rows_path = tmp_path / "_signal_rows.json"
+    save_rows([_row_6a(s) for s in snaps], rows_path)
+    return rows_path, cache_dir
+
+
+def test_run_survival_over_rows_byte_identical_to_export(tmp_path: Path) -> None:
+    """The extracted run-half reproduces the EXACT journey the load+join +
+    run_survival_export path writes, modulo the load-half's
+    ``rows_dropped_by_floor`` summary key."""
+    rows_path, cache_dir = _write_universe_6a(tmp_path)
+    base = _bullish_base_seed_6a()
+    resolver = _xm_empty_resolver()
+
+    # Path A: the full export (load+join + run-half + write).
+    j_export = run_survival_export(
+        rows_path=rows_path,
+        cache_dir=cache_dir,
+        out_path=tmp_path / "out" / "j.json",
+        base_seed=base,
+        initial_breath=3.0,
+        max_lives=5,
+        resolver=resolver,
+    )
+
+    # Path B: manual load+join, then the extracted run-half directly.
+    rows_loaded = load_rows(rows_path)
+    snaps_loaded = load_all_cached_markets(cache_dir=cache_dir)
+    survival_rows = build_survival_rows(rows_loaded, snaps_loaded, resolver)
+    j_over = run_survival_over_rows(
+        survival_rows,
+        snaps_loaded,
+        base_seed=base,
+        initial_breath=3.0,
+        max_lives=5,
+    )
+
+    # Export injects ``rows_dropped_by_floor`` (only the load-half can compute
+    # the pre-floor count); the run-half journey is otherwise identical.
+    assert "rows_dropped_by_floor" in j_export["summary"]
+    expected = {**j_export, "summary": {
+        k: v for k, v in j_export["summary"].items() if k != "rows_dropped_by_floor"
+    }}
+    assert j_over == expected
+
+    # The run-half returns the same journey/summary shape the seed validator
+    # consumes — and does NOT inject the load-half-only key.
+    for key in (
+        "learner_final_pnl",
+        "deaths",
+        "lives",
+        "learning_vs_static_delta",
+    ):
+        assert key in j_over["summary"]
+    assert "rows_dropped_by_floor" not in j_over["summary"]
+
+
+def test_run_survival_over_rows_is_deterministic(tmp_path: Path) -> None:
+    rows_path, cache_dir = _write_universe_6a(tmp_path)
+    rows_loaded = load_rows(rows_path)
+    snaps_loaded = load_all_cached_markets(cache_dir=cache_dir)
+    survival_rows = build_survival_rows(
+        rows_loaded, snaps_loaded, _xm_empty_resolver()
+    )
+    base = _bullish_base_seed_6a()
+
+    j1 = run_survival_over_rows(
+        survival_rows, snaps_loaded, base_seed=base, initial_breath=3.0, max_lives=5
+    )
+    j2 = run_survival_over_rows(
+        survival_rows, snaps_loaded, base_seed=base, initial_breath=3.0, max_lives=5
+    )
+    assert j1 == j2

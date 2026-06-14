@@ -59,6 +59,35 @@ def implied_prob_two_way(odds_ref: object, odds_other: object) -> float | None:
     return inv_ref / (inv_ref + inv_other)
 
 
+def _match_prob_from_set(p_set: float, best_of: int) -> float:
+    """P(win the match) given a constant per-set win prob ``p_set`` (iid sets)."""
+    if best_of >= 5:  # win 3 of up to 5
+        return p_set**3 * (10.0 - 15.0 * p_set + 6.0 * p_set**2)
+    return p_set**2 * (3.0 - 2.0 * p_set)  # best-of-3: win 2 of up to 3
+
+
+def match_to_set_prob(p_match: float, *, best_of: int = 3) -> float:
+    """Invert the best-of-N match model to the implied per-set (≈ first-set) prob.
+
+    Treats sets as i.i.d. with a constant per-set win probability ``p_set``;
+    ``P(match)`` is monotone in ``p_set`` on ``[0, 1]`` so the inverse is unique
+    (bisection). ``p_set`` is taken as the implied P(win the FIRST set) — an
+    approximation (ignores serve order / momentum), disclosed by callers.
+    """
+    if p_match <= 0.0:
+        return 0.0
+    if p_match >= 1.0:
+        return 1.0
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if _match_prob_from_set(mid, best_of) < p_match:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
 # --------------------------------------------------------------------------- #
 # name normalisation / matching
 # --------------------------------------------------------------------------- #

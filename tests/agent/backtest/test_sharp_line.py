@@ -16,6 +16,7 @@ from agent.backtest.sharp_line import (
     BootstrapCI,
     DropBuckets,
     MatchSample,
+    _match_prob_from_set,
     brier_edge,
     build_2a_row,
     build_2b_sample,
@@ -23,6 +24,7 @@ from agent.backtest.sharp_line import (
     implied_prob_two_way,
     iso_week_key,
     join_one_to_one,
+    match_to_set_prob,
     normalize_name,
     resolve_2b_close,
     roi_cell,
@@ -60,6 +62,30 @@ class TestImpliedProb:
 
     def test_nan_returns_none(self) -> None:
         assert implied_prob_two_way(float("nan"), 2.0) is None
+
+
+class TestMatchToSet:
+    def test_fifty_fifty(self) -> None:
+        assert match_to_set_prob(0.5, best_of=3) == pytest.approx(0.5, abs=1e-6)
+        assert match_to_set_prob(0.5, best_of=5) == pytest.approx(0.5, abs=1e-6)
+
+    def test_set_less_extreme_than_match(self) -> None:
+        # a strong match favorite is a weaker per-set favorite
+        p = match_to_set_prob(0.80, best_of=3)
+        assert 0.5 < p < 0.80
+        # best-of-5 compresses more (more sets -> match more certain per set edge)
+        p5 = match_to_set_prob(0.80, best_of=5)
+        assert 0.5 < p5 < p  # bo5 set prob even closer to 0.5 than bo3
+
+    @pytest.mark.parametrize("pm,bo", [(0.65, 3), (0.30, 3), (0.75, 5), (0.42, 5)])
+    def test_round_trip(self, pm: float, bo: int) -> None:
+        p_set = match_to_set_prob(pm, best_of=bo)
+        assert _match_prob_from_set(p_set, bo) == pytest.approx(pm, abs=1e-6)
+
+    def test_monotone_and_bounds(self) -> None:
+        assert match_to_set_prob(0.0, best_of=3) == 0.0
+        assert match_to_set_prob(1.0, best_of=3) == 1.0
+        assert match_to_set_prob(0.6, best_of=3) < match_to_set_prob(0.7, best_of=3)
 
 
 class TestSurname:

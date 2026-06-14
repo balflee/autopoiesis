@@ -51,6 +51,7 @@ MIN_BET_SIZE_BOUNDS = (1.0, 10.0)  # USD floor per bet
 # defaults keep every pre-v3 construction byte-identical.
 MIN_EDGE_BOUNDS = (0.0, 0.15)  # abstain below this |p_model - price|
 KAPPA_BOUNDS = (0.05, 0.50)  # market-prior tilt scale
+KAPPA_XM_BOUNDS: tuple[float, float] = (0.0, 1.0)  # cross-market signal scale; 0.0 = signal off (v3-equivalent)
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class StrategyConfig:
     kappa: float = 0.25
     gate_storm_sensitivity: float = 0.0
     risk_storm_sensitivity: float = 0.0
+    kappa_xm: float = 0.0
 
 
 def _scale(unit: float, bounds: tuple[float, float]) -> float:
@@ -88,21 +90,22 @@ def _scale(unit: float, bounds: tuple[float, float]) -> float:
 def generate_lhs_strategy_configs(n: int, *, seed: int) -> list[StrategyConfig]:
     """``n`` Latin-hypercube :class:`StrategyConfig`, deterministic in ``seed``.
 
-    10 free dims: ``w_r`` (0); the ``alpha`` 2-simplex as two sorted breakpoints
+    11 free dims: ``w_r`` (0); the ``alpha`` 2-simplex as two sorted breakpoints
     (1-2); the ``beta`` split (3); ``rho`` on [0,1] (4); the three family-②
-    knobs scaled to their bounds (5-7); and the two family-③ value-mode knobs
-    ``min_edge`` (8) + ``kappa`` (9). Each column is an independent seeded
-    permutation of the stratum centres ``(i+0.5)/n`` — the Latin-hypercube
-    property — so every 1-D projection is evenly covered.
+    knobs scaled to their bounds (5-7); and the three family-③ value-mode knobs
+    ``min_edge`` (8) + ``kappa`` (9) + ``kappa_xm`` (10). Each column is an
+    independent seeded permutation of the stratum centres ``(i+0.5)/n`` — the
+    Latin-hypercube property — so every 1-D projection is evenly covered.
 
-    NOTE (determinism): dims went 8 → 10 for realism v3. The per-column
-    permutations consume the RNG stream in column order, so columns 0-7
-    reproduce the ORIGINAL 8-dim sample for the same ``seed`` — pre-v3
-    configs are the same points with ``min_edge``/``kappa`` appended.
+    NOTE (determinism): dims went 8 → 10 for realism v3, and 10 → 11 for
+    cross-market kappa_xm. The per-column permutations consume the RNG stream
+    in column order, so columns 0-9 reproduce the ORIGINAL 10-dim (v3) sample
+    for the same ``seed`` — v3 configs are the same points with ``kappa_xm``
+    appended as the last column (index 10).
     """
     if n <= 0:
         raise ValueError(f"n must be > 0 (got {n})")
-    dims = 10
+    dims = 11
     rng = np.random.default_rng(seed)
     centres = (np.arange(n, dtype=np.float64) + 0.5) / n
     cube = np.empty((n, dims), dtype=np.float64)
@@ -126,6 +129,7 @@ def generate_lhs_strategy_configs(n: int, *, seed: int) -> list[StrategyConfig]:
                 min_bet_size_usd=_scale(float(row[7]), MIN_BET_SIZE_BOUNDS),
                 min_edge=_scale(float(row[8]), MIN_EDGE_BOUNDS),
                 kappa=_scale(float(row[9]), KAPPA_BOUNDS),
+                kappa_xm=_scale(float(row[10]), KAPPA_XM_BOUNDS),
             )
         )
     return configs

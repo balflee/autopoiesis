@@ -3,16 +3,25 @@
 Implements the TWO-LAYER statistical verdict from the plan (r4/r5/r6):
 
   LAYER 1 — GO edge CI (path-INDEPENDENT inferential gate)
-    For each LHS seed, TREATMENT and PLACEBO arms each use ``select_winner``
-    (walk-forward OOS) to select a winning config, then score the held-out TEST
-    rows with ``score_config`` (fast-scorer, per-ROW aligned, NO path-dependent
-    survival PnL).  The per-row PnL delta (treatment − placebo) is cluster-
-    bootstrapped over ``iso_week`` clusters.  GO = CI excludes 0 AND positive.
+    The inference unit is the TEST CLUSTER for a SINGLE selection.  On the
+    HEADLINE LHS seed (``lhs_seeds[0]``), TREATMENT (``select_winner`` on the
+    ACTIVE rows, walk-forward OOS) is scored on ACTIVE-test rows (real signal)
+    and each PLACEBO (``select_winner`` on the placebo rows) is scored on
+    PLACEBO-test rows (permuted signal) via ``score_config`` (fast-scorer, per-
+    ROW aligned, NO path-dependent survival PnL).  The per-row PnL delta
+    (treatment − mean placebo) is cluster-bootstrapped ONCE over ``iso_week``
+    clusters → ``go_ci.n`` == matched test rows (NOT × LHS seeds).  The LHS-seed
+    grid is a SEPARATE descriptive selection-robustness readout (per-seed point
+    estimates).  The verdict routes through ``three_state_verdict`` with the
+    pre-registered ``GO_CI_SESOI=0.0`` + ``min_clusters=10``/``min_n=200`` guards
+    → EDGE / INCONCLUSIVE / REFUTED (a sub-floor CI reads INCONCLUSIVE).
 
   LAYER 2 — Survival descriptive gate
-    BASELINE = v3 seed (κ_xm=0) over the active rows (the honest "before").
+    BASELINE = v3 seed (κ_xm=0) over the IDENTICAL held-out TEST SurvivalRows the
+    TREATMENT uses (same split + fragile physics — the honest "before").
     Gate = TREATMENT finished-alive + terminal PnL > BASELINE, with error bars
-    from a sign test over the LHS-seed grid.
+    from a sign test over the LHS-seed grid.  A short test window may saturate
+    finished-alive, so Layer 2 is DESCRIPTIVE and Layer 1 is the inferential gate.
 
   Output → ``docs/backtest/cross_market_journey.md``
 
@@ -58,7 +67,11 @@ from agent.backtest.historical_fetcher import (
     MarketSnapshot,
     load_all_cached_markets,
 )
-from agent.backtest.sharp_line import BootstrapCI, cluster_bootstrap_ci
+from agent.backtest.sharp_line import (
+    BootstrapCI,
+    cluster_bootstrap_ci,
+    three_state_verdict,
+)
 from agent.backtest.survival_season import (
     _build_corpus_resolver,
     build_survival_rows,
@@ -85,6 +98,44 @@ _DEFAULT_PLACEBO_SEEDS = [0, 1, 2]
 _DEFAULT_N = 256
 _N_BOOT = 1000
 _CI_LEVEL = 0.95
+
+# ---------------------------------------------------------------------------
+# PRE-REGISTERED Layer-1 verdict parameters (FIX C — locked, not post-hoc).
+#
+# The GO gate is "the cluster-bootstrap CI excludes 0 AND the sign is positive",
+# guarded by three_state_verdict's min-cluster / min-n floors.  The SESOI is
+# intentionally 0.0 for the per-bet PnL-DELTA substrate: a per-bet PnL delta is
+# already a real-money quantity, so any CI strictly above 0 is a meaningful
+# edge.  We do NOT reuse A18's Brier SESOI (a different substrate) and we do NOT
+# pick a positive PnL SESOI post-hoc (that would be a researcher-degrees-of-
+# freedom leak).  three_state_verdict then reads:
+#   * CI.lo > 0          -> EDGE
+#   * CI.hi < GO_CI_SESOI -> REFUTED  (with SESOI=0 this is CI.hi < 0)
+#   * else               -> INCONCLUSIVE
+# and a sub-min_clusters / sub-min_n CI reads INCONCLUSIVE (never EDGE).
+GO_CI_SESOI = 0.0
+_GO_CI_MIN_CLUSTERS = 10
+_GO_CI_MIN_N = 200  # three_state_verdict's default min_n
+
+
+def layer1_verdict(go_ci: BootstrapCI) -> tuple[str, bool]:
+    """Map the GO-CI to a three-state verdict + the layer1_pass boolean.
+
+    Routes through :func:`~agent.backtest.sharp_line.three_state_verdict` with
+    the PRE-REGISTERED :data:`GO_CI_SESOI` and the min-cluster / min-n guards,
+    so a too-few-cluster or too-small-n CI reads INCONCLUSIVE (NOT EDGE).
+
+    Returns ``(verdict, layer1_pass)`` where ``verdict`` is one of
+    ``"EDGE"`` / ``"INCONCLUSIVE"`` / ``"REFUTED"`` and ``layer1_pass`` is True
+    iff ``verdict == "EDGE"``.
+    """
+    verdict = three_state_verdict(
+        go_ci,
+        sesoi=GO_CI_SESOI,
+        min_n=_GO_CI_MIN_N,
+        min_clusters=_GO_CI_MIN_CLUSTERS,
+    )
+    return verdict, verdict == "EDGE"
 
 # Realism-v3 knobs matching validate_value_seed and the plan:
 _SCORE_KW: dict[str, Any] = {
@@ -183,6 +234,41 @@ def compute_go_delta(
 # ---------------------------------------------------------------------------
 
 
+def get_eval_survival_rows(
+    rows: list[SignalRow],
+    snapshots: list[MarketSnapshot],
+    *,
+    resolver: TennisMatchResolver,
+    walk_forward: bool = True,
+    entry_price_floor: float = _ENTRY_PRICE_FLOOR,
+    train_fraction: float = 0.7,
+) -> list[Any]:
+    """Return the held-out EVAL SurvivalRows using the SAME split that
+    ``select_winner`` uses internally (FIX D — shared split helper).
+
+    * ``walk_forward=True`` → the held-out TEST window (the later
+      ``1 - train_fraction`` of the post-floor, chronologically-sorted rows).
+    * ``walk_forward=False`` → the FULL post-floor universe (v3 in-sample
+      parity — ``select_winner`` evaluates on the full universe in that mode).
+
+    The split is post-floor and config-independent (the entry_price_floor
+    pre-filter runs before the chronological split, exactly as in
+    ``select_winner``), so the BASELINE provably evaluates over the IDENTICAL
+    row set the TREATMENT does — no apples-to-oranges row-count bias.
+    """
+    from agent.backtest.reincarnation import split_rows_by_time
+
+    survival_all = build_survival_rows(
+        rows, snapshots, resolver, entry_price_floor=entry_price_floor
+    )
+    if not walk_forward:
+        return survival_all
+    _train_rows, test_survival = split_rows_by_time(
+        survival_all, train_fraction=train_fraction
+    )
+    return test_survival
+
+
 def get_test_signal_rows(
     active_rows: list[SignalRow],
     snapshots: list[MarketSnapshot],
@@ -202,13 +288,13 @@ def get_test_signal_rows(
     The returned list is the ``[r.signal for r in test_survival_rows]`` mapping
     — the same SignalRows the per-row scorer consumes.
     """
-    from agent.backtest.reincarnation import split_rows_by_time
-
-    survival_all = build_survival_rows(
-        active_rows, snapshots, resolver, entry_price_floor=entry_price_floor
-    )
-    _train_rows, test_survival = split_rows_by_time(
-        survival_all, train_fraction=train_fraction
+    test_survival = get_eval_survival_rows(
+        active_rows,
+        snapshots,
+        resolver=resolver,
+        walk_forward=True,
+        entry_price_floor=entry_price_floor,
+        train_fraction=train_fraction,
     )
     return [r.signal for r in test_survival]
 
@@ -290,10 +376,19 @@ def run_one_seed(
 ) -> SeedTriple:
     """Run the three-arm experiment for one LHS seed.
 
-    TREATMENT: ``select_winner`` on ``active_rows``.
-    BASELINE: ``run_survival_over_rows`` on ``active_rows`` with the v3 seed
-              (κ_xm=0, loaded from ``docs/backtest/value_seed_v3.json``).
+    TREATMENT: ``select_winner`` on ``active_rows`` (winner evaluated on the
+               held-out TEST window when ``walk_forward=True``).
+    BASELINE: v3 seed (κ_xm=0, ``docs/backtest/value_seed_v3.json``) run via
+              ``run_survival_over_rows`` over the IDENTICAL held-out TEST
+              SurvivalRows the TREATMENT uses (FIX D — same split, same
+              fragile physics).  This keeps the comparison apples-to-apples;
+              the old code ran the baseline over the FULL active universe,
+              biasing ``treatment_pnl > baseline_pnl`` by row count.
     PLACEBO: ``select_winner`` on each set of placebo rows, averaged.
+
+    NOTE (Layer-2 caveat): a short test window may saturate finished-alive —
+    fragile seeds rarely die in only ~30% of the season — so Layer 2 is
+    DESCRIPTIVE and Layer 1 (the GO edge CI) is the inferential gate.
 
     Returns the :class:`SeedTriple` for this seed (survival gate only — the
     GO-CI layer is computed separately by :func:`compute_go_ci_for_seeds`).
@@ -301,7 +396,8 @@ def run_one_seed(
     if verbose:
         print(f"\n[seed {lhs_seed}] TREATMENT selecting winner …", flush=True)
 
-    # TREATMENT
+    # TREATMENT — select_winner evaluates the winner on the held-out TEST window
+    # (walk_forward) via the run-half (same fragile physics as the baseline).
     _cfg_t, summary_t = select_winner(
         active_rows,
         snapshots,
@@ -315,14 +411,25 @@ def run_one_seed(
     treatment_alive = summary_t["deaths"] < summary_t["lives"]
     treatment_pnl = summary_t["learner_final_pnl"]
 
-    # BASELINE: v3 seed (κ_xm=0) — load from the committed JSON
+    # BASELINE: v3 seed (κ_xm=0) over the SAME held-out TEST SurvivalRows the
+    # TREATMENT was evaluated on (FIX D — shared split helper, same physics).
     v3_seed = _load_v3_seed()
     if verbose:
-        print(f"[seed {lhs_seed}] BASELINE (v3 seed, κ_xm=0) …", flush=True)
-    all_survival = build_survival_rows(
-        active_rows, snapshots, resolver, entry_price_floor=_ENTRY_PRICE_FLOOR
+        print(
+            f"[seed {lhs_seed}] BASELINE (v3 seed, κ_xm=0) on the TEST partition …",
+            flush=True,
+        )
+    eval_survival = get_eval_survival_rows(
+        active_rows,
+        snapshots,
+        resolver=resolver,
+        walk_forward=walk_forward,
+        entry_price_floor=_ENTRY_PRICE_FLOOR,
+        train_fraction=train_fraction,
     )
-    baseline_journey = run_survival_over_rows(all_survival, snapshots, base_seed=v3_seed, **_JOURNEY_KNOBS)
+    baseline_journey = run_survival_over_rows(
+        eval_survival, snapshots, base_seed=v3_seed, **_JOURNEY_KNOBS
+    )
     baseline_summary = baseline_journey["summary"]
     baseline_alive = baseline_summary["deaths"] < baseline_summary["lives"]
     baseline_pnl = baseline_summary["learner_final_pnl"]
@@ -365,8 +472,131 @@ def run_one_seed(
 
 
 # ---------------------------------------------------------------------------
-# GO-CI computation: per-row delta across all seeds (averaged across placebo)
+# GO-CI computation (FIX A + FIX B)
+#
+#   FIX A — the GO-CI INFERENCE UNIT is the TEST CLUSTER for a SINGLE selection.
+#           Compute the bootstrap ONCE on the HEADLINE LHS seed (lhs_seeds[0]):
+#           one set of per-row deltas, one cluster_bootstrap_ci → go_ci.n equals
+#           the number of matched test rows (NOT × the number of LHS seeds).
+#           The LHS-seed grid is a SEPARATE descriptive replicate axis reported
+#           as a "selection-robustness" readout (per-seed point estimates, with
+#           their min/max/mean spread) — NOT fed into the bootstrap.
+#
+#   FIX B — TREATMENT is scored on ACTIVE-test rows (real signal); PLACEBO is
+#           scored on PLACEBO-test rows (permuted signal).  Because
+#           make_placebo_rows preserves row order + the floor/split keys (which
+#           key on entry_price, signal-independent), placebo-test is the SAME
+#           physical rows in the SAME order as active-test — only the
+#           cross_market_signal column is permuted.  So per-row pairing by index
+#           still holds and the delta isolates GENUINE signal value.
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GoCiResult:
+    """Layer-1 GO edge CI (headline seed) + selection-robustness readout."""
+
+    ci: BootstrapCI
+    """The single cluster-bootstrap CI on the HEADLINE LHS seed's per-row
+    deltas (``ci.n`` == matched test rows, NOT × seeds)."""
+    headline_seed: int
+    """The LHS seed the CI was computed on (``lhs_seeds[0]``)."""
+    per_seed_point: dict[int, float]
+    """Per-LHS-seed point estimate (mean per-row delta) — the descriptive
+    selection-robustness replicate axis (NOT bootstrap input)."""
+    point_min: float
+    point_max: float
+    point_mean: float
+
+
+def _seed_mean_delta(
+    lhs_seed: int,
+    active_rows: list[SignalRow],
+    placebo_rows_by_seed: dict[int, list[SignalRow]],
+    snapshots: list[MarketSnapshot],
+    resolver: TennisMatchResolver,
+    *,
+    n: int,
+    walk_forward: bool,
+    train_fraction: float,
+    verbose: bool,
+) -> tuple[list[float], list[str]]:
+    """Compute the per-ROW mean delta (treatment − mean placebo) for ONE LHS seed.
+
+    TREATMENT is scored on ACTIVE-test rows (real signal); each PLACEBO seed is
+    scored on its own PLACEBO-test rows (permuted signal) — the SAME physical
+    rows / order as active-test, so index-pairing holds.  The per-row delta is
+    averaged across placebo seeds, then unmatched rows are dropped.
+
+    Returns ``(mean_deltas, cluster_keys)`` for this seed (the bootstrap
+    substrate for a single selection).
+    """
+    # TREATMENT: active-test rows (real signal) + winner selected on active rows.
+    active_test = get_test_signal_rows(
+        active_rows,
+        snapshots,
+        resolver=resolver,
+        entry_price_floor=_ENTRY_PRICE_FLOOR,
+        train_fraction=train_fraction,
+    )
+    cfg_t, _ = select_winner(
+        active_rows,
+        snapshots,
+        lhs_seed,
+        walk_forward=walk_forward,
+        resolver=resolver,
+        n=n,
+        train_fraction=train_fraction,
+        verbose=verbose,
+    )
+    result_t = score_arm_per_row(active_test, cfg_t)
+
+    seed_deltas: list[list[float]] = []
+    ck_list: list[str] = []
+    for p_seed, p_rows in placebo_rows_by_seed.items():
+        if verbose:
+            print(
+                f"[GO-CI] lhs_seed={lhs_seed} placebo_seed={p_seed} "
+                "(placebo scored on PLACEBO-test) …",
+                flush=True,
+            )
+        # FIX B: PLACEBO is scored on PLACEBO-test rows (permuted signal),
+        # NOT active-test.  Same physical rows/order (floor/split keys on
+        # entry_price are signal-independent), so per-row pairing holds.
+        placebo_test = get_test_signal_rows(
+            p_rows,
+            snapshots,
+            resolver=resolver,
+            entry_price_floor=_ENTRY_PRICE_FLOOR,
+            train_fraction=train_fraction,
+        )
+        cfg_p, _ = select_winner(
+            p_rows,
+            snapshots,
+            lhs_seed,
+            walk_forward=walk_forward,
+            resolver=resolver,
+            n=n,
+            train_fraction=train_fraction,
+            verbose=verbose,
+        )
+        result_p = score_arm_per_row(placebo_test, cfg_p)
+        deltas, ck_list = compute_go_delta(result_t, result_p)
+        seed_deltas.append(deltas)
+
+    if not seed_deltas:
+        return [], []
+
+    n_rows = len(seed_deltas[0])
+    if not all(len(d) == n_rows for d in seed_deltas):
+        raise ValueError(
+            "Per-row delta vectors differ in length across placebo seeds"
+        )
+    mean_deltas = [
+        sum(seed_deltas[k][i] for k in range(len(seed_deltas))) / len(seed_deltas)
+        for i in range(n_rows)
+    ]
+    return mean_deltas, ck_list
 
 
 def compute_go_ci_for_seeds(
@@ -381,101 +611,76 @@ def compute_go_ci_for_seeds(
     train_fraction: float = 0.7,
     n_boot: int = _N_BOOT,
     verbose: bool = True,
-) -> BootstrapCI:
-    """Layer-1 GO edge CI: cluster-bootstrap over per-row (treatment−placebo)
-    PnL deltas on the TEST partition.
+) -> GoCiResult:
+    """Layer-1 GO edge CI (FIX A + FIX B).
 
-    For each LHS seed:
-      1. Derive the shared TEST signal rows (config-independent, floor-first).
-      2. Run TREATMENT ``select_winner`` to get ``cfg_T``.
-      3. For each placebo seed, run PLACEBO ``select_winner`` to get ``cfg_P``.
-      4. Score both on the IDENTICAL test rows (per-ROW emit).
-      5. Average the per-row deltas across placebo seeds (mean across placebo
-         realizations, then one bootstrap — simplest defensible approach per plan).
-      6. Accumulate deltas and cluster_keys across LHS seeds.
+    The GO-CI inference unit is the TEST CLUSTER for a SINGLE selection, so the
+    cluster bootstrap is computed ONCE on the HEADLINE LHS seed
+    (``lhs_seeds[0]``): one set of per-row (treatment − placebo) deltas, one
+    ``cluster_bootstrap_ci``.  ``ci.n`` == the number of matched test rows
+    (NOT × the number of LHS seeds — pooling across seeds would be pseudo-
+    replication and falsely narrow the CI).
 
-    Feed the accumulated (delta, cluster_key) pairs to
-    :func:`cluster_bootstrap_ci`.
+    The full LHS-seed grid is reported as a SEPARATE descriptive "selection-
+    robustness" readout: each seed's per-row delta POINT estimate (mean delta)
+    and the spread across seeds (min/max/mean).  Those per-seed point estimates
+    are NOT fed into the bootstrap.
 
     HARD INVARIANT: NEVER feed ``SurvivalStep.pnl_usd`` (path-dependent) into
     the bootstrap — only the path-independent fast-scorer per-row PnL.
     """
-    all_deltas: list[float] = []
-    all_cluster_keys: list[str] = []
+    if not lhs_seeds:
+        raise ValueError("lhs_seeds must be non-empty")
 
+    headline_seed = lhs_seeds[0]
+
+    # --- Selection-robustness readout: per-seed point estimate (descriptive) ---
+    per_seed_point: dict[int, float] = {}
+    headline_deltas: list[float] = []
+    headline_cluster_keys: list[str] = []
     for lhs_seed in lhs_seeds:
         if verbose:
-            print(f"\n[GO-CI] lhs_seed={lhs_seed}: computing test rows …", flush=True)
-
-        # Shared test partition (TREATMENT and PLACEBO use IDENTICAL rows)
-        test_signal_rows = get_test_signal_rows(
-            active_rows,
-            snapshots,
-            resolver=resolver,
-            entry_price_floor=_ENTRY_PRICE_FLOOR,
-            train_fraction=train_fraction,
-        )
-
-        # TREATMENT winner config on active rows
-        cfg_t, _ = select_winner(
-            active_rows,
-            snapshots,
+            print(
+                f"\n[GO-CI] lhs_seed={lhs_seed}: per-row mean delta "
+                f"(headline={lhs_seed == headline_seed}) …",
+                flush=True,
+            )
+        mean_deltas, ck_list = _seed_mean_delta(
             lhs_seed,
-            walk_forward=walk_forward,
-            resolver=resolver,
+            active_rows,
+            placebo_rows_by_seed,
+            snapshots,
+            resolver,
             n=n,
+            walk_forward=walk_forward,
             train_fraction=train_fraction,
             verbose=verbose,
         )
+        per_seed_point[lhs_seed] = (
+            sum(mean_deltas) / len(mean_deltas) if mean_deltas else float("nan")
+        )
+        if lhs_seed == headline_seed:
+            headline_deltas = mean_deltas
+            headline_cluster_keys = ck_list
 
-        # Score TREATMENT per-ROW on the test rows
-        result_t = score_arm_per_row(test_signal_rows, cfg_t)
-
-        # Per placebo seed: score PLACEBO per-ROW on the SAME test rows
-        # (IDENTICAL rows — placebo permutation changes cfg_P, not the rows)
-        seed_deltas: list[list[float]] = []
-        for p_seed, p_rows in placebo_rows_by_seed.items():
-            if verbose:
-                print(
-                    f"[GO-CI] lhs_seed={lhs_seed} placebo_seed={p_seed} …",
-                    flush=True,
-                )
-            cfg_p, _ = select_winner(
-                p_rows,
-                snapshots,
-                lhs_seed,
-                walk_forward=walk_forward,
-                resolver=resolver,
-                n=n,
-                train_fraction=train_fraction,
-                verbose=verbose,
-            )
-            # Placebo is scored on the SAME test_signal_rows as treatment —
-            # placebo only changes the training signal values (and thus cfg_P),
-            # not the test rows themselves (the test rows come from active_rows).
-            result_p = score_arm_per_row(test_signal_rows, cfg_p)
-
-            deltas, _ck = compute_go_delta(result_t, result_p)
-            seed_deltas.append(deltas)
-
-        if not seed_deltas:
-            continue
-
-        # Mean delta per row across placebo seeds (simplest defensible averaging)
-        n_rows = len(seed_deltas[0])
-        if not all(len(d) == n_rows for d in seed_deltas):
-            raise ValueError("Per-row delta vectors differ in length across placebo seeds")
-        # cluster_keys come from result_t (same for all placebo seeds)
-        _deltas_0, ck_list = compute_go_delta(result_t, result_p)
-        mean_deltas = [
-            sum(seed_deltas[k][i] for k in range(len(seed_deltas))) / len(seed_deltas)
-            for i in range(n_rows)
-        ]
-        all_deltas.extend(mean_deltas)
-        all_cluster_keys.extend(ck_list)
-
+    # --- Inferential gate: ONE bootstrap on the HEADLINE seed only (FIX A) ---
     rng = np.random.default_rng(42)
-    return cluster_bootstrap_ci(all_deltas, all_cluster_keys, rng=rng, n_boot=n_boot)  # type: ignore[arg-type]
+    ci = cluster_bootstrap_ci(
+        headline_deltas,
+        headline_cluster_keys,
+        rng=rng,  # type: ignore[arg-type]
+        n_boot=n_boot,
+    )
+
+    points = list(per_seed_point.values())
+    return GoCiResult(
+        ci=ci,
+        headline_seed=headline_seed,
+        per_seed_point=per_seed_point,
+        point_min=min(points),
+        point_max=max(points),
+        point_mean=sum(points) / len(points),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +725,46 @@ def _load_v3_seed(seed_path: Path | None = None) -> StrategyConfig:
 # ---------------------------------------------------------------------------
 
 
+def go_ci_headline_seed(
+    go_robustness: GoCiResult | None, lhs_seeds: list[int]
+) -> int:
+    """The headline LHS seed the GO-CI was computed on (FIX A readout)."""
+    if go_robustness is not None:
+        return go_robustness.headline_seed
+    return lhs_seeds[0] if lhs_seeds else 0
+
+
+def _robustness_lines(go_robustness: GoCiResult | None) -> list[str]:
+    """Render the descriptive selection-robustness readout (FIX A).
+
+    The per-LHS-seed point estimates and their spread are reported here — they
+    are NOT fed into the bootstrap (that would be pseudo-replication).
+    """
+    if go_robustness is None or not go_robustness.per_seed_point:
+        return []
+    lines = [
+        "### Selection-robustness readout (per-LHS-seed point estimates)",
+        "",
+        "Descriptive ONLY — the LHS-seed grid is a separate replicate axis, NOT",
+        "pooled into the headline bootstrap above.",
+        "",
+        "| LHS seed | mean per-row delta |",
+        "|----------|--------------------|",
+    ]
+    for seed, point in sorted(go_robustness.per_seed_point.items()):
+        lines.append(f"| {seed} | {point:.6f} |")
+    lines += [
+        "",
+        f"Spread across seeds — min `{go_robustness.point_min:.6f}` | "
+        f"mean `{go_robustness.point_mean:.6f}` | "
+        f"max `{go_robustness.point_max:.6f}`.",
+        "",
+        "---",
+        "",
+    ]
+    return lines
+
+
 def write_report(
     out_path: Path,
     *,
@@ -533,13 +778,21 @@ def write_report(
     train_fraction: float,
     active_path: Path,
     placebo_path: Path,
+    go_robustness: GoCiResult | None = None,
 ) -> None:
-    """Write the two-layer verdict to ``out_path`` as a Markdown document."""
+    """Write the two-layer verdict to ``out_path`` as a Markdown document.
+
+    ``go_ci`` is the HEADLINE-seed cluster-bootstrap CI (FIX A: the bootstrap is
+    computed on a single selection, so ``go_ci.n`` is the matched test rows, NOT
+    × seeds).  ``go_robustness`` (optional) carries the descriptive per-seed
+    point-estimate spread for the selection-robustness section.
+    """
     now = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%MZ")
 
-    # Layer-1 verdict
-    go_verdict = "EDGE" if (go_ci.lo > 0.0 and go_ci.point > 0.0) else "NO_GO"
-    layer1_pass = go_verdict == "EDGE"
+    # Layer-1 verdict — FIX C: route through three_state_verdict (min-cluster /
+    # min-n guard).  Only the EDGE state maps to layer1_pass; INCONCLUSIVE /
+    # REFUTED are rendered explicitly below.
+    go_verdict, layer1_pass = layer1_verdict(go_ci)
 
     # Layer-2 verdict
     layer2_pass = sign_test["verdict"] == "GO"
@@ -548,11 +801,14 @@ def write_report(
     if layer1_pass and layer2_pass:
         conclusion = "EDGE CONFIRMED — both layers pass."
     elif not layer1_pass and not layer2_pass:
-        conclusion = "NO_GO — both layers fail."
+        conclusion = f"NO_GO — both layers fail (Layer 1 = {go_verdict})."
     elif layer1_pass:
         conclusion = "NO_GO — Layer 1 (GO edge CI) passes but Layer 2 (survival gate) fails."
     else:
-        conclusion = "NO_GO — Layer 1 (GO edge CI) fails; Layer 2 (survival gate) irrelevant."
+        conclusion = (
+            f"NO_GO — Layer 1 (GO edge CI) = {go_verdict}; "
+            "Layer 2 (survival gate) irrelevant."
+        )
 
     lines: list[str] = [
         "# Cross-Market κ_xm Journey — Three-Arm Backtest",
@@ -569,34 +825,51 @@ def write_report(
         "",
         f"**{conclusion}**",
         "",
-        "Rule: EDGE recorded only if BOTH Layer 1 (GO edge CI excludes 0, positive) AND",
+        "Rule: EDGE recorded only if BOTH Layer 1 (three_state_verdict == EDGE: "
+        "CI excludes 0, positive sign, ≥min clusters/n) AND",
         "Layer 2 (survival sign test p<0.05, majority of seeds beat baseline) pass.",
         "",
         "---",
         "",
         "## Layer 1 — GO Edge CI (path-independent cluster bootstrap)",
         "",
-        "Substrate: per-ROW PnL delta (treatment − placebo, fast-scorer only —",
-        "**NOT** survival path-dependent PnL). Unmatched rows (cluster_key == '') excluded.",
-        "Both-NO_BET rows contribute delta=0.0 (kept).",
+        "Substrate: per-ROW PnL delta — TREATMENT scored on ACTIVE-test (real",
+        "signal) MINUS PLACEBO scored on PLACEBO-test (permuted signal), fast-",
+        "scorer only (**NOT** survival path-dependent PnL). Unmatched rows",
+        "(cluster_key == '') excluded. Both-NO_BET rows contribute delta=0.0 (kept).",
+        "",
+        f"Inference unit = the test cluster for a SINGLE selection (headline LHS "
+        f"seed `{go_ci_headline_seed(go_robustness, lhs_seeds)}`). The bootstrap is "
+        "computed ONCE on that selection — the LHS-seed grid is a SEPARATE",
+        "descriptive replicate axis (NOT pooled into the bootstrap).",
+        "",
+        f"Pre-registered: GO_CI_SESOI = {GO_CI_SESOI} (per-bet PnL-delta substrate); "
+        f"three_state_verdict(min_clusters={_GO_CI_MIN_CLUSTERS}, min_n={_GO_CI_MIN_N}).",
+        "A sub-min-cluster / sub-min-n CI reads INCONCLUSIVE, never EDGE.",
         "",
         "| Metric | Value |",
         "|--------|-------|",
-        f"| n (matched test rows × LHS seeds) | {go_ci.n} |",
+        f"| n (matched test rows, headline seed — NOT × LHS seeds) | {go_ci.n} |",
         f"| n_clusters | {go_ci.n_clusters} |",
         f"| point estimate (mean delta) | {go_ci.point:.6f} |",
         f"| 95% cluster-bootstrap CI lo | {go_ci.lo:.6f} |",
         f"| 95% cluster-bootstrap CI hi | {go_ci.hi:.6f} |",
         f"| iid CI lo (sensitivity) | {go_ci.iid_lo:.6f} |",
         f"| iid CI hi (sensitivity) | {go_ci.iid_hi:.6f} |",
-        f"| **Layer 1 verdict** | **{go_verdict}** |",
+        f"| **Layer 1 verdict (EDGE / INCONCLUSIVE / REFUTED)** | **{go_verdict}** |",
         "",
+        *_robustness_lines(go_robustness),
         "---",
         "",
         "## Layer 2 — Survival Descriptive Gate (per-seed sign test)",
         "",
-        f"BASELINE = v3 seed (κ_xm=0). Error bars from n={len(triples)} LHS seeds.",
+        "BASELINE = v3 seed (κ_xm=0), evaluated on the IDENTICAL held-out TEST",
+        f"SurvivalRows the TREATMENT uses (same split, same fragile physics). "
+        f"Error bars from n={len(triples)} LHS seeds.",
         "**NOT cluster-bootstrapped** (survival is path-dependent).",
+        "Caveat: a short test window may saturate finished-alive (fragile seeds",
+        "rarely die in ~30% of the season) — so Layer 2 is DESCRIPTIVE and",
+        "Layer 1 (the GO edge CI) is the inferential gate.",
         "",
         "| LHS seed | T alive | T PnL | B alive | B PnL | T>B? |",
         "|----------|---------|-------|---------|-------|------|",
@@ -698,13 +971,15 @@ def run_journey(
     verbose:
         Whether to print progress.
 
-    Returns a dict with keys: ``go_ci``, ``sign_test``, ``triples``,
-    ``layer1_pass``, ``layer2_pass``, ``overall_edge``.
+    Returns a dict with keys: ``go_ci`` (headline-seed :class:`BootstrapCI`),
+    ``go_robustness`` (:class:`GoCiResult`), ``go_verdict`` (three-state),
+    ``sign_test``, ``triples``, ``layer1_pass``, ``layer2_pass``,
+    ``overall_edge``.
     """
-    # Layer 1: GO edge CI
+    # Layer 1: GO edge CI (headline-seed single bootstrap + robustness readout)
     if verbose:
         print("\n=== LAYER 1: GO edge CI ===", flush=True)
-    go_ci = compute_go_ci_for_seeds(
+    go_result = compute_go_ci_for_seeds(
         lhs_seeds,
         active_rows,
         placebo_rows_by_seed,
@@ -716,6 +991,7 @@ def run_journey(
         n_boot=n_boot,
         verbose=verbose,
     )
+    go_ci = go_result.ci
 
     # Layer 2: survival gate + sign test
     if verbose:
@@ -736,7 +1012,8 @@ def run_journey(
         triples.append(triple)
     sign_test = sign_test_over_seeds(triples)
 
-    layer1_pass = go_ci.lo > 0.0 and go_ci.point > 0.0
+    # FIX C: Layer-1 pass routes through three_state_verdict (min-cluster/min-n).
+    go_verdict, layer1_pass = layer1_verdict(go_ci)
     layer2_pass = sign_test["verdict"] == "GO"
 
     write_report(
@@ -751,10 +1028,13 @@ def run_journey(
         train_fraction=train_fraction,
         active_path=Path("(active)"),
         placebo_path=Path("(placebo)"),
+        go_robustness=go_result,
     )
 
     return {
         "go_ci": go_ci,
+        "go_robustness": go_result,
+        "go_verdict": go_verdict,
         "sign_test": sign_test,
         "triples": triples,
         "layer1_pass": layer1_pass,
@@ -809,9 +1089,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--n", type=int, default=_DEFAULT_N, help="LHS sweep size.")
     ap.add_argument(
         "--walk-forward",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
-        help="Use walk-forward OOS split (default: True).",
+        help="Use walk-forward OOS split (default: True). Pass "
+        "--no-walk-forward to reach the v3 in-sample path.",
     )
     ap.add_argument(
         "--train-fraction",
@@ -848,7 +1129,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[journey] loading placebo rows from {args.placebo} …", flush=True)
     # Build placebo rows for each seed:
     # seed=0 comes from the pre-written file; extra seeds generated in-memory.
-    from setprob_augment import make_placebo_rows  # type: ignore[import-not-found]
+    # Import via the scripts package (consistent with the tests + the rest of
+    # the file's agent.* imports); the bare `from setprob_augment import …`
+    # ModuleNotFoundError'd at runtime since scripts/ is not on the package path.
+    from scripts.setprob_augment import make_placebo_rows
 
     base_placebo = load_rows(args.placebo)
     placebo_rows_by_seed: dict[int, list[SignalRow]] = {}
@@ -880,8 +1164,9 @@ def main(argv: list[str] | None = None) -> int:
     sign = result["sign_test"]
     print(
         f"\n[journey] DONE\n"
-        f"  Layer 1 GO-CI: [{go_ci.lo:.4f}, {go_ci.hi:.4f}]  point={go_ci.point:.4f}  "
-        f"n={go_ci.n}  n_clusters={go_ci.n_clusters}\n"
+        f"  Layer 1 GO-CI ({result['go_verdict']}): [{go_ci.lo:.4f}, {go_ci.hi:.4f}]  "
+        f"point={go_ci.point:.4f}  n={go_ci.n} (matched test rows, headline seed)  "
+        f"n_clusters={go_ci.n_clusters}\n"
         f"  Layer 2 sign test: {sign['n_treatment_wins']}/{sign['n_seeds']} "
         f"seeds T>B  p={sign['sign_test_pvalue']}\n"
         f"  Overall: {'EDGE' if result['overall_edge'] else 'NO_GO'}",

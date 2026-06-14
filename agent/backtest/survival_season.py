@@ -254,6 +254,16 @@ class SurvivalRow:
     def entry_price(self) -> float:
         return self.signal.entry_price
 
+    @property
+    def cross_market_signal(self) -> float:
+        """B′ Task 5: delegate to the embedded SignalRow (no duplication)."""
+        return self.signal.cross_market_signal
+
+    @property
+    def cluster_key(self) -> str:
+        """B′ Task 5: delegate to the embedded SignalRow (needed downstream)."""
+        return self.signal.cluster_key
+
 
 def _recompute_entry_asof(
     snap: MarketSnapshot, *, entry_fraction: float
@@ -580,6 +590,9 @@ class SurvivalTickSource:
             signals=row_to_signals(row.signal),
             price=row.entry_price,
             liquidity_cap_usd=row.liquidity_cap,
+            # B′ Task 5: thread cross-market signal into the live-learner carrier
+            # so SandboxPhase2Loop.decide() receives it in value mode.
+            cross_market_signal=row.signal.cross_market_signal,
         )
 
 
@@ -1523,6 +1536,9 @@ def _decision_engine_from_seed(
         min_confidence=seed.min_confidence,
         min_edge=seed.min_edge,
         kappa=seed.kappa,
+        # B′ Task 5: thread κ_xm so the engine can apply the cross-market
+        # additive term in value mode (0.0 default = byte-identical baseline).
+        kappa_xm=seed.kappa_xm,
         entry_price_floor=effective_entry_price_floor,
         # A9 genome: the storm-conditional gate levers ride the seed
         # (0.0 defaults = byte-identical pre-kit arithmetic).
@@ -2061,6 +2077,10 @@ async def _static_baseline_curve_async(
             market_id=row.market_id,
             desperate=False,
             **({"price": row.entry_price} if value_betting else {}),
+            # B′ Task 5: forward cross-market signal to frozen baselines in
+            # value mode so they see the same signal as the live learner
+            # (legacy mode is byte-identical — kwarg absent → default 0.0).
+            **({"cross_market_signal": row.cross_market_signal} if value_betting else {}),
         )
         # Post-decision effective-floor gate (r4 M-1): identical to the
         # loop's pre-place_order gate, so a legacy-mode static baseline can
@@ -2581,6 +2601,8 @@ def build_survival_journey(
             "min_bet_size_usd": seed.min_bet_size_usd,
             "min_edge": seed.min_edge,
             "kappa": seed.kappa,
+            # B′ Task 5: expose κ_xm so downstream seed loaders can round-trip.
+            "kappa_xm": seed.kappa_xm,
         },
         "lives": lives_payload,
         "steps": [_step_to_dict(s) for s in sampled],
@@ -2618,6 +2640,8 @@ def build_survival_journey(
             "value_betting": value_betting,
             "min_edge": seed.min_edge,
             "kappa": seed.kappa,
+            # B′ Task 5: disclose κ_xm alongside kappa for symmetry.
+            "kappa_xm": seed.kappa_xm,
             "effective_entry_price_floor": effective_entry_price_floor,
             "min_effective_entry_price": min_effective_entry_price,
         },

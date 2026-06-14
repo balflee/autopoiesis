@@ -542,6 +542,10 @@ class TickInputs:
     signals: dict[str, Signal]
     price: float
     liquidity_cap_usd: float
+    # B′ cross-market scalar (Task 5). Defaulted so existing TickInputs
+    # constructors in capture_money_shot.py / replay_runner.py / server/main.py
+    # keep working unchanged (they omit it → 0.0).
+    cross_market_signal: float = 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -1729,6 +1733,13 @@ class SandboxPhase2Loop:
                 market_id=inputs.market_id,
                 desperate=self._desperate,
                 **({"price": inputs.price} if self._value_betting else {}),
+                # B′ Task 5: forward cross-market signal in value mode only
+                # (legacy mode is byte-identical — kwarg absent → default 0.0).
+                **(
+                    {"cross_market_signal": inputs.cross_market_signal}
+                    if self._value_betting
+                    else {}
+                ),
                 **({"storm": self._storm} if self._storm_enabled else {}),
             )
             market_id_for_record = inputs.market_id

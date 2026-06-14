@@ -449,6 +449,80 @@ def test_value_betting_passes_price_into_decide_iff_flag_on(
     assert eng_value.calls[0]["price"] == pytest.approx(0.4)  # _ScriptedTickInputs
 
 
+def test_value_betting_forwards_cross_market_signal_iff_flag_on(
+    tmp_path: Path,
+) -> None:
+    """H3 seam (承重): ``value_betting=True`` ⇒ decide() receives
+    ``cross_market_signal=inputs.cross_market_signal``; default False ⇒
+    kwarg absent (legacy byte-unchanged).
+
+    Pattern-matches ``test_value_betting_passes_price_into_decide_iff_flag_on``.
+    Uses a bespoke tick source that injects ``cross_market_signal=0.77`` so the
+    kwarg round-trip is distinguishable from the default 0.0.
+    """
+    no_bet = Action(kind=ActionKind.NO_BET, no_bet_reason="scripted")
+
+    class _XmTickSource:
+        """Deterministic tick source with non-zero cross_market_signal."""
+
+        def inputs_for(
+            self, *, asof_ts: datetime, tick: int
+        ) -> TickInputs | None:
+            iso = asof_ts.isoformat()
+            signals: dict[str, Signal] = {
+                TENNIS_TECHNICAL: Signal(
+                    score=0.9, confidence=0.9, available_at=iso,
+                    rationale="", raw_features={},
+                ),
+                MARKET_MOMENTUM: Signal(
+                    score=0.8, confidence=0.9, available_at=iso,
+                    rationale="", raw_features={},
+                ),
+                SMART_MONEY: Signal(
+                    score=0.7, confidence=0.85, available_at=iso,
+                    rationale="", raw_features={},
+                ),
+                SENTIMENT_LLM: Signal(
+                    score=0.6, confidence=0.8, available_at=iso,
+                    rationale="", raw_features={},
+                ),
+                CROWD_VOLUME: Signal(
+                    score=0.6, confidence=0.85, available_at=iso,
+                    rationale="", raw_features={},
+                ),
+            }
+            return TickInputs(
+                market_id="m-l3-001",
+                signals=signals,
+                price=0.4,
+                liquidity_cap_usd=50.0,
+                cross_market_signal=0.77,
+            )
+
+    # --- legacy mode: cross_market_signal must NOT reach decide() ---
+    eng_legacy = _RecordingDecisionEngine(action=no_bet)
+    loop_leg, _, _, clock_leg = _build_loop(
+        tmp_path=tmp_path / "legacy",
+        decision_engine=eng_legacy,
+        tick_inputs=_XmTickSource(),
+    )
+    _drive(loop_leg, n=1, clock=clock_leg)
+    assert len(eng_legacy.calls) == 1
+    assert "cross_market_signal" not in eng_legacy.calls[0]
+
+    # --- value mode: cross_market_signal must reach decide() ---
+    eng_value = _RecordingDecisionEngine(action=no_bet)
+    loop_val, _, _, clock_val = _build_loop(
+        tmp_path=tmp_path / "value",
+        decision_engine=eng_value,
+        value_betting=True,
+        tick_inputs=_XmTickSource(),
+    )
+    _drive(loop_val, n=1, clock=clock_val)
+    assert len(eng_value.calls) == 1
+    assert eng_value.calls[0]["cross_market_signal"] == pytest.approx(0.77)
+
+
 def test_effective_floor_gates_legacy_mode_bet_before_place_order(
     tmp_path: Path,
 ) -> None:

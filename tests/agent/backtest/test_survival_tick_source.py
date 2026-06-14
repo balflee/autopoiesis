@@ -438,3 +438,54 @@ def test_controllable_clock_tolerates_forward_within_window_pin() -> None:
         pass
     else:  # pragma: no cover - guard
         raise AssertionError("set_to before the base must still raise")
+
+
+# --------------------------------------------------------------------------- #
+# Task 5 — cross_market_signal threading through inputs_for (H3 seam).
+# --------------------------------------------------------------------------- #
+
+
+def test_inputs_for_threads_cross_market_signal_from_signal_row() -> None:
+    """``SurvivalTickSource.inputs_for`` must carry ``row.signal.cross_market_signal``
+    into the returned ``TickInputs.cross_market_signal`` so the live-learner
+    ``SandboxPhase2Loop.decide()`` receives the signal in value mode.
+
+    Uses a row with ``cross_market_signal=0.5`` (non-zero, distinguishable from
+    the default ``0.0``) so the assertion is not vacuously true.
+    """
+    xm_signal = SignalRow(
+        market_id="mXm",
+        slug="slug-mXm",
+        scores={k: 0.4 for k in _SLOTS},
+        confidences={k: 0.7 for k in _SLOTS},
+        entry_price=0.45,
+        outcome="yes",
+        winning_price=1.0,
+        liquidity_cap_usd=15.0,
+        cross_market_signal=0.5,  # non-zero to make the test non-vacuous
+    )
+    row = SurvivalRow(
+        market_id="mXm",
+        slug="slug-mXm",
+        signal=xm_signal,
+        entry_asof_ts_iso="2025-08-01T00:00:00+00:00",
+        resolution_ts_iso="2025-08-01T20:00:00+00:00",
+        end_date_iso="2025-08-01T12:00:00+00:00",
+        outcome="yes",
+        winning_price=1.0,
+        liquidity_cap=15.0,
+        players=("alpha", "bravo"),
+        surface="Hard",
+    )
+    schedule = build_survival_schedule([row], settle_lag=_SETTLE_LAG)
+    source = SurvivalTickSource(schedule)
+    decision_ticks = [
+        i for i, s in enumerate(schedule.stops) if s.market_id == "mXm"
+    ]
+    assert decision_ticks, "mXm must appear as a decision stop"
+    ti = source.inputs_for(
+        asof_ts=schedule.stops[decision_ticks[0]].asof_ts,
+        tick=decision_ticks[0],
+    )
+    assert isinstance(ti, TickInputs)
+    assert ti.cross_market_signal == row.signal.cross_market_signal  # 0.5

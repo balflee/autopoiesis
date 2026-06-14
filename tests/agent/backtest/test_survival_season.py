@@ -407,3 +407,173 @@ def test_static_baseline_min_edge_gate_diverges_value_from_legacy() -> None:
     assert legacy_bets == 3  # min_edge is inert in legacy mode
     assert value_bets == 0
     assert value_bets < legacy_bets
+
+
+# --------------------------------------------------------------------------- #
+# Task 5 — kappa_xm threading, cross_market_signal delegation, seed dict.
+# --------------------------------------------------------------------------- #
+
+
+def _seed_config_xm(
+    *, min_edge: float = 0.0, kappa: float = 0.25, kappa_xm: float = 0.0
+) -> StrategyConfig:
+    return StrategyConfig(
+        weights=Weights(
+            w_r=0.5, w_s=0.5, alpha=[1 / 3, 1 / 3, 1 / 3], beta=[0.5, 0.5], rho=1.0
+        ),
+        max_breath_risk_pct=0.5,
+        min_confidence=0.0,
+        min_bet_size_usd=1.0,
+        min_edge=min_edge,
+        kappa=kappa,
+        kappa_xm=kappa_xm,
+    )
+
+
+def _survival_row_xm(
+    *,
+    market_id: str = "m_xm",
+    entry_price: float = 0.5,
+    outcome: str = "yes",
+    score: float = 0.1,
+    confidence: float = 0.5,
+    cross_market_signal: float = 0.0,
+    cluster_key: str = "",
+) -> SurvivalRow:
+    """SurvivalRow with non-default cross_market_signal / cluster_key."""
+    slots = (
+        "tennis_technical",
+        "market_momentum",
+        "smart_money",
+        "sentiment_llm",
+        "crowd_volume",
+    )
+    sig = SignalRow(
+        market_id=market_id,
+        slug=f"test-{market_id}",
+        scores={k: score for k in slots},
+        confidences={k: confidence for k in slots},
+        entry_price=entry_price,
+        outcome=outcome,
+        winning_price=1.0,
+        liquidity_cap_usd=5.0,
+        cross_market_signal=cross_market_signal,
+        cluster_key=cluster_key,
+    )
+    return SurvivalRow(
+        market_id=market_id,
+        slug=sig.slug,
+        signal=sig,
+        entry_asof_ts_iso="2025-06-01T09:00:00+00:00",
+        resolution_ts_iso="2025-06-01T23:00:00+00:00",
+        end_date_iso="2025-06-02T00:00:00+00:00",
+        outcome=outcome,
+        winning_price=1.0,
+        liquidity_cap=5.0,
+        players=None,
+        surface=None,
+    )
+
+
+def test_survival_row_cross_market_signal_delegates_to_signal() -> None:
+    """``SurvivalRow.cross_market_signal`` must mirror ``signal.cross_market_signal``."""
+    row = _survival_row_xm(cross_market_signal=0.42)
+    assert row.cross_market_signal == pytest.approx(0.42)
+    assert row.cross_market_signal == row.signal.cross_market_signal
+
+
+def test_survival_row_cluster_key_delegates_to_signal() -> None:
+    """``SurvivalRow.cluster_key`` must mirror ``signal.cluster_key``."""
+    row = _survival_row_xm(cluster_key="Wimbledon|2025-W27")
+    assert row.cluster_key == "Wimbledon|2025-W27"
+    assert row.cluster_key == row.signal.cluster_key
+
+
+def test_decision_engine_from_seed_threads_kappa_xm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_decision_engine_from_seed`` must forward ``seed.kappa_xm`` to the
+    engine so the κ_xm lever is live in value mode."""
+    import agent.backtest.survival_season as ss
+    from agent.engines.decision import DecisionEngine
+
+    built: list[dict[str, object]] = []
+
+    class _CapturingEngine:
+        async def decide(self, **kwargs: object) -> Action:
+            return Action(kind=ActionKind.NO_BET, no_bet_reason="scripted")
+
+    original_init = DecisionEngine.__init__
+
+    def _capturing_init(self: DecisionEngine, **kwargs: object) -> None:  # type: ignore[override]
+        built.append(dict(kwargs))
+        original_init(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(DecisionEngine, "__init__", _capturing_init)
+
+    seed = _seed_config_xm(kappa_xm=0.33)
+    ss._decision_engine_from_seed(seed)
+
+    assert built, "DecisionEngine.__init__ must be called"
+    assert built[0].get("kappa_xm") == pytest.approx(0.33)
+
+
+def test_static_baseline_value_mode_threads_cross_market_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Value mode must pass ``cross_market_signal=row.cross_market_signal`` into
+    decide(); legacy mode must NOT (byte-identical invariant)."""
+    import agent.backtest.survival_season as ss
+
+    rows = [_survival_row_xm(entry_price=0.40, outcome="yes", cross_market_signal=0.55)]
+    seed = _seed_config_xm()
+
+    eng_legacy = _RecordingEngine()
+    monkeypatch.setattr(ss, "_decision_engine_from_seed", lambda s, **kw: eng_legacy)
+    build_static_baseline_curve(rows, seed, value_betting=False)
+    assert len(eng_legacy.calls) == 1
+    assert "cross_market_signal" not in eng_legacy.calls[0]
+
+    eng_value = _RecordingEngine()
+    monkeypatch.setattr(ss, "_decision_engine_from_seed", lambda s, **kw: eng_value)
+    build_static_baseline_curve(rows, seed, value_betting=True)
+    assert len(eng_value.calls) == 1
+    assert eng_value.calls[0]["cross_market_signal"] == pytest.approx(0.55)
+
+
+def test_build_survival_journey_seed_dict_contains_kappa_xm() -> None:
+    """Both seed-dict emitters in ``build_survival_journey`` must include
+    ``"kappa_xm"`` so downstream loaders that read either location get the
+    value.
+
+    Uses empty ``rows`` / recorder to stay lightweight (no physics run);
+    the assertions target the seed + summary serialisation keys only.
+    """
+    from agent.backtest.survival_season import (
+        SeasonResult,
+        SurvivalRecorder,
+        build_survival_journey,
+    )
+    from agent.engines.weight_updater import WeightUpdater
+
+    seed = _seed_config_xm(kappa_xm=0.18)
+    result = SeasonResult(
+        lives=(),
+        deaths=0,
+        seed=seed,
+        shared_weight_updater=WeightUpdater(),
+    )
+    recorder = SurvivalRecorder(rows=[])
+
+    out = build_survival_journey(
+        result=result,
+        recorder=recorder,
+        rows=[],
+        seed=seed,
+        value_betting=False,
+        side_correct_pricing=False,
+    )
+    # Primary seed section
+    assert out["seed"]["kappa_xm"] == pytest.approx(0.18)
+    # Summary disclosure section
+    assert out["summary"]["kappa_xm"] == pytest.approx(0.18)

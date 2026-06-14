@@ -677,6 +677,72 @@ export default function BacktestRoute(): JSX.Element {
             ))}
           </div>
         </section>
+
+        {/* ---- 05 · CROSS-MARKET PROBE (honest no-go) ------------- */}
+        <section
+          data-testid="cross-market-probe"
+          className="ab-reveal mt-16"
+          style={{ animationDelay: "440ms" }}
+        >
+          <SectionHead
+            index="05"
+            kicker="cross-market probe"
+            title="An honest no-go"
+          />
+          <p className="mt-3 max-w-2xl font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
+            We fed the agent a sixth input — the match-winner consensus
+            (de-vigged market odds) inverted to an implied first-set
+            probability — as an additive, learnable tilt{" "}
+            <span className="text-[var(--ab-text)]">κ_xm</span> on the value
+            model, and asked the only question that matters: a real edge, or
+            just a new knob to overfit?
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <MethodCard
+              stat="0.232"
+              title="κ_xm selected"
+              body="The walk-forward sweep CHOSE a non-zero κ_xm — the optimizer wanted to use the signal. On its own, a promising sign."
+            />
+            <MethodCard
+              stat="5 / 5"
+              title="survival beat v3 · p=0.031"
+              body="In all five seeds the κ_xm seed out-survived the v3 baseline on the held-out window. A naive read would call this an edge."
+            />
+            <MethodCard
+              stat="∅"
+              title="the GO edge CI"
+              body="But the placebo-controlled, path-independent out-of-sample test — per-bet (treatment − placebo) delta, bootstrapped over tournament-week clusters — spans zero. INCONCLUSIVE."
+            />
+          </div>
+
+          <div
+            data-testid="cross-market-verdict"
+            className="mt-6 rounded-xl border border-[var(--ab-death)]/40 bg-[var(--ab-bg-3)]/50 p-5"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <span className="font-display text-3xl italic text-[var(--ab-death)]">
+                no&nbsp;go
+              </span>
+              <span className="font-mono text-[11px] tabular-nums text-[var(--ab-dim)]">
+                GO-CI [−0.324, +0.143] · point −0.119 · 14 clusters · n=523
+              </span>
+            </div>
+            <p className="mt-3 font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
+              The κ_xm selection and the survival win are{" "}
+              <span className="text-[var(--ab-text)]">winner&rsquo;s-curse</span>{" "}
+              — the extra degree of freedom overfitting the sweep, which the
+              placebo control absorbs. Rigour caught what would have been a false
+              positive.{" "}
+              <span className="text-[var(--ab-text)]">
+                The agent stays on its v3 seed; the cross-market signal is left
+                off.
+              </span>{" "}
+              A backtest that can falsely &ldquo;confirm&rdquo; an edge is worse
+              than no backtest.
+            </p>
+          </div>
+        </section>
     </StageShell>
   );
 }

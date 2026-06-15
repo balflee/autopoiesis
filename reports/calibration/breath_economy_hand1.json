@@ -1,0 +1,106 @@
+{
+  "loss_multiplier": 1.2,
+  "fragile_max_breath_risk_pct": 0.15,
+  "initial_breath": 70,
+  "exploration_epsilon": 0.05,
+  "edge_death_rate": 0.0,
+  "noise_death_rate": 1.0,
+  "grid": [
+    {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.15,
+      "initial_breath": 50,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.15,
+      "initial_breath": 70,
+      "edge_death_rate": 0.0,
+      "noise_death_rate": 1.0,
+      "separation": 1.0
+    },
+    {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.2,
+      "initial_breath": 50,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.2,
+      "initial_breath": 70,
+      "edge_death_rate": 0.0,
+      "noise_death_rate": 1.0,
+      "separation": 1.0
+    },
+    {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.25,
+      "initial_breath": 50,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.25,
+      "initial_breath": 70,
+      "edge_death_rate": 0.4375,
+      "noise_death_rate": 1.0,
+      "separation": 0.5625
+    },
+    {
+      "loss_multiplier": 1.5,
+      "fragile_max_breath_risk_pct": 0.15,
+      "initial_breath": 50,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.5,
+      "fragile_max_breath_risk_pct": 0.15,
+      "initial_breath": 70,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.5,
+      "fragile_max_breath_risk_pct": 0.2,
+      "initial_breath": 50,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.5,
+      "fragile_max_breath_risk_pct": 0.2,
+      "initial_breath": 70,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.5,
+      "fragile_max_breath_risk_pct": 0.25,
+      "initial_breath": 50,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    },
+    {
+      "loss_multiplier": 1.5,
+      "fragile_max_breath_risk_pct": 0.25,
+      "initial_breath": 70,
+      "edge_death_rate": 0.5,
+      "noise_death_rate": 1.0,
+      "separation": 0.5
+    }
+  ]
+}

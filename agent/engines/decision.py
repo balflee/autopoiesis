@@ -69,6 +69,7 @@ math here means tests don't need mocks.
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass
 from typing import Final
 
@@ -192,6 +193,8 @@ class DecisionEngine:
         entry_price_floor: float | None = None,
         gate_storm_sensitivity: float = 0.0,
         risk_storm_sensitivity: float = 0.0,
+        exploration_epsilon: float = 0.0,
+        exploration_rng: random.Random | None = None,
     ) -> None:
         if max_breath_risk_pct <= 0.0 or max_breath_risk_pct > 1.0:
             raise ValueError(
@@ -225,6 +228,10 @@ class DecisionEngine:
                 raise ValueError(
                     f"{label} must be finite with |x| <= 1 (got {gamma})"
                 )
+        if not 0.0 <= exploration_epsilon <= 1.0:
+            raise ValueError(
+                f"exploration_epsilon must be in [0, 1] (got {exploration_epsilon})"
+            )
         self._max_breath_risk_pct = max_breath_risk_pct
         self._conversion_rate = conversion_rate
         self._min_bet_size_usd = min_bet_size_usd
@@ -235,6 +242,16 @@ class DecisionEngine:
         self._entry_price_floor = entry_price_floor
         self._gate_storm_sensitivity = gate_storm_sensitivity
         self._risk_storm_sensitivity = risk_storm_sensitivity
+        # Exploration floor (Active Survival Hand-1, Task 4). When the agent
+        # would freeze (abstain) on an EXPLORABLE no-bet, a flat-stake probe
+        # fires with probability ``epsilon`` so the policy keeps sampling
+        # instead of dying doing nothing. The gate is closed unless BOTH
+        # ``epsilon > 0`` AND ``rng is not None`` — the live path + frozen
+        # baseline pass rng=None so the decision stays byte-identical (the
+        # RNG is consumed ONLY inside the explore branch). ``epsilon=0`` is
+        # the default ⇒ every existing caller is byte-unchanged.
+        self._exploration_epsilon = exploration_epsilon
+        self._exploration_rng = exploration_rng
         # Observer telemetry, read by the loop immediately post-decide
         # (single-threaded per-life engine). Cleared at decide() entry.
         self.last_gate_diagnostics: GateDiagnostics | None = None
@@ -316,9 +333,26 @@ class DecisionEngine:
 
         # ── 3. Confidence floor ───────────────────────────────────────
         if fusion.mean_confidence < self._min_confidence:
-            return Action(
-                kind=ActionKind.NO_BET,
-                no_bet_reason=NO_BET_LOW_CONFIDENCE,
+            # Explorable abstain (Task 4): resolve the value-mode side from
+            # the price edge so a flat-stake probe can keep the policy
+            # sampling. ``_value_side`` returns None in legacy mode (no
+            # price) or on a neutral edge ⇒ the probe is skipped.
+            return self._explore_or(
+                Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=NO_BET_LOW_CONFIDENCE,
+                ),
+                side=_value_side(
+                    price=price,
+                    fused=fusion.fused,
+                    kappa=self._kappa,
+                    kappa_xm=self._kappa_xm,
+                    cross_market_signal=cross_market_signal,
+                ),
+                market_id=market_id,
+                bankroll_usd=bankroll_usd,
+                breath=breath,
+                liquidity_cap_usd=liquidity_cap_usd,
             )
 
         # ── 4. Direction + Kelly ──────────────────────────────────────
@@ -378,15 +412,29 @@ class DecisionEngine:
                 eff_min_edge=eff_min_edge,
             )
             if edge_abs < eff_min_edge:
-                return Action(
-                    kind=ActionKind.NO_BET,
-                    no_bet_reason=f"{NO_BET_NO_EDGE}:{edge_abs:.4f}",
+                return self._explore_or(
+                    Action(
+                        kind=ActionKind.NO_BET,
+                        no_bet_reason=f"{NO_BET_NO_EDGE}:{edge_abs:.4f}",
+                    ),
+                    side=side,
+                    market_id=market_id,
+                    bankroll_usd=bankroll_usd,
+                    breath=breath,
+                    liquidity_cap_usd=liquidity_cap_usd,
                 )
             kelly = _value_kelly_fraction(edge=edge_abs, effective_price=eff)
         if kelly == 0.0:
-            return Action(
-                kind=ActionKind.NO_BET,
-                no_bet_reason=NO_BET_ZERO_KELLY,
+            return self._explore_or(
+                Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=NO_BET_ZERO_KELLY,
+                ),
+                side=side,
+                market_id=market_id,
+                bankroll_usd=bankroll_usd,
+                breath=breath,
+                liquidity_cap_usd=liquidity_cap_usd,
             )
 
         # ── 5. 4-constraint min ───────────────────────────────────────
@@ -395,23 +443,34 @@ class DecisionEngine:
             0.0, min(1.0, rho * (1.0 - self._risk_storm_sensitivity * storm))
         )
         desired = rho_eff * kelly * fusion.mean_confidence * bankroll_usd
-        breath_cap = breath * self._max_breath_risk_pct / self._conversion_rate
         bet_size_cap = (
             DESPERATE_BET_SIZE_CAP if desperate else NORMAL_BET_SIZE_CAP
         )
-        bankroll_cap = bankroll_usd * bet_size_cap
-        liquidity_cap = max(0.0, liquidity_cap_usd)
-
-        size = min(desired, breath_cap, bankroll_cap, liquidity_cap)
+        size = self._clamped_size(
+            desired=desired,
+            breath=breath,
+            max_breath_risk_pct=self._max_breath_risk_pct,
+            conversion_rate=self._conversion_rate,
+            bankroll_usd=bankroll_usd,
+            bet_size_cap=bet_size_cap,
+            liquidity_cap_usd=liquidity_cap_usd,
+        )
 
         # ── 6. Min-bet floor — micro-bets are NO_BET ──────────────────
         # ``size <= 0`` catches the rho_eff=0 / kelly=0 / liquidity=0 cases
         # which would otherwise route a zero-size BET into the Action
         # validator (which rejects them with size_usd > 0).
         if size <= 0.0 or size < self._min_bet_size_usd:
-            return Action(
-                kind=ActionKind.NO_BET,
-                no_bet_reason=f"{NO_BET_BELOW_MIN_SIZE}:{size:.4f}",
+            return self._explore_or(
+                Action(
+                    kind=ActionKind.NO_BET,
+                    no_bet_reason=f"{NO_BET_BELOW_MIN_SIZE}:{size:.4f}",
+                ),
+                side=side,
+                market_id=market_id,
+                bankroll_usd=bankroll_usd,
+                breath=breath,
+                liquidity_cap_usd=liquidity_cap_usd,
             )
 
         # ── 7. BET ────────────────────────────────────────────────────
@@ -421,6 +480,84 @@ class DecisionEngine:
             side=side,
             size_usd=size,
             edge_pct=edge_abs,
+        )
+
+    def _clamped_size(
+        self,
+        *,
+        desired: float,
+        breath: float,
+        max_breath_risk_pct: float,
+        conversion_rate: float,
+        bankroll_usd: float,
+        bet_size_cap: float,
+        liquidity_cap_usd: float,
+    ) -> float:
+        """The PRD §6.6 4-constraint clamp, shared by BOTH the normal BET
+        path and the exploration probe.
+
+        ``size = min(desired, breath_cap, bankroll_cap, liquidity_cap)``.
+        Extracting it keeps the normal path BYTE-IDENTICAL (same operands,
+        same order) while letting the exploration branch reuse the exact
+        same caps with a FLAT ``desired`` stake.
+        """
+        breath_cap = breath * max_breath_risk_pct / conversion_rate
+        bankroll_cap = bankroll_usd * bet_size_cap
+        liquidity_cap = max(0.0, liquidity_cap_usd)
+        return min(desired, breath_cap, bankroll_cap, liquidity_cap)
+
+    def _explore_or(
+        self,
+        nobet_action: Action,
+        *,
+        side: Side | None,
+        market_id: str,
+        bankroll_usd: float,
+        breath: float,
+        liquidity_cap_usd: float,
+    ) -> Action:
+        """Exploration floor: with probability ``epsilon`` turn an
+        EXPLORABLE abstain into a flat-stake probe; else return the
+        original NO_BET.
+
+        Gate (byte-identical OFF guarantee): explore ONLY if
+        ``epsilon > 0`` AND ``rng is not None``. The RNG is consumed ONLY
+        inside this branch, so ``epsilon=0`` / ``rng=None`` never draws ⇒
+        the decision is identical to the frozen baseline.
+
+        Probe sizing uses a FLAT minimum stake (``min_bet_size_usd``) as
+        ``desired`` — NOT Kelly, which is undefined / ~0 at the no-edge and
+        price-floor abstains and would collapse the probe. The same
+        4-constraint clamp the normal path uses then applies; the probe is
+        emitted only when the clamped size clears the min-bet floor (so a
+        sub-floor liquidity cap correctly rejects it). ``side is None``
+        (legacy mode / neutral edge) ⇒ no resolvable leg ⇒ NO_BET.
+        """
+        if self._exploration_epsilon <= 0.0 or self._exploration_rng is None:
+            return nobet_action
+        if side is None:
+            return nobet_action
+        if self._exploration_rng.random() >= self._exploration_epsilon:
+            return nobet_action
+        size = self._clamped_size(
+            desired=self._min_bet_size_usd,
+            breath=breath,
+            max_breath_risk_pct=self._max_breath_risk_pct,
+            conversion_rate=self._conversion_rate,
+            bankroll_usd=bankroll_usd,
+            # Normal-mode cap (0.30); a flat min stake never approaches it,
+            # but it keeps the clamp identical in shape to the BET path.
+            bet_size_cap=NORMAL_BET_SIZE_CAP,
+            liquidity_cap_usd=liquidity_cap_usd,
+        )
+        if size < self._min_bet_size_usd or size <= 0.0:
+            return nobet_action
+        return Action(
+            kind=ActionKind.BET,
+            market_id=market_id,
+            side=side,
+            size_usd=size,
+            edge_pct=0.0,
         )
 
 
@@ -505,6 +642,35 @@ def _value_kelly_fraction(*, edge: float, effective_price: float) -> float:
     if effective_price >= 1.0:
         return 1.0
     return min(1.0, edge / (1.0 - effective_price))
+
+
+def _value_side(
+    *,
+    price: float | None,
+    fused: float,
+    kappa: float,
+    kappa_xm: float,
+    cross_market_signal: float,
+) -> Side | None:
+    """Resolve the value-mode leg from the price edge, for the EXPLORATION
+    probe at abstains where ``side`` isn't otherwise computed (low-conf).
+
+    ``side = sign(p_model - price)`` with the SAME ``p_model`` the value
+    branch builds (price-anchored, kappa-tilted, kappa_xm cross-market).
+    Returns ``None`` when ``price is None`` (legacy signal mode — no value
+    leg) OR when ``p_model == price`` (neutral edge — no resolvable side),
+    so the caller skips the probe rather than betting an undefined leg.
+    """
+    if price is None:
+        return None
+    p_model = max(
+        0.0,
+        min(1.0, price + kappa * fused + kappa_xm * cross_market_signal),
+    )
+    edge_yes = p_model - price
+    if edge_yes == 0.0:
+        return None
+    return Side.YES if edge_yes > 0.0 else Side.NO
 
 
 __all__ = [

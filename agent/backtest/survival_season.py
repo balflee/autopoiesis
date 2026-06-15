@@ -1516,6 +1516,7 @@ def _decision_engine_from_seed(
     seed: StrategyConfig,
     *,
     effective_entry_price_floor: float | None = None,
+    exploration_rng: _random.Random | None = None,
 ) -> DecisionEngine:
     """Thread the seed's sizing/abstention knobs into a ``DecisionEngine``.
 
@@ -1529,6 +1530,13 @@ def _decision_engine_from_seed(
     through too — they only ACT when the loop passes ``price=`` into
     ``decide()`` (value_betting). ``effective_entry_price_floor`` arms the
     engine-level side-aware floor gate for value mode.
+
+    Active Survival Hand-1 (Task 4): ``exploration_rng`` arms the engine's
+    flat-stake exploration floor. The gate needs BOTH ``epsilon > 0`` (carried
+    on the seed) AND a non-None rng, so passing ``None`` (the default — every
+    current caller, incl. the FROZEN static baseline) is byte-identical to the
+    pre-exploration engine. Only the LEARNER call wires a real per-incarnation
+    rng (Task 5); here we only add the threading hook.
     """
     return DecisionEngine(
         max_breath_risk_pct=seed.max_breath_risk_pct,
@@ -1544,6 +1552,11 @@ def _decision_engine_from_seed(
         # (0.0 defaults = byte-identical pre-kit arithmetic).
         gate_storm_sensitivity=seed.gate_storm_sensitivity,
         risk_storm_sensitivity=seed.risk_storm_sensitivity,
+        # Active Survival Hand-1 (Task 4): exploration floor. epsilon rides
+        # the seed; the rng is threaded in (None default keeps the gate
+        # closed ⇒ byte-identical). Both must be live for a probe to fire.
+        exploration_epsilon=seed.exploration_epsilon,
+        exploration_rng=exploration_rng,
     )
 
 

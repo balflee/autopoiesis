@@ -26,7 +26,7 @@ fixed constant (never ``datetime.now()``) so worlds are byte-deterministic.
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from agent.backtest.cached_sweep import SignalRow
 from agent.backtest.find_optimal_config import StrategyConfig
@@ -55,7 +55,7 @@ _ENTRY_PRICE = 0.5
 _LIQUIDITY_CAP_USD = 1000.0
 
 # Fixed deterministic base wall-clock — NEVER datetime.now().
-_BASE_TS = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+_BASE_TS = datetime(2030, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
 def _v3_seed() -> StrategyConfig:

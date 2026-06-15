@@ -28,7 +28,7 @@ from agent.backtest.synthetic_edge import (
     quick_numerical_deaths,
 )
 from agent.core.state import ActionKind
-from agent.engines.decision import DecisionEngine, NO_BET_NO_EDGE
+from agent.engines.decision import NO_BET_NO_EDGE, DecisionEngine
 
 
 def _v3_engine(price: float) -> DecisionEngine:

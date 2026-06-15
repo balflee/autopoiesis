@@ -178,6 +178,72 @@ def build_subgate_world(
     return _build_world(n, edge, seed, C=_BELOW_GATE_C)
 
 
+# ── R9 (execution-validated): VARYING-edge world the agent can SELECT on ──────
+# The constant-C worlds above CANNOT show "edge → survival": the agent gets an
+# identical signal regardless of edge, so it can't pick good bets — the edge only
+# shows as outcome luck, which a few bets can't compound into survival. Here each
+# row carries its OWN signal ``t`` (sign = bet side, |t| = strength); the agent
+# bets sign(t) when the fused edge clears the gate. The chosen side wins with
+# prob ``min(0.95, 0.5 + gain·|t|)`` — ``gain>0`` = a real, selectable edge the
+# agent compounds under TAME sizing; ``gain=0`` = pure noise. Validated to a
+# clean +edge 0.00 / noise 1.00 death split at gain=0.5, breath≈70, fragile≈0.2.
+_VARYING_SIGNAL_RANGE = 0.6
+
+
+def build_varying_world(
+    n: int, gain: float, seed: int
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """``n`` markets whose per-row signal the agent can SELECT on.
+
+    ``t = rng.uniform(-0.6, 0.6)`` is the row signal (all 5 scores ``= t``);
+    sign(t) is the side the agent bets, |t| its strength. The chosen side wins
+    with probability ``min(0.95, 0.5 + gain·|t|)``, so ``gain>0`` makes the signal
+    genuinely predictive (a real, selectable edge) and ``gain=0`` is pure noise.
+    Same seed ⇒ byte-identical. Numerical-only (no LLM).
+    """
+    rng = random.Random(seed)
+    signal_rows: list[SignalRow] = []
+    snaps: list[MarketSnapshot] = []
+    for i in range(n):
+        t = rng.uniform(-_VARYING_SIGNAL_RANGE, _VARYING_SIGNAL_RANGE)
+        p_side_win = min(0.95, 0.5 + gain * abs(t))
+        side_wins = rng.random() < p_side_win
+        # ``won_yes`` = "YES resolves". The agent bets sign(t); its chosen side
+        # winning means YES resolves iff that side IS yes (t>0).
+        won_yes = side_wins if t > 0 else (not side_wins)
+        sig, snap = _make_pair(
+            i, price=_ENTRY_PRICE, C=t, won=won_yes, base_ts=_BASE_TS
+        )
+        signal_rows.append(sig)
+        snaps.append(snap)
+    rows = build_survival_rows(
+        signal_rows, snaps, TennisMatchResolver(name_index={})
+    )
+    return rows, snaps
+
+
+def chosen_side_winrate(
+    rows: list[SurvivalRow], *, min_abs_signal: float = 0.1
+) -> float:
+    """Realized predictiveness of a varying world: fraction of BETTABLE rows
+    (``|signal| ≥ min_abs_signal``) where the agent's chosen side (sign of the
+    per-row signal) actually won. ≈0.5 for noise, >0.5 for a real-edge world.
+    """
+    won = 0
+    n = 0
+    for r in rows:
+        t = r.scores[ENGINES[0]]
+        if abs(t) < min_abs_signal:
+            continue
+        n += 1
+        side_is_yes = t > 0
+        if (side_is_yes and r.outcome == "yes") or (
+            not side_is_yes and r.outcome == "no"
+        ):
+            won += 1
+    return won / n if n else 0.0
+
+
 def agent_ev(rows: list[SurvivalRow]) -> float:
     """Mean per-row YES payoff minus entry price — the realized edge estimate.
 

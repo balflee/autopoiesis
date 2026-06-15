@@ -25,6 +25,8 @@ from agent.backtest.synthetic_edge import (
     agent_ev,
     build_subgate_world,
     build_synthetic_world,
+    build_varying_world,
+    chosen_side_winrate,
     quick_numerical_deaths,
 )
 from agent.core.state import ActionKind
@@ -121,3 +123,29 @@ def test_same_seed_is_deterministic() -> None:
     rows_b, _ = build_synthetic_world(60, 0.05, 42)
     assert [r.market_id for r in rows_a] == [r.market_id for r in rows_b]
     assert [r.outcome for r in rows_a] == [r.outcome for r in rows_b]
+
+
+# ── R9: varying-edge world (the one the agent can SELECT on) ──────────────────
+
+
+def test_varying_world_is_predictive_when_gain_positive_and_noise_at_zero() -> None:
+    pred, _ = build_varying_world(4000, 0.5, 7)
+    noise, _ = build_varying_world(4000, 0.0, 7)
+    # gain>0 ⇒ the agent's chosen side wins materially above coin-flip;
+    # gain=0 ⇒ the signal is pure noise (≈0.5).
+    assert chosen_side_winrate(pred) > 0.55
+    assert abs(chosen_side_winrate(noise) - 0.5) < 0.05
+
+
+def test_varying_world_rows_build_and_winning_price_is_one() -> None:
+    rows, _ = build_varying_world(50, 0.5, 1)
+    assert len(rows) == 50
+    for r in rows:
+        assert r.winning_price == 1.0
+
+
+def test_varying_world_is_deterministic() -> None:
+    a, _ = build_varying_world(200, 0.4, 3)
+    b, _ = build_varying_world(200, 0.4, 3)
+    assert [r.market_id for r in a] == [r.market_id for r in b]
+    assert [r.outcome for r in a] == [r.outcome for r in b]

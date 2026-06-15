@@ -42,6 +42,16 @@
 
 ---
 
+## ⚠️ R9 执行实证修订（2026-06-16，supersedes 下文冲突处）
+
+Phase-4 执行实测推翻了"恒定信号 + 激进 sizing"的原设计：宽参数扫(m 1→6、breath、sizing、tithe+tribute 全开)下 +edge 与 0-edge **逐字节相同、全死、金库 < 种子**,agent **几乎不下注(~2/命,被租扣死)**。根因:**信号恒定**(agent 没法挑 edge)+ **sizing=0.95 太激进**(一注 ×m 亏损就死,edge 来不及复利)。**已验证的修法(干净 0.00 vs 1.00 分离)三件套**:
+1. **varying-edge 世界**:每行信号 `t=Uniform(-0.6,0.6)`(符号=边、|t|=强度),`scores={k:t}`;agent 选的边赢率 `min(0.95, 0.5+gain·|t|)`——`gain>0`=真 edge、`gain=0`=噪声。agent 的 `decide()` 据此**挑注**(强信号下、弱信号弃),edge 才用得上。
+2. **温和静态 sizing**(承重杠杆):`fragile_max_breath_risk_pct` 从部署的 0.95 降到 **≈0.2**(现成参数,**不需新代码机制**)——小注多打让 edge 复利。
+3. **足够 breath 跑道**(`initial_breath≈70`)。
+
+**验证甜点**:gain=0.5、breath=70、fragile≈0.15–0.2、m 1.2–1.5 → **+edge 死亡率 0.00 / noise 1.00**。
+**对 §3 的影响**:§3.A 标定改成**联合扫 (m, fragile, breath)** + varying 世界;§3.E 验证用 varying 世界;§3.C 的**静态温和 sizing 进 scope**(即 A14 意图的静态版),而 §3.C 那套**自适应 desperate-flag A14 仍留 Hand-1.5**(只是把可生存区间做宽的 refinement)。
+
 ## 2. 成功判据（存活类，**非 PnL**）
 
 1. **可生存性（核心）**：重标定后，胜率 ~52–58% 的 agent 在合成 harness 上**存活显著长于现状**；而胜率 ~50%（纯噪声）的 agent **仍大概率死**（保住 permadeath 赌注，不能把世界改成"谁都死不了"）。

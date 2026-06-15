@@ -9,7 +9,27 @@
 **Breath economy facts (verified):** breath changes on EVERY settled bet — a WIN **adds `+pnl`**, a LOSS **subtracts `loss_multiplier×|pnl|`** (`agent/backtest/survival_season.py:787-791` amplifies only the negative leg; `agent/backtest/replay_runner.py:396-397` adds `pnl` to breath, **clamped `max(0,·)`**) — plus tithe (off by default) + lung-expansion (bankroll>1.1×initial). **A pure abstainer (no settled bets) never dies.** Consequences: an above-gate 0-edge world dies via the loss-amplified net drift on coin-flips (`drift/bet ≈ size·0.5·(1−m) < 0` for `m>1`). On a below-gate **+edge** world a frozen agent abstains and stays FLAT, while the explorer's probes win at `true_prob`; the probe breath-EV `= true_prob·size − (1−true_prob)·m·size` is **POSITIVE only when `m < true_prob/(1−true_prob)`** (≈1.5 at edge=0.10) → `on.mean_final_breath > off.mean_final_breath`.
 **CRUCIAL COHERENCE (the unifying point):** the recalibration target for honest ~55% survival is `m≈1.2` (breath break-even win-rate `= m/(1+m) ≈ 0.55`), which is **< 1.5** — so the SAME low-`m` that makes honest survival possible also makes exploration's value materialize. **Legacy `m=5` breaks BOTH** (needs ~83% win-rate to survive AND makes the probe negative-EV) — that is precisely why Hand-1 recalibrates `m` down. ⚠️ Because breath is clamped+respawn-reset, `mean_final_breath` is NOT a clean EV sum — Task 6 reads it **alongside `total_bets` + `death_rate`**, never alone. On a below-gate **0-edge** world the probe is negative-EV → a finite exploration premium, RECORDED not asserted-zero.
 
-**Spec:** `docs/superpowers/specs/2026-06-15-active-survival-hand1-design.md`. **Branch:** `active-survival-hand1`. One commit/task; git identity `balflee`. **Descoped → Hand 1.5:** A14, A2.
+**Spec:** `docs/superpowers/specs/2026-06-15-active-survival-hand1-design.md`. **Branch:** `active-survival-hand1`. One commit/task; git identity `balflee`. **Descoped → Hand 1.5:** A2, and the ADAPTIVE A14 desperate-flag mechanism (static tame sizing suffices — see R9).
+
+---
+
+## ⚠️ R9 — EXECUTION-DRIVEN REVISION (supersedes the task details below where they conflict)
+
+Phase-4 execution (Tasks 1–2 built; Task-3 calibration run empirically by the controller) proved the original constant-signal + aggressive-sizing design **cannot** show "honest edge → survival" — across a wide param sweep (m 1→6, breath 20/50, sizing 0.3/0.95, tithe+tribute on) the +edge and 0-edge worlds were **byte-identical, all died, vault < seed**, and the agent **barely bet (~2/life, dies from tithe rent)**. Root cause: a **constant blind signal** (agent can't select on edge) + **aggressive sizing 0.95** (one ×m-amplified loss kills it before edge compounds). The fix — **validated to a clean 0.00-vs-1.00 separation** — has THREE ingredients:
+
+1. **VARYING-EDGE synthetic world** (Task 1/6 rewrite): per-row signal `t = rng.uniform(-0.6, 0.6)` (sign = bet side, |t| = strength); `scores = {k:t for k in ENGINES}`. Outcome: the agent's chosen side wins with prob `min(0.95, 0.5 + gain·|t|)` — **`gain>0` = real predictive edge, `gain=0` = pure noise**. The agent's `decide()` now SELECTS (bets strong |t|, abstains weak) — so edge becomes usable. (This REPLACES the constant-`C` `build_synthetic_world`/`build_subgate_world`.)
+2. **TAME static sizing** (the load-bearing lever): the deployment `fragile_max_breath_risk_pct=0.95` makes one bet fatal; **≈0.2** lets many small bets compound the edge. This is an EXISTING param of `run_survival_over_rows`/`run_groundhog_export` — NO new code mechanism; it just enters the calibration sweep + the deployment plumbing.
+3. **Enough breath runway** (`initial_breath ≈ 70`) so edge compounds before variance kills.
+
+**Validated sweet spot:** `gain=0.5, initial_breath=70, fragile_max_breath_risk_pct≈0.15–0.2, loss_multiplier 1.2–1.5` → **+edge death-rate 0.00, noise death-rate 1.00** (perfect). Weaker edge (gain 0.3) or less breath (35) → partial.
+
+**Task deltas:**
+- **Task 1 → varying worlds**: `build_varying_world(n, gain, seed) -> (rows, snaps)` per the recipe above; keep `agent_ev`/`quick_numerical_deaths`. Old constant generators superseded.
+- **Task 3 → JOINT calibration**: sweep `(loss_multiplier, fragile_max_breath_risk_pct, initial_breath)` jointly on varying worlds (+edge `gain≈0.5` vs noise `gain=0`); success = `death_rate(+edge) ≪ death_rate(noise)`; recommend the tame-sizing sweet spot. `CalibrationResult` carries all three knobs.
+- **Task 5 → also plumb sizing**: replace the `fragile_max_breath_risk_pct=0.95` literal (`scripts/run_reincarnation.py:155`) AND the `loss_multiplier`/`initial_breath` literals with the calibrated values.
+- **Task 6 → varying worlds** for the validation arms.
+- **Task 4 (exploration floor) STILL needed**: at `fragile=0.1` the agent abstained entirely (froze, 0 bets) — the floor prevents that degenerate.
+- **A14 ADAPTIVE mechanism stays Hand-1.5**: static tame sizing already gives the validated result; adaptive (size-down-near-death) only WIDENS the survivable region.
 
 ---
 

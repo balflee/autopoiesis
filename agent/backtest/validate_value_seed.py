@@ -105,6 +105,9 @@ def _seed_payload(cfg: StrategyConfig) -> dict[str, Any]:
         # B′ Task 6a: carry κ_xm so the committed v4 seed round-trips the new
         # genome scalar (defaults 0.0 on a v3-shaped config — still valid).
         "kappa_xm": cfg.kappa_xm,
+        # Active Survival (Hand 1) Task 2: carry the exploration floor so the
+        # committed seed round-trips it (defaults 0.0 — pre-Hand-1 byte-identical).
+        "exploration_epsilon": cfg.exploration_epsilon,
     }
 
 

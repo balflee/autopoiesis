@@ -1832,6 +1832,9 @@ def run_groundhog_export(
             "initial_breath": initial_breath,
             "initial_bankroll_usd": initial_bankroll_usd,
             "holdout_max_lives": holdout_max_lives,
+            # Active Survival (Hand 1) Task 2: disclose the exploration floor the
+            # seed carries (fragile preserves it via dataclasses.replace).
+            "exploration_epsilon": fragile.exploration_epsilon,
         },
         "scoring": (
             "dead incarnations score zero; the headline belongs to the "

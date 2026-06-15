@@ -2603,6 +2603,9 @@ def build_survival_journey(
             "kappa": seed.kappa,
             # B′ Task 5: expose κ_xm so downstream seed loaders can round-trip.
             "kappa_xm": seed.kappa_xm,
+            # Active Survival (Hand 1) Task 2: expose the exploration floor so
+            # downstream seed loaders can round-trip it.
+            "exploration_epsilon": seed.exploration_epsilon,
         },
         "lives": lives_payload,
         "steps": [_step_to_dict(s) for s in sampled],

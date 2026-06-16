@@ -97,6 +97,7 @@ def _make_pair(
     C: float,
     won: bool,
     base_ts: datetime,
+    scores: dict[str, float] | None = None,
 ) -> tuple[SignalRow, MarketSnapshot]:
     """Build the matching ``(SignalRow, MarketSnapshot)`` for market ``i``.
 
@@ -105,6 +106,10 @@ def _make_pair(
     flat 2-point ledger at ``price`` makes the recomputed mid == ``price``
     exactly, so the entry-price consistency check passes. ``winning_price=1.0``
     is the WINNING side's price (≈1.0), NOT a YES flag.
+
+    By default every engine slot carries the same anchor ``C``; pass ``scores``
+    (a full per-engine map) to give engines DIFFERENT scores — the subset-edge
+    world uses this to hide the predictive signal in a single engine.
     """
     market_id = f"syn-{i:06d}"
     slug = f"alpha{i}-vs-beta{i}"
@@ -113,10 +118,11 @@ def _make_pair(
     entry_ts = base_ts + i * timedelta(days=1)
     settle_ts = entry_ts + timedelta(minutes=1)
 
+    score_map = scores if scores is not None else {k: C for k in ENGINES}
     signal_row = SignalRow(
         market_id=market_id,
         slug=slug,
-        scores={k: C for k in ENGINES},
+        scores=score_map,
         confidences={k: _CONFIDENCE for k in ENGINES},
         entry_price=price,
         outcome=outcome,
@@ -222,17 +228,83 @@ def build_varying_world(
     return rows, snaps
 
 
+# ── 能学 demo: edge HIDDEN in a single under-weighted engine ──────────────────
+# build_varying_world puts the SAME signal in all 5 engines, so any weighting
+# reads it — there is nothing to LEARN. To demonstrate self-evolution we must
+# hide the predictive signal in ONE engine the v3 prior UNDER-weights
+# (tennis_technical = α[0] = 0.177) and fill the rest with INDEPENDENT noise:
+# a static prior fuses a noise-dominated signal (bets ~random side → dies); a
+# learner that discovers and up-weights the predictive engine aligns its fused
+# sign with the true edge and survives. THAT improvement across lives is "能学".
+_DEFAULT_EDGE_ENGINE: str = ENGINES[0]  # "tennis_technical" (v3 α[0]=0.177)
+
+
+def build_subset_edge_world(
+    n: int,
+    gain: float,
+    seed: int,
+    *,
+    edge_engine: str = _DEFAULT_EDGE_ENGINE,
+    noise_range: float = _VARYING_SIGNAL_RANGE,
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """``n`` markets where ONLY ``edge_engine`` carries the predictive signal.
+
+    Per row: the predictive engine score ``t = uniform(-0.6, 0.6)`` sets the
+    side (sign) and strength (|t|); every OTHER engine carries an INDEPENDENT
+    noise score ``uniform(-noise_range, noise_range)`` uncorrelated with the
+    outcome. YES resolves with probability ``clip(0.5 + gain·t, 0.05, 0.95)`` —
+    driven by the predictive engine ALONE. A prior that under-weights
+    ``edge_engine`` fuses a noise-dominated signal (bets ~random side → dies);
+    a learner that raises ``edge_engine``'s weight aligns the fused sign with
+    ``t`` and survives. ``gain=0`` ⇒ pure noise. Same seed ⇒ byte-identical.
+    Numerical-only (no LLM).
+    """
+    if edge_engine not in ENGINES:
+        raise ValueError(f"edge_engine {edge_engine!r} not in {ENGINES}")
+    rng = random.Random(seed)
+    signal_rows: list[SignalRow] = []
+    snaps: list[MarketSnapshot] = []
+    for i in range(n):
+        t = rng.uniform(-_VARYING_SIGNAL_RANGE, _VARYING_SIGNAL_RANGE)
+        # Draw noise for every NON-edge engine in fixed ENGINES order so the
+        # world stays byte-deterministic for a given seed.
+        scores = {
+            k: (
+                t
+                if k == edge_engine
+                else rng.uniform(-noise_range, noise_range)
+            )
+            for k in ENGINES
+        }
+        p_yes = min(0.95, max(0.05, 0.5 + gain * t))
+        won_yes = rng.random() < p_yes
+        sig, snap = _make_pair(
+            i, price=_ENTRY_PRICE, C=t, won=won_yes, base_ts=_BASE_TS, scores=scores
+        )
+        signal_rows.append(sig)
+        snaps.append(snap)
+    rows = build_survival_rows(
+        signal_rows, snaps, TennisMatchResolver(name_index={})
+    )
+    return rows, snaps
+
+
 def chosen_side_winrate(
-    rows: list[SurvivalRow], *, min_abs_signal: float = 0.1
+    rows: list[SurvivalRow],
+    *,
+    engine: str = ENGINES[0],
+    min_abs_signal: float = 0.1,
 ) -> float:
-    """Realized predictiveness of a varying world: fraction of BETTABLE rows
-    (``|signal| ≥ min_abs_signal``) where the agent's chosen side (sign of the
-    per-row signal) actually won. ≈0.5 for noise, >0.5 for a real-edge world.
+    """Realized predictiveness of ``engine``'s signal: fraction of BETTABLE rows
+    (``|engine score| ≥ min_abs_signal``) where the side that engine points to
+    (sign of its score) actually won. ≈0.5 for a noise engine, >0.5 for the
+    predictive engine of a real-edge world. ``engine`` defaults to ``ENGINES[0]``
+    (every-engine-equal worlds carry the same signal in slot 0).
     """
     won = 0
     n = 0
     for r in rows:
-        t = r.scores[ENGINES[0]]
+        t = r.scores[engine]
         if abs(t) < min_abs_signal:
             continue
         n += 1

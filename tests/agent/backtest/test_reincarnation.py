@@ -628,6 +628,79 @@ def test_groundhog_ai_leg_records_prayers_but_never_carries_them(
 
 
 # ========================================================================= #
+# 能学 demo enablement — learning_enabled (frozen null arm) + aux_llm decouple.
+# ========================================================================= #
+
+
+def test_groundhog_learning_disabled_freezes_weights(tmp_path) -> None:
+    """learning_enabled=False ⇒ the inner EMA never adapts: every incarnation
+    starts AND ends at the same base-seed weights (a TRUE non-learning null arm
+    for the 能学 demo — frozen within a life and no drift across lives)."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "frozen.json",
+        max_incarnations=3,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        learning_enabled=False,
+    )
+    incs = artifact["incarnations"]
+    assert len(incs) >= 2
+    ref = incs[0]["start_weights"]
+    for inc in incs:
+        # Frozen within a life: terminal == start (the inner never moved).
+        assert inc["terminal_weights"] == inc["start_weights"]
+        # No drift across lives: every incarnation reuses the same weights.
+        assert inc["start_weights"] == ref
+        # The shared EMA buffer stayed empty (nothing learned).
+        assert inc["carry"]["ema_size"] == 0
+
+
+def test_groundhog_aux_llm_off_keeps_advisor_but_skips_prayer(tmp_path) -> None:
+    """aux_llm=False ⇒ the LEARNING advisor still fires, but prayer is skipped
+    and tribute is decided numerically — so the 能学 demo spends MiniMax calls
+    on learning ONLY, not on per-death prayer / tribute decisions."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from agent.llm.cost_guard import L3CostGuard
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _FakeAdvisorLLM,
+        _fragile_seed,
+    )
+
+    rows, snaps = _clustered_dying_fixture()
+    fake = _FakeAdvisorLLM()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "aux_off.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        rebirth_llm=fake,
+        rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
+        aux_llm=False,
+        tribute=True,
+    )
+    incs = artifact["incarnations"]
+    # The learning brain is STILL on (the whole point: learn, don't pray).
+    assert artifact["rebirth"]["calls"] >= 1
+    # No prayer was recorded on any death — aux_llm gated it off.
+    assert all(inc["prayer"] is None for inc in incs)
+    # Tribute stays economically active (accounting keys present), decided
+    # numerically (ReflexTributePolicy) rather than via the LLM.
+    assert "tributes" in incs[0] and "tributes_paid" in incs[0]
+
+
+# ========================================================================= #
 # A7 â€” the tribute mechanism: money for breath, the gods always get paid.
 # ========================================================================= #
 

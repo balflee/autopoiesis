@@ -39,6 +39,74 @@ def journey_metric(journey: dict[str, Any], max_lives: int) -> dict[str, float]:
     }
 
 
+def _curve_rise(progress: list[float]) -> float:
+    """Mean of the last third minus the first third of a progress sequence.
+
+    A robust "did the agent climb across lives" statistic that averages out
+    per-life noise: ``0.0`` for a flat (non-learning) curve, ``>0`` when later
+    incarnations reach further than earlier ones (self-evolution).
+    """
+    n = len(progress)
+    if n < 2:
+        return 0.0
+    k = max(1, n // 3)
+    return mean(progress[-k:]) - mean(progress[:k])
+
+
+def learning_curve(artifact: dict[str, Any]) -> dict[str, Any]:
+    """Per-incarnation learning curve from a groundhog reincarnation artifact.
+
+    The 能学 (can-learn) demo metric: did the agent get FURTHER across successive
+    lives? Returns the raw per-incarnation ``progress_pct`` / ``pnl_at_death`` /
+    ``died`` sequences plus summary stats — ``rise`` (last-third minus first-third
+    mean progress), ``best_progress_pct``, and whether/when it ``survived``. A
+    non-learning (frozen) arm stays flat (``rise≈0``, never ``survived``); a
+    learner's curve climbs.
+    """
+    incs = artifact.get("incarnations", [])
+    progress = [float(inc["progress_pct"]) for inc in incs]
+    return {
+        "n_incarnations": len(incs),
+        "progress_pct": progress,
+        "pnl_at_death": [float(inc["pnl_at_death"]) for inc in incs],
+        "died": [bool(inc["died"]) for inc in incs],
+        "first_progress_pct": progress[0] if progress else 0.0,
+        "final_progress_pct": progress[-1] if progress else 0.0,
+        "best_progress_pct": max(progress) if progress else 0.0,
+        "survived": bool(artifact.get("survived")),
+        "surviving_incarnation": artifact.get("surviving_incarnation"),
+        "rise": _curve_rise(progress),
+    }
+
+
+def aggregate_curves(curves: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate per-seed :func:`learning_curve` dicts into arm-level stats.
+
+    The headline demo comparison is arm-vs-arm on these: ``survival_rate`` and
+    ``mean_best_progress_pct`` separate a learner (climbs, often survives) from a
+    frozen null (flat, rarely survives). ``mean_surviving_incarnation`` is over
+    the seeds that survived (``None`` if none did).
+    """
+    n = len(curves)
+    survived = [c for c in curves if c.get("survived")]
+    return {
+        "n_seeds": n,
+        "survival_rate": len(survived) / n if n else 0.0,
+        "mean_best_progress_pct": (
+            mean(c["best_progress_pct"] for c in curves) if curves else 0.0
+        ),
+        "mean_final_progress_pct": (
+            mean(c["final_progress_pct"] for c in curves) if curves else 0.0
+        ),
+        "mean_rise": mean(c["rise"] for c in curves) if curves else 0.0,
+        "mean_surviving_incarnation": (
+            mean(c["surviving_incarnation"] for c in survived)
+            if survived
+            else None
+        ),
+    }
+
+
 def groundhog_metric(artifact: dict[str, Any]) -> dict[str, float]:
     """Death-aware metrics from a ``run_groundhog_export`` reincarnation artifact.
 

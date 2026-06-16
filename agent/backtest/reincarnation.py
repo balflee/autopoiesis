@@ -1359,6 +1359,8 @@ def run_groundhog_export(
     rebirth_guard: L3CostGuard | None = None,
     rebirth_model: str = "",
     preflight: bool = True,
+    learning_enabled: bool = True,
+    aux_llm: bool = True,
     tribute: bool = False,
     tribute_rng_factory: Callable[[int], _grandom.Random] | None = None,
     state_root: Path | None = None,
@@ -1462,7 +1464,7 @@ def run_groundhog_export(
                     if tribute_rng_factory is not None
                     else _grandom.Random(f"tribute-{k}")
                 )
-                if rebirth_llm is not None:
+                if rebirth_llm is not None and aux_llm:
                     llm_tribute = LLMTributePolicy(
                         llm=rebirth_llm,
                         model=rebirth_model,
@@ -1475,6 +1477,10 @@ def run_groundhog_export(
                     inc_tribute_policy = llm_tribute
                     tribute_llm_policies.append(llm_tribute)
                 else:
+                    # aux_llm=False keeps tribute ECONOMICALLY active (the gods
+                    # still extract deathbed money) but makes the DECISION
+                    # numerical — so the 能学 demo spends LLM calls on the
+                    # learning advisor ONLY, not on per-death tribute decisions.
                     inc_tribute_policy = ReflexTributePolicy()
             result = run_survival_season(
                 rows=train,
@@ -1490,6 +1496,10 @@ def run_groundhog_export(
                 value_betting=True,
                 effective_entry_price_floor=eff_floor,
                 shared_inner=shared_inner,
+                # learning_enabled=False ⇒ a frozen inner takes over (the same
+                # _FrozenInnerUpdater the cold-start holdout uses): weights never
+                # adapt, giving the demo a TRUE non-learning null arm.
+                learning_enabled=learning_enabled,
                 tribute_policy=inc_tribute_policy,
                 tribute_rng=inc_tribute_rng,
                 tribute_breath=initial_breath,
@@ -1693,12 +1703,15 @@ def run_groundhog_export(
                 )
                 # A6: the dying wish — recorded for the gods, never carried
                 # into the next life (the artifact is its only afterlife).
-                entry["prayer"] = _pray_after_death(
-                    rebirth_llm,
-                    model=rebirth_model,
-                    summary=window.recent_reflections[0],
-                    cost_guard=run_guard,
-                )
+                # Gated by aux_llm so the 能学 demo can run the learning advisor
+                # WITHOUT spending a prayer call on every death (pure narrative).
+                if aux_llm:
+                    entry["prayer"] = _pray_after_death(
+                        rebirth_llm,
+                        model=rebirth_model,
+                        summary=window.recent_reflections[0],
+                        cost_guard=run_guard,
+                    )
             if rebirth_llm is not None and k < max_incarnations:
                 advisor = StrategyAdvisorImpl(
                     llm_client=rebirth_llm,

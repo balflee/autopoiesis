@@ -19,18 +19,21 @@ from __future__ import annotations
 import asyncio
 import math
 
+import pytest
+
 from agent.backtest.cached_sweep import row_to_signals
 from agent.backtest.synthetic_edge import (
     ENGINES,
     agent_ev,
     build_subgate_world,
+    build_subset_edge_world,
     build_synthetic_world,
     build_varying_world,
     chosen_side_winrate,
     quick_numerical_deaths,
 )
 from agent.core.state import ActionKind
-from agent.engines.decision import NO_BET_NO_EDGE, DecisionEngine
+from agent.engines.decision import NO_BET_NO_EDGE, RATIONAL_ENGINES, DecisionEngine
 
 
 def _v3_engine(price: float) -> DecisionEngine:
@@ -149,3 +152,41 @@ def test_varying_world_is_deterministic() -> None:
     b, _ = build_varying_world(200, 0.4, 3)
     assert [r.market_id for r in a] == [r.market_id for r in b]
     assert [r.outcome for r in a] == [r.outcome for r in b]
+
+
+# ── 能学 demo: edge hidden in ONE under-weighted engine ───────────────────────
+
+
+def test_subset_edge_world_predictive_engine_predicts_outcome() -> None:
+    pred, _ = build_subset_edge_world(4000, 0.5, 7)
+    noise, _ = build_subset_edge_world(4000, 0.0, 7)
+    # The hidden edge engine (ENGINES[0]) materially predicts when gain>0;
+    # gain=0 ⇒ even the edge engine is pure noise (≈0.5).
+    assert chosen_side_winrate(pred) > 0.55
+    assert abs(chosen_side_winrate(noise) - 0.5) < 0.05
+
+
+def test_subset_edge_world_other_engines_are_independent_noise() -> None:
+    pred, _ = build_subset_edge_world(4000, 0.5, 7)
+    # A NON-edge engine's sign does NOT predict the outcome — the edge is hidden
+    # in ONE engine, the rest are independent noise (this is what forces learning).
+    assert abs(chosen_side_winrate(pred, engine=RATIONAL_ENGINES[2]) - 0.5) < 0.05
+
+
+def test_subset_edge_world_rows_build_and_winning_price_is_one() -> None:
+    rows, _ = build_subset_edge_world(50, 0.5, 1)
+    assert len(rows) == 50
+    for r in rows:
+        assert r.winning_price == 1.0
+
+
+def test_subset_edge_world_is_deterministic() -> None:
+    a, _ = build_subset_edge_world(200, 0.4, 3)
+    b, _ = build_subset_edge_world(200, 0.4, 3)
+    assert [r.market_id for r in a] == [r.market_id for r in b]
+    assert [r.outcome for r in a] == [r.outcome for r in b]
+
+
+def test_subset_edge_world_rejects_unknown_engine() -> None:
+    with pytest.raises(ValueError):
+        build_subset_edge_world(10, 0.5, 1, edge_engine="not_an_engine")

@@ -8,7 +8,7 @@ T-B-003 ships the production body of step 4 of the agent_loop
 
        raw_R = α₁·Tennis·conf_Tennis
              + α₂·MM·conf_MM
-             + α₃·SM·conf_SM
+             + α₃·Surf·conf_Surf
 
    Each engine's score is weighted by its self-rated confidence
    BEFORE the α mix so a high-confidence small-edge signal is not
@@ -16,7 +16,7 @@ T-B-003 ships the production body of step 4 of the agent_loop
 
 2. **Sentient stream**::
 
-       raw_S = β₁·LLM·conf_LLM + β₂·CV·conf_CV
+       raw_S = β₁·H2H·conf_H2H + β₂·Rest·conf_Rest
 
 3. **Fused score**::
 

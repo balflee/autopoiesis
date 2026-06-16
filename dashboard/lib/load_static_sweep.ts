@@ -23,10 +23,14 @@ export const STATIC_SWEEP_SCHEMA_VERSION = "0.1.0" as const;
 
 /** The 5 engine-slot keys, in stable display order.
  *
- *  Slot KEYS carry repurposed payloads (see the "Slot-name repurpose" caveat in
- *  `reports/backtest/real_signal_sweep.md`): `tennis_technical` = elo,
- *  `market_momentum` = CLOB momentum, `smart_money` = surface,
- *  `sentiment_llm` = h2h, `crowd_volume` = rest. */
+ *  The slot keys name GENUINE engines (smart_money = on-chain smart-money WALLET
+ *  alignment, sentiment_llm = Gemini LLM, crowd_volume = Reddit). In BACKTEST,
+ *  however, the live signals don't exist for past matches, so
+ *  agent/backtest/real_signal_source.py SUBSTITUTES a Sackmann/CLOB proxy into
+ *  each slot (key unchanged, payload differs). The labels below reflect what THIS
+ *  backtest fed each slot — NOT the engine's namesake: tennis_technical = ELO,
+ *  market_momentum = CLOB momentum, smart_money = surface advantage,
+ *  sentiment_llm = head-to-head, crowd_volume = rest/recency. */
 export const SIGNAL_SLOT_KEYS = [
   "tennis_technical",
   "market_momentum",
@@ -36,7 +40,8 @@ export const SIGNAL_SLOT_KEYS = [
 ] as const;
 export type SignalSlotKey = (typeof SIGNAL_SLOT_KEYS)[number];
 
-/** Human-facing label per slot (reflects the repurposed payload, not the key). */
+/** Human-facing label per slot — the BACKTEST payload fed into the slot (a
+ *  Sackmann/CLOB proxy), not the slot's namesake live engine. */
 export const SIGNAL_SLOT_LABEL: Record<SignalSlotKey, string> = {
   tennis_technical: "ELO / Ranking",
   market_momentum: "CLOB Momentum",

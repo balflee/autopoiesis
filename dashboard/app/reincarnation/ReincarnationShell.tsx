@@ -722,6 +722,16 @@ export function ReincarnationShell({
           <SectionHead index="07" kicker="fine print" title="honest notes" />
           <ol className="flex max-w-3xl list-decimal flex-col gap-3 pl-5 font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
             <li>
+              <span className="text-[var(--ab-text)]">Economy vintage (read first):</span>{" "}
+              these g0/g1/g2/numerical arms ran on the <span className="text-[var(--ab-text)]">pre-R9
+              economy</span> (the old loss ×5 / aggressive sizing / low breath),
+              which the locked mechanism spec labels overfit and historical-only
+              — <span className="text-[var(--ab-text)]">not a regression baseline</span>.
+              The deployed, calibrated economy (loss ×1.2 / fragile 0.15 / breath
+              70) and the controlled three-arm proof that the agent learns live on{" "}
+              <span className="text-[var(--ab-glow)]">/survival</span>.
+            </li>
+            <li>
               <span className="text-[var(--ab-text)]">Permadeath economics:</span>{" "}
               dead incarnations score zero — you carry experience across
               deaths, never money. The headline belongs to the surviving life

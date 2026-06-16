@@ -32,6 +32,8 @@ import {
   StageShell,
 } from "@/components/lifeline/StageShell";
 
+import LearningDemoPanel from "@/components/LearningDemoPanel";
+
 import SurvivalJourneyShell from "./SurvivalJourneyShell";
 
 // The artifact is generated; read it fresh at request time (never inline a
@@ -121,6 +123,9 @@ export default async function SurvivalRoute(): Promise<JSX.Element> {
             </p>
           ) : null}
         </section>
+        {/* The 能学 proof is self-contained (committed fixture) — show it even
+            when the big gitignored survival_journey run is absent. */}
+        <LearningDemoPanel />
       </Shell>
     );
   }
@@ -171,6 +176,10 @@ export default async function SurvivalRoute(): Promise<JSX.Element> {
         aiRun2={aiRun2Fixture}
         aiGeminiRun2={aiGeminiRun2Fixture}
       />
+
+      {/* Stage-1 "能学" controlled proof — a synthetic-edge experiment distinct
+          from the real-tennis season above. Self-contained committed fixture. */}
+      <LearningDemoPanel />
     </Shell>
   );
 }

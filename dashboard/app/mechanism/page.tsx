@@ -425,14 +425,15 @@ export default function MechanismPage(): JSX.Element {
                 ))}
               </ol>
               <Caveat>
-                Under the hood the DecisionEngine still keys three of these
-                slots by names from an earlier prediction-markets prototype —{" "}
+                The DecisionEngine keys three of these slots{" "}
                 <Hi>smart_money</Hi>, <Hi>sentiment_llm</Hi>,{" "}
-                <Hi>crowd_volume</Hi> — but there is{" "}
-                <Hi>no order-flow, social-sentiment, or betting-volume data</Hi>{" "}
-                behind them. Each one computes a real tennis feature instead:
-                surface win-rate, head-to-head record, and rest. The labels
-                above are what actually runs.
+                <Hi>crowd_volume</Hi> — and those names are{" "}
+                <Hi>genuine engines</Hi> (on-chain wallet alignment, a Gemini LLM,
+                and Reddit volume) that run when wired to a live feed. In the{" "}
+                <Hi>backtest</Hi> you see here those live feeds don&apos;t exist
+                for past matches, so the signal source substitutes a tennis
+                feature into each slot — surface win-rate, head-to-head, and rest.
+                The labels above are what the backtest actually fuses.
               </Caveat>
             </SpineSection>
 
@@ -605,13 +606,17 @@ export default function MechanismPage(): JSX.Element {
                 </li>
                 <li className="rounded-xl border border-[var(--ab-moss)]/30 bg-[var(--ab-bg-2)]/60 p-4">
                   <span className="font-mono text-xs uppercase tracking-[0.18em] text-[var(--ab-text)]">
-                    the survival calibration
+                    the survival calibration{" "}
+                    <span className="text-[var(--ab-moss)]">· R9 locked</span>
                   </span>
                   <p className="mt-1.5 font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-                    A deliberately <Hi>fragile</Hi> seed, a{" "}
-                    <Hi>loss multiplier</Hi>, and a low{" "}
-                    <Hi>initial breath</Hi> — so deaths actually occur and
-                    learning has something to rescue.
+                    The breath economy is empirically tuned, not hand-waved:{" "}
+                    <Hi>loss ×1.2</Hi>, <Hi>fragile 0.15</Hi>, <Hi>breath 70</Hi> —
+                    calibrated so a real edge <Hi>survives</Hi> (death rate 0.00)
+                    while pure noise <Hi>dies</Hi> (1.00), and the god&apos;s take
+                    flips positive at edge gain ≈ 0.2. The controlled three-arm
+                    proof that learning is the causal factor lives on{" "}
+                    <span className="text-[var(--ab-glow)]">/survival</span>.
                   </p>
                 </li>
                 <li className="rounded-xl border border-[var(--ab-moss)]/30 bg-[var(--ab-bg-2)]/60 p-4">

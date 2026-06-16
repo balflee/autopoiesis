@@ -591,17 +591,21 @@ export default function BacktestRoute(): JSX.Element {
                 </div>
               </div>
 
-              {/* Slot-name repurpose note. */}
+              {/* Backtest slot substitution note. */}
               <div
                 data-testid="slot-repurpose-note"
                 className="rounded-xl border border-[var(--ab-glow)]/25 bg-[var(--ab-bg-3)]/50 p-4"
               >
                 <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--ab-glow)]/90">
-                  slot-name repurpose
+                  backtest slot substitution
                 </p>
                 <p className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-                  The five engine slots keep their legacy keys but carry tennis
-                  payloads: <span className="text-[var(--ab-text)]">elo</span>,{" "}
+                  The slot keys name <span className="text-[var(--ab-text)]">genuine
+                  engines</span> (smart_money = on-chain wallets, sentiment_llm =
+                  Gemini, crowd_volume = Reddit). In backtest those live signals
+                  don&apos;t exist for past matches, so each slot is fed a
+                  Sackmann/CLOB proxy:{" "}
+                  <span className="text-[var(--ab-text)]">elo</span>,{" "}
                   <span className="text-[var(--ab-text)]">CLOB momentum</span>,{" "}
                   <span className="text-[var(--ab-text)]">surface</span>,{" "}
                   <span className="text-[var(--ab-text)]">head-to-head</span>, and{" "}

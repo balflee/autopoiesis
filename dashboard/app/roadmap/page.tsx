@@ -35,6 +35,8 @@ interface Stage {
   href: string | null;
   /** extra note for LOCKED stages */
   note?: string;
+  /** optional milestone sub-badge (e.g. a validated Stage marker) */
+  badge?: string;
 }
 
 /**
@@ -84,8 +86,9 @@ function buildStages(): readonly Stage[] {
       name: "L5 · LEARNING",
       phase: "Apprentice",
       status: "ACTIVE",
-      stat: "learns to survive across deaths",
+      stat: "non-learner dies 0% · learner survives 80–100% by finding a hidden edge",
       href: "/survival",
+      badge: "Stage 1 · survive + learn · validated",
     },
     mockBet,
     {
@@ -315,6 +318,19 @@ export default function RoadmapPage(): JSX.Element {
                   >
                     {stage.stat}
                   </p>
+
+                  {stage.badge ? (
+                    <p
+                      data-testid={`stage-badge-${i}`}
+                      className="mt-3 inline-flex w-fit items-center gap-2 rounded-full border border-[var(--ab-moss)]/60 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--ab-moss)]"
+                    >
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-[var(--ab-moss)]"
+                        aria-hidden
+                      />
+                      {stage.badge}
+                    </p>
+                  ) : null}
 
                   {stage.note ? (
                     <p className="mt-3 flex w-fit items-center gap-2 font-mono text-[10px] uppercase tracking-[0.24em] text-[var(--ab-dim)]">

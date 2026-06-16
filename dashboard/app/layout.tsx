@@ -6,9 +6,12 @@ import { ToastProvider } from "@/components/Toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Genesis · Consciousness Stream",
+  title: "Autopoiesis · An Agent That Learns to Survive",
   description:
-    "Genesis Experiment dashboard — PLAYBACK widget for Phase 2 Day 4 first-Twitter-mistake demo arc.",
+    "A self-evolving prediction-market agent. Stage 1 validated: under a " +
+    "calibrated breath economy, a non-learning prior dies on every world (0%) " +
+    "while the learner survives 80–100% by discovering and up-weighting a " +
+    "hidden edge.",
 };
 
 export const viewport = {

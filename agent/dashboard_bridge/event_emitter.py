@@ -42,6 +42,7 @@ from typing import Annotated, Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.core.state import Phase
+from agent.engines.decision import RATIONAL_ENGINES, SENTIENT_ENGINES
 
 # Mirror of dashboard/lib/wsContract.ts WS_CONTRACT_VERSION. The Track D
 # interface registry pin is "0.3.0"; we re-export the string so the
@@ -50,17 +51,12 @@ WS_CONTRACT_VERSION: Final[str] = "0.3.0"
 
 # The 5 LOWERCASE persisted engine keys — the only legal keys in a
 # ``signals`` map (mirrors ``$defs.decision_payload.signals.propertyNames``
-# in dashboard_ws_message.v0.3.0.json and agent.engines.decision.*). The
-# producer does NOT enforce the enum (a {str: float} map is accepted) —
-# the WIRE schema is the guard — but the tuple is exported so call sites
-# can build a coverage-checked map.
-SIGNAL_ENGINE_KEYS: Final[tuple[str, ...]] = (
-    "tennis_technical",
-    "market_momentum",
-    "smart_money",
-    "sentiment_llm",
-    "crowd_volume",
-)
+# in dashboard_ws_message.v0.3.0.json and agent.engines.decision.*). Derived
+# from decision.py's SoT (RATIONAL_ENGINES + SENTIENT_ENGINES) so a slot rename
+# touches one definition site. The producer does NOT enforce the enum (a
+# {str: float} map is accepted) — the WIRE schema is the guard — but the tuple
+# is exported so call sites can build a coverage-checked map.
+SIGNAL_ENGINE_KEYS: Final[tuple[str, ...]] = (*RATIONAL_ENGINES, *SENTIENT_ENGINES)
 
 # Demo §9 1:30-2:30 PLAYBACK overlay copy. Pinned here so the emitter's
 # default activation frame is byte-stable for the captured tape — Track D

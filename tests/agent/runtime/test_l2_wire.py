@@ -275,17 +275,17 @@ def _bullish_signals(*, asof_ts: datetime, tick: int) -> dict[str, Signal]:
         ),
         SURFACE_ADVANTAGE: Signal(
             score=0.7, confidence=0.85, available_at=iso,
-            rationale="wallets favour YES",
+            rationale="surface edge favours YES",
             raw_features={"tick": float(tick)},
         ),
         HEAD_TO_HEAD: Signal(
             score=0.6, confidence=0.8, available_at=iso,
-            rationale="sentiment positive",
+            rationale="head-to-head favours YES",
             raw_features={"tick": float(tick)},
         ),
         REST_RECENCY: Signal(
             score=0.6, confidence=0.85, available_at=iso,
-            rationale="crowd volume rising",
+            rationale="rest/recency favours YES",
             raw_features={"tick": float(tick)},
         ),
     }

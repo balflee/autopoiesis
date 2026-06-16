@@ -312,7 +312,7 @@ def _signals_from_market(
     # Other engines get smaller, neutral-ish reads so the dry-run
     # produces a mix of BET / NO_BET across the tick window.
     other_score = 0.05 * ((tick % 3) - 1)  # cycles -0.05, 0, +0.05
-    sentiment_score = 0.1 * ((tick % 2) - 0.5) * 2.0
+    h2h_score = 0.1 * ((tick % 2) - 0.5) * 2.0
 
     return {
         TENNIS_TECHNICAL: Signal(
@@ -333,21 +333,21 @@ def _signals_from_market(
             score=other_score * 0.5,
             confidence=0.35,
             available_at=asof_iso,
-            rationale="wallet_basket placeholder (no live feed in dry-run)",
+            rationale="surface-edge placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
         HEAD_TO_HEAD: Signal(
-            score=sentiment_score,
+            score=h2h_score,
             confidence=0.3,
             available_at=asof_iso,
-            rationale="reddit sentiment placeholder (no live LLM call in dry-run)",
+            rationale="head-to-head placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
         REST_RECENCY: Signal(
             score=-other_score,
             confidence=0.4,
             available_at=asof_iso,
-            rationale="reddit volume z-score placeholder",
+            rationale="rest/recency placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
     }

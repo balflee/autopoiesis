@@ -365,7 +365,8 @@ G1/G2 的所有 null**（无涌现、γ 游走、深度没复现）：**没有 e
   收盘时拿收盘线 = 偷看未来；诚实回测要用开盘线或时间对齐的线。
 - **live/mock-bet 版（用户已确认兴趣）**：live 才是主场（信息时差只在"现在"可
   收割，且 live 无前视问题）。The Odds API（免费档 500 req/月 ≈ 16 快照/天，够
-  MVP）或 Betfair 交易所价；去水位（~2-3%）；`smart_money` 槽位名至实归；
+  MVP）或 Betfair 交易所价；去水位（~2-3%）；这正是保留的 `SmartMoneyEngine`
+  原型(死代码、Stage-2 A15 edge 层)将来要喂的真 sharp/smart-money 信号；
   门控 `gap > 点差+滑点+安全边际`；窗口短（分钟级）、容量薄（小仓高频收时差，
   与 $100 资金设定登对）。
 - **对生存的意义**：比市场锐的信号源是把胜率推过 ~86% breath 翻正线的最现实路径
@@ -381,25 +382,29 @@ G1/G2 的所有 null**（无涌现、γ 游走、深度没复现）：**没有 e
 
 ## F. 工程债 / 命名
 
-### F1 · 5 个引擎槽 key 改名 — `REJECTED`（2026-06-16；superplan 计划评审揭穿前提错误）
-- **原动机（已作废）**：以为 `smart_money`/`sentiment_llm`/`crowd_volume` 是 NBA 旧名、名实不符，
-  想改成 `surface_advantage`/`head_to_head`/`rest_recency`。
-- **为何否决（核实坐实）**：**引擎名是对的**——`agent/engines/smart_money.py::SmartMoneyEngine`
-  真算链上 smart-money 钱包对齐(读 `smart_money_wallets.json`+链上持仓)、`SentimentLLMEngine`
-  真调 Gemini 算 LLM 情绪(Phase 1 冻结到 0)、`CrowdVolumeEngine` 真算 Reddit 量。改成
-  surface/h2h/rest 会**把真引擎错贴标签**。真正的误导只在 **backtest**：`real_signal_source.py`
-  因历史无活信号，把 Sackmann/CLOB 代理塞进这 5 个槽(槽 key 不变、payload 变)→ backtest 里
-  `smart_money` 槽才装场地优势。
-- **流程记录（superplan 价值实证）**：11-agent blast-radius 审计(~51 文件) → 写 spec+plan
-  (分支 rename-engine-slots) → **Phase 2 计划评审 24-agent panel 揭穿前提**(HIGH=7,核心:
-  `SmartMoneyEngine` 真算钱包信号、改名是错;另查出 `.dev/contracts` wire schema+parquet 特征列
-  +CamelCase 类名等执行盲点) → 用户拍板**中止改名**、分支已删。
-- **正确处置（已做）**：① `real_signal_source.py` 顶部加 "BACKTEST SLOT SUBSTITUTION" 大字说明
-  (槽名=真引擎、只 backtest 替换 payload);② `divinity-mechanism-spec.md` §6 槽名说明校正;
-  ③ 本条标 REJECTED。**不改任何 key/引擎,零代码风险。**
-- **遗留（若将来真要正名再看）**：得连 `.dev/contracts/dashboard_ws_message.v*.json` wire schema
-  + `_registry.json` + `data/parquet/training_set_v1.parquet` 特征列 + CamelCase 类名一起改,
-  且 `score_{engine}` 持久键要 backward-compat remap(否则 `open_bets.jsonl` 在途注静默零信用)
-  ——这些是 panel 查出的真盲点,留档备查。
+### F1 · 3 个名不副实的槽 key 改名 — `DONE`（2026-06-16；分支 rename-slot-keys-v2，superplan 全流程）
+- **做了什么**：`smart_money`→`surface_advantage`、`sentiment_llm`→`head_to_head`、
+  `crowd_volume`→`rest_recency`（`tennis_technical`/`market_momentum` 名字准、不动）。纯重命名、
+  零行为变化；全量 pytest(1395 passed，仅 9 个无关的 tennis live-data 404 环境失败)+ dashboard
+  vitest(396)+ tsc + next build(12/12)全绿。
+- **为何改是对的（GROUND TRUTH 核实于 2026-06-16）**：之前一版 REJECTED 的前提("引擎名是对的、
+  `SmartMoneyEngine` 真算钱包")**本身是错的**——那些引擎**模块**(`smart_money.py` 等)定义了但
+  **从未被实例化**(全仓库零 `X(...)`)，是**死/原型代码**。系统实际在跑的是
+  `agent/backtest/real_signal_source.py::RealSignalSource`(backtest + 能学 demo + prod via
+  `_make_prod_signal_source`)，它把 5 个槽**全喂真 Sackmann/CLOB**：`smart_money` 槽装场地优势、
+  `sentiment_llm` 槽装交手记录、`crowd_volume` 槽装休息/近况。所以槽 key 名实不符、改名=诚实修正。
+  死引擎模块**保留**为 Stage-2 A15 edge 层原型(与槽 key 解耦，不在活路径)。
+- **爆炸半径(全做了)**：decision.py SoT(3 常量)→ weight_updater/event_emitter 派生 + parity test;
+  `.dev/contracts/dashboard_ws_message` wire schema bump 到 **v0.4.0**(BREAKING，registry pin +
+  Python/TS 契约测试 + 两端 `WS_CONTRACT_VERSION`);`score_{engine}` 持久键 backward-compat
+  remap(`agent/engines/slot_aliases.py` + `dashboard/lib/slot_key_aliases.ts`，在 settlement /
+  `load_rows` / survival journey loader 读边界 upgrade 旧名→新名，老数据零信用丢失);提交的
+  `static_sweep.json`/`stage1_learning.json` 确定性 key-only 重写(数字 byte 不变);gitignored
+  journeys 由 TS shim 运行时 upgrade(非再生)。parquet 训练特征列(`*_score`/`*_conf`)**排除**
+  (独立层、留旧名)。
+- **流程**：superplan 全流程(brainstorming→writing-plans→Phase-2 计划评审环 7 轮收敛 HIGH=0
+  MEDIUM=0→approve→Phase-4 inline 实现→Phase-5 diff 评审→finish)。前一版 rename-engine-slots
+  分支的 24-agent panel 因被死引擎模块误导而判 REJECTED；本次先锁定 GROUND TRUTH 喂所有 subagent
+  才避免重蹈。
 - groundhog v2 双腿真实 run（对照 + Gemini treatment，cap 120）→ 跑完后
   README/文档（含 B1 措辞修正）→ 全量回归 → push → 部署 → 线上验证。

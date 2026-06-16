@@ -224,7 +224,12 @@ UNVERIFIED, do not claim a lockstep test).
 git mv .dev/contracts/dashboard_ws_message.v0.3.0.json .dev/contracts/dashboard_ws_message.v0.4.0.json
 ```
 Wait — do NOT git mv (immutable versioning keeps v0.3.0). Instead **copy**:
-`cp .dev/contracts/dashboard_ws_message.v0.3.0.json .dev/contracts/dashboard_ws_message.v0.4.0.json`, then in the v0.4.0 file make it internally consistent (repo-wide `$id`-matches-filename invariant): replace BOTH `propertyNames.enum` arrays' 3 keys with the new names; set internal `"version":"0.4.0"`; rewrite `"$id"` to `.../dashboard_ws_message.v0.4.0.json`; retitle `"title"` to `(v0.4.0)`; update the v0.3.0-referencing `"description"` prose; add `supersedes` v0.3.0. **Leave the v0.3.0 file frozen/verbatim** (its old-key enum is intentionally retained — the read shims handle legacy payloads; do NOT edit it chasing zero hits). Update `.dev/contracts/_registry.json` `dashboard_ws_message` pin (version 0.4.0, file v0.4.0.json, supersedes, a BREAKING `version_bump_reason` naming the renamed enum keys). Bump the bare constant `WS_CONTRACT_VERSION: Final[str] = "0.4.0"` in `event_emitter.py` (it is `"0.3.0"`, NOT `"v0.3.0"`). Sweep stale `.v0.3.0.json` references in `event_emitter.py` docstrings, `agent/dashboard_bridge/__init__.py`, `agent/dashboard_bridge/death_watch_emitter.py`, `agent/runbooks/*`. `git mv tests/agent/dashboard_bridge/test_ws_contract_v0_3_0.py tests/agent/dashboard_bridge/test_ws_contract_v0_4_0.py`; repoint its `_SCHEMA_PATH` to v0.4.0, update its version assertion + expected keys.
+`cp .dev/contracts/dashboard_ws_message.v0.3.0.json .dev/contracts/dashboard_ws_message.v0.4.0.json`, then in the v0.4.0 file make it internally consistent (repo-wide `$id`-matches-filename invariant): replace BOTH `propertyNames.enum` arrays' 3 keys with the new names; **also rename the 3 slot-key NAMES listed inside the `"description"` prose** (the description enumerates "tennis_technical, market_momentum, smart_money, sentiment_llm, crowd_volume" — the exact misnomer this rename deletes; rename the 3 there too, or it survives in the canonical contract doc); set internal `"version":"0.4.0"`; rewrite `"$id"` to `.../dashboard_ws_message.v0.4.0.json`; retitle `"title"` to `(v0.4.0)`; update the v0.3.0 version reference in the description; add `supersedes` v0.3.0. **Leave the v0.3.0 file frozen/verbatim** (its old-key enum is intentionally retained — the read shims handle legacy payloads; do NOT edit it chasing zero hits). Update `.dev/contracts/_registry.json` `dashboard_ws_message` pin (version 0.4.0, file v0.4.0.json, supersedes, a BREAKING `version_bump_reason` naming the renamed enum keys). Bump the bare constant `WS_CONTRACT_VERSION: Final[str] = "0.4.0"` in `event_emitter.py` (it is `"0.3.0"`, NOT `"v0.3.0"`). **Wire-version reference sweep — ANCHORED, not a hand-list, and NEVER a bare `v0.3.0` replace** (a blanket replace CORRUPTS unrelated contracts legitimately at v0.3.0 — `agent_lifecycle_abi.v0.3.0`, `phase_manager_abi`, `energy_controller`, `rh_chain_adapter.py`, `docs/page.tsx` ABI entries). Sweep the `dashboard_ws_message`/WS-contract context ONLY:
+```bash
+rg -n 'dashboard_ws_message\.v0\.3\.0' agent/ dashboard/ tests/ --glob '!*v0.3.0.json'
+rg -n 'WS_CONTRACT_VERSION' agent/ dashboard/   # the constants + their 0.3.0 neighbours
+```
+Update EVERY hit's literal/comment to v0.4.0 (known sites incl. `agent/runtime/{phase2_launch.py,sandbox_phase2_loop.py}`, `dashboard/lib/{types.ts,wsContract.ts,wsEvents.ts}`, `dashboard/components/DecisionFeed.tsx`, `event_emitter.py`/`__init__`/`death_watch_emitter`/runbooks). Completeness gate: `rg -n 'dashboard_ws_message\.v0\.3\.0' agent/ dashboard/ --glob '!*v0.3.0.json'` → ZERO in active code. **Python contract test**: `git mv …/test_ws_contract_v0_3_0.py …/test_ws_contract_v0_4_0.py`; repoint `_SCHEMA_PATH` to v0.4.0; it has **TWO** version assertions (`test_schema_file_pins_v0_3_0` asserts `raw['version']=='0.3.0'`; `test_emitter_constant_is_v0_3_0` asserts `WS_CONTRACT_VERSION=='0.3.0'`) — update BOTH assertions AND rename BOTH functions to `…_v0_4_0`; update expected keys.
 
 - [ ] **Step 5: Update every Python test asserting an old slot KEY** (`test_decision`, `test_weight_updater_settlement`, `test_real_signal_source`, `test_cached_sweep`, `test_value_sweep`, `test_survival_*`, `test_run_cross_market_journey`, `test_phase1_runner`, `test_sandbox_settlement_poller`, `test_validate_value_seed`, the parity test now asserts the new tuple, plus whatever the grep surfaces). **`test_each_engine.py` is NOT in this list** — it is a kept-MODULE unit test (wallet positions / LLM calls / crowd windows) and asserts the modules' frozen `.name=="smart_money"`/`"sentiment_llm"`/`"crowd_volume"`; it needs **zero change**. **RULE**: LEAVE any assertion of a KEPT engine module's `.name` (== the old string) UNCHANGED — "updating" it to the new slot name would FAIL (the frozen module still returns the old name). Only rename DECISION-SLOT-KEY assertions.
 
@@ -283,35 +288,33 @@ Apply `normalizeSlotKeys(...)` in `load_survival_journey.ts::validateSignals` (b
 
 - [ ] **Step 1: Rename the 3 keys across the TS defs + components + bump the TS wire version**
 
-Apply the 3 key replacements across `dashboard/` (TS/TSX): the `SignalSlotKey` union (`load_static_sweep.ts` `SIGNAL_SLOT_KEYS`) + `SIGNAL_SLOT_LABEL` keys (keep the human labels: surface_advantage→"Surface", head_to_head→"Head-to-Head", rest_recency→"Rest / Recency"), `types.ts`, `wsContract.ts` (bump `WS_CONTRACT_VERSION = "0.4.0"`), the loaders, `DecisionFeed.tsx`. **`/backtest` + `/mechanism` carry the slot keys as PROSE** explaining the misnaming (e.g. backtest/page.tsx:604 "smart_money = on-chain wallets…", mechanism/page.tsx:429) — **REWRITE that prose** to the post-rename framing (the slots are named for their Sackmann payload; the genuine wallet/LLM/Reddit engine modules are KEPT as future edge prototypes), do NOT token-replace it into a false statement. **Repoint all THREE contract tests**: `git mv …/wsContract_v0_3_0.test.ts …/wsContract_v0_4_0.test.ts` (repoint SCHEMA_PATH + version), AND repoint the **two** hardcoded `dashboard_ws_message.v0.3.0.json` code-path literals in `dashboard/__tests__/lib/wsContract.test.ts:53,:79` to v0.4.0 (leave the death-watch resolve at :64), and refresh the two stale `v0.3.0` docstring mentions at `:17,:22` so the file is internally consistent. Its version assert (`:57 schema.version === WS_CONTRACT_VERSION`) then passes via the bumped constant. Update the error-message-regex assertions in `load_survival_journey.test.ts` / `load_static_sweep.test.ts` (the validator string + the test regex rename in lockstep).
+Apply the 3 key replacements across `dashboard/` (TS/TSX): the `SignalSlotKey` union (`load_static_sweep.ts` `SIGNAL_SLOT_KEYS`) + `SIGNAL_SLOT_LABEL` keys (keep the human labels: surface_advantage→"Surface", head_to_head→"Head-to-Head", rest_recency→"Rest / Recency"), `types.ts`, `wsContract.ts` (bump `WS_CONTRACT_VERSION = "0.4.0"`), the loaders, `DecisionFeed.tsx`. **`/backtest` + `/mechanism` carry the slot keys as PROSE** explaining the misnaming (e.g. backtest/page.tsx:604 "smart_money = on-chain wallets…", mechanism/page.tsx:429) — **REWRITE that prose** to the post-rename framing (the slots are named for their Sackmann payload; the genuine wallet/LLM/Reddit engine modules are KEPT as future edge prototypes), do NOT token-replace it into a false statement. **Repoint all THREE contract tests**: `git mv …/wsContract_v0_3_0.test.ts …/wsContract_v0_4_0.test.ts` (repoint SCHEMA_PATH + version), AND repoint the **two** hardcoded `dashboard_ws_message.v0.3.0.json` code-path literals in `dashboard/__tests__/lib/wsContract.test.ts:53,:79` to v0.4.0 (leave the death-watch `dashboard_death_watch.v0.1.0.json` resolve at :66 untouched), and refresh the two stale `v0.3.0` docstring mentions at `:17,:22` so the file is internally consistent. Its version assert (`:57 schema.version === WS_CONTRACT_VERSION`) then passes via the bumped constant. Update the error-message-regex assertions in `load_survival_journey.test.ts` / `load_static_sweep.test.ts` (the validator string + the test regex rename in lockstep).
 ```bash
 rg -n 'smart_money|sentiment_llm|crowd_volume' dashboard/ --glob '!**/*.json'
 ```
 
-- [ ] **Step 2: Update the build scripts' slot labels + regenerate the committed fixtures**
+- [ ] **Step 2: Deterministic key-only rewrite of the committed fixtures (provably zero numeric change) + update the producers for future correctness**
 
-In `dashboard/scripts/build_stage1.py`: update the `weight_trajectory` slot labels
-(`edge_slot_label`/`noise_slot_label` reference the old keys `market_momentum`/
-`smart_money` — `market_momentum` stays; `smart_money` → `surface_advantage`).
-**Save the pre-rename committed fixtures, regenerate, then PROVE numeric equivalence**
-(the "zero numeric change" criterion — a regenerator with any RNG/non-determinism
-would silently drift the numbers, not just the keys):
+The committed fixtures (`static_sweep.json`, `stage1_learning.json`) must change ONLY
+the 3 slot strings, with byte-identical numbers. Do NOT regenerate-and-diff (that is
+fragile: producer determinism, a possibly-stale baseline, and the 4 MB journeys being
+absent on a fresh checkout all defeat it). Instead apply a **deterministic key-only
+rewrite** — this IS the new committed artifact and makes the zero-numeric-change
+guarantee structural, not empirical:
 ```bash
-cp dashboard/public/backtest/static_sweep.json /tmp/static_sweep.orig.json
-cp dashboard/public/stage1/stage1_learning.json /tmp/stage1.orig.json
-PYTHONPATH="$(pwd)" python dashboard/scripts/build_static_sweep.py
-PYTHONPATH="$(pwd)" python dashboard/scripts/build_stage1.py
-# Equivalence guard — PER ARTIFACT (the two fixtures change shape differently):
-#  • static_sweep.json: the slot keys are per-row signal KEYS → normalize old→new
-#    KEYS on the ORIGINAL, then deep-equal vs regenerated (must differ ONLY in keys,
-#    byte-identical numbers).
-#  • stage1_learning.json: the only slot ref is the VALUE of edge/noise_slot_label
-#    (an opaque string) → rewrite that VALUE old→new on the ORIGINAL, then deep-equal.
-#    A stage1 mismatch on noise_slot_label is the INTENDED value rename, NOT drift.
-# If static_sweep STILL differs beyond keys, the cause is the _signal_rows.json
-# old-key collapse (Task 2 Step 1 load_rows alias not wired) — fix THAT, not a seed.
-# Do NOT claim zero-change until both pass.
+# tiny in-place rewrite (a python one-off): in static_sweep.json rename the 3 SIGNAL
+# KEYS inside every sample_bets[].signals object; in stage1_learning.json rewrite the
+# VALUE of weight_trajectory.{edge,noise}_slot_label (smart_money→surface_advantage).
+# Assert the parsed JSON is IDENTICAL except those exact paths (no other byte moves).
 ```
+THEN update the PRODUCERS so a future regen stays correct + consistent: `build_static_sweep.py`
+(its `SLOT_KEYS`) and `build_stage1.py` (the `{edge,noise}_slot_label` values). Add a
+LIGHT producer smoke (KEY-presence only, NOT a numeric diff): re-run each producer and
+assert the output carries the NEW keys and zero old keys — this proves the producer +
+the `load_rows` alias (Task 2 Step 1) are wired, without depending on baseline
+idempotency. (If you nonetheless want a numeric-equivalence check, the trustworthy
+baseline is the key-rewritten fixture above — byte-stable by construction — NOT a
+re-run.)
 Verify: `rg -c 'smart_money|sentiment_llm|crowd_volume' dashboard/public/backtest/static_sweep.json dashboard/public/stage1/stage1_learning.json` → 0.
 
 - [ ] **Step 3: Run dashboard vitest + tsc + next build**
@@ -363,29 +366,27 @@ proof of the shim** is the synthetic-old-key vitest from Task 3 Step 0 (a commit
 test that always runs); Step 1b is the on-disk integration check on top. "Green
 pytest+vitest+build" alone is NOT accepted as proof the `/survival` showpiece works.
 
-- [ ] **Step 2: Regenerate the gitignored derived journeys (clean cutover, never hand-edit)**
+- [ ] **Step 2: Journeys — correctness is the TS shim, NOT regeneration**
 
-Run the producers so freshly-served journeys carry new keys (numerical legs only):
-```bash
-cp dashboard/public/backtest/survival_journey.json /tmp/survival_journey.orig.json  # pre-rename
-PYTHONPATH="$(pwd)" python scripts/run_reincarnation.py --provider numerical  # + survival_season producer per its docstring
-```
-**Journey equivalence guard (NOT just 'loads green'):** a collapsed journey
-(all-NO_BET / agent dies, 0 bets) is structurally valid and loads without throwing,
-so Step 1b's "no throw" would pass while `/survival` silently regresses from
-"learner +$17k, survives" to a dead agent. Assert the regenerated numerical journey
-equals the pre-rename one **modulo the 3 keys** (same `summary.total_steps`,
-`learner_final_pnl`, per-step `cum_pnl`/weights) — at minimum that `total_steps` +
-`learner_final_pnl` are non-trivial AND unchanged. If they collapsed, the
-`load_rows` alias (Task 2 Step 1) is not wired.
+The gitignored journeys (`survival_journey*.json`, `reincarnation*.json`) are NOT
+committed, so the "zero committed change" criterion does not apply to them; their
+rename-correctness comes entirely from the **TS `normalizeSlotKeys` shim (Task 3 Step
+0)**, proven by the synthetic-old-key vitest. The `_ai`/`_gemini`/`_run1`/`_run2` legs
+are intentionally left with old keys (Gemini-gated / verbatim finetune-log archives —
+re-running needs Gemini quota and would destroy the exhibits); the shim is exactly
+what keeps them loading. **The `{slot}_quality` EMA keys (`surface_advantage_quality`)
+rename implicitly by derivation.**
 
-**The `{slot}_quality` EMA keys (e.g. `surface_advantage_quality`) rename implicitly
-by derivation** — no separate rename; the §D `score_<old>` settlement alias + the
-TS read shim cover persisted/served legacy data. The `_ai`/`_gemini`/`_run1`/`_run2`
-journeys are **intentionally left with old keys** (Gemini-gated / verbatim finetune-log
-exhibits — re-running them needs Gemini quota and would destroy the archive); the
-TS alias shim (Task 3 Step 0) is exactly what keeps them loading. Do NOT hand-edit
-them (violates "regenerate, never hand-edit").
+OPTIONAL local smoke (NOT a zero-change gate, NOT on a fresh/CI checkout where the
+gitignored inputs are absent): regenerate the NUMERICAL `survival_journey.json` via
+its CORRECT producer — `scripts/run_v3_numerical.py` (which writes
+`dashboard/public/backtest/survival_journey.json` and loads rows via the aliased
+`load_rows`), NOT `run_reincarnation.py` (which writes the unrelated
+`reincarnation.json`) — and confirm it carries the NEW keys with non-trivial
+`summary.total_steps>0` and `learner_final_pnl != static_final_pnl` (a collapsed
+all-NO_BET journey would mean the `load_rows` alias is unwired). Gate this on the
+input `reports/backtest/_signal_rows.json` existing (else skip, per Step 1b's
+non-vacuity rule).
 
 - [ ] **Step 3: Final completeness sweep — two gates (CODE must be clean; ARTIFACTS may intentionally retain old keys)**
 
@@ -474,3 +475,7 @@ git commit -m "docs: mark F1 rename DONE + refresh slot-name legends to the real
   - LOW (parity test tautology): added a concrete-VALUE assertion that pins the rename (updated old→new in Task 2 Step 5).
   - LOW (false "phase1_runner:762 asserted by test" claim): corrected — the label has no test coverage (rename safe but unverified).
   - LOW (score-remap "pure unit test" couldn't reach the inline comprehension): extract `_unflatten_scores` to a module-level function + unit-test that.
+- **2026-06-16 round 4** (panel VERDICT HIGH=1 MEDIUM=3 LOW=1, 0 vote-rejected — all in the VERIFICATION machinery, core rename solid):
+  - HIGH/MED (journey equivalence regenerated the WRONG artifact — `run_reincarnation` writes `reincarnation.json`, not `survival_journey.json` → vacuous guard + showpiece never cut over) **and** MED (equivalence-guard baseline never proven idempotent; 4 MB journeys absent on fresh CI): root-cause SIMPLIFICATION — Task 3 Step 2 now does a **deterministic key-only rewrite** of the COMMITTED fixtures (structural zero-numeric-change, no producer/baseline/determinism dependence) + updates the producers + a key-presence smoke; Task 4 Step 2 makes journey correctness the TS shim (not regeneration; they're uncommitted), with an OPTIONAL smoke via the CORRECT producer `run_v3_numerical.py` gated on the input existing.
+  - MED (wire-version `v0.3.0` sweep incomplete + a blanket replace corrupts unrelated ABI contracts): replaced the hand-list with an ANCHORED `dashboard_ws_message.v0.3.0` + `WS_CONTRACT_VERSION` sweep + a completeness gate + an explicit "never bare v0.3.0" warning; and rename the 3 slot-key NAMES inside the v0.4.0 schema description prose.
+  - LOW (contract test under-enumerated): the Python test has TWO version assertions + TWO `v0_3_0` function names (update both, rename both); the wsContract.test.ts death-watch resolve is at :66, not :64.

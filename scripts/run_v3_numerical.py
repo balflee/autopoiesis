@@ -37,6 +37,7 @@ def load_v3_seed(path: Path = SEED_PATH) -> StrategyConfig:
         min_edge=raw["min_edge"],
         kappa=raw["kappa"],
         kappa_xm=raw.get("kappa_xm", 0.0),
+        exploration_epsilon=raw.get("exploration_epsilon", 0.0),
     )
 
 

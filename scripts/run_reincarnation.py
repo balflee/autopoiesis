@@ -150,11 +150,15 @@ def main(argv: list[str] | None = None) -> int:
             out_path=out,
             max_incarnations=args.max_incarnations,
             train_fraction=args.train_fraction,
-            # The REAL v3 journey knobs — passed explicitly (the
-            # orchestrator's own defaults mirror the cheap-test defaults).
-            fragile_max_breath_risk_pct=0.95,
-            loss_multiplier=5.0,
-            initial_breath=35.0,
+            # R9 CALIBRATED economy (reports/calibration/breath_economy_hand1.json):
+            # the legacy 0.95/5.0/35 made honest survival mathematically
+            # impossible (aggressive sizing + ×5 loss). The joint sim calibration
+            # on the varying-edge world recommends TAME sizing + gentle loss +
+            # breath runway → +edge survives (0.00) / noise dies (1.00). (Older
+            # g0/g1/g2/numerical artifacts remain at the pre-R9 economy.)
+            fragile_max_breath_risk_pct=0.15,
+            loss_multiplier=1.2,
+            initial_breath=70.0,
             holdout_max_lives=12,
             entry_price_floor=_FLOOR,
             rebirth_llm=rebirth_llm,  # type: ignore[arg-type]

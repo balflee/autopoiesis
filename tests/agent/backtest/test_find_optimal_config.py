@@ -174,3 +174,45 @@ def test_lhs_v3_fields_determinism_unchanged() -> None:
         assert cfg.kappa == pytest.approx(
             _sc(float(row[9]), KAPPA_BOUNDS)
         ), f"row {i}: kappa"
+
+
+# ---------------------------------------------------------------------------
+# Active Survival (Hand 1) Task 2: exploration_epsilon — a NON-advisable,
+# NON-swept floor knob riding on StrategyConfig. It is the LAST field, defaults
+# 0.0 (byte-identical to a pre-Hand-1 config), and the rebirth advisor must
+# NEVER be able to tune it (see test_reincarnation for the GENOME_KEYS guard).
+# ---------------------------------------------------------------------------
+
+
+def test_strategy_config_exploration_epsilon_defaults_to_zero() -> None:
+    """StrategyConfig without exploration_epsilon defaults to 0.0."""
+    cfg = StrategyConfig(
+        weights=Weights(
+            w_r=0.5, w_s=0.5, alpha=[1 / 3, 1 / 3, 1 / 3], beta=[0.5, 0.5], rho=1.0
+        ),
+        max_breath_risk_pct=0.30,
+        min_confidence=0.05,
+        min_bet_size_usd=5.0,
+    )
+    assert cfg.exploration_epsilon == 0.0
+
+
+def test_strategy_config_exploration_epsilon_explicit() -> None:
+    """StrategyConfig accepts an explicit exploration_epsilon."""
+    cfg = StrategyConfig(
+        weights=Weights(
+            w_r=0.5, w_s=0.5, alpha=[1 / 3, 1 / 3, 1 / 3], beta=[0.5, 0.5], rho=1.0
+        ),
+        max_breath_risk_pct=0.30,
+        min_confidence=0.05,
+        min_bet_size_usd=5.0,
+        exploration_epsilon=0.07,
+    )
+    assert cfg.exploration_epsilon == 0.07
+
+
+def test_lhs_exploration_epsilon_stays_zero() -> None:
+    """exploration_epsilon is NOT an LHS sweep dim — every generated config
+    keeps the 0.0 default (it is a hand-set floor, never tuned by the sweep)."""
+    configs = generate_lhs_strategy_configs(20, seed=0)
+    assert all(cfg.exploration_epsilon == 0.0 for cfg in configs)

@@ -80,6 +80,12 @@ class StrategyConfig:
     gate_storm_sensitivity: float = 0.0
     risk_storm_sensitivity: float = 0.0
     kappa_xm: float = 0.0
+    #: Active Survival (Hand 1) — the exploration FLOOR strength. Rides HERE so
+    #: it threads through the sim, but is deliberately NON-advisable: it is NOT
+    #: in ``GENOME_KEYS`` (the rebirth advisor must never tune it to 0, which
+    #: would reintroduce the freeze the floor prevents). Default 0.0 keeps every
+    #: pre-Hand-1 construction/serialization byte-identical except this key.
+    exploration_epsilon: float = 0.0
 
 
 def _scale(unit: float, bounds: tuple[float, float]) -> float:

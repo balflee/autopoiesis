@@ -1,0 +1,210 @@
+{
+  "experiment": "learning_demo",
+  "config": {
+    "arms": [
+      "minimax"
+    ],
+    "provider": "minimax",
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "gain": 0.5,
+    "n_rows": 400,
+    "max_incarnations": 20,
+    "edge_engine": "market_momentum",
+    "economy": {
+      "loss_multiplier": 1.2,
+      "fragile_max_breath_risk_pct": 0.15,
+      "initial_breath": 70.0,
+      "exploration_epsilon": 0.05,
+      "tithe": true,
+      "tribute": true
+    }
+  },
+  "arms": {
+    "minimax": {
+      "per_seed": [
+        {
+          "n_incarnations": 3,
+          "progress_pct": [
+            85.71428571428571,
+            100.0,
+            100.0
+          ],
+          "pnl_at_death": [
+            61.904522029562536,
+            64.56941448159718,
+            640.1700980482813
+          ],
+          "died": [
+            true,
+            true,
+            false
+          ],
+          "first_progress_pct": 85.71428571428571,
+          "final_progress_pct": 100.0,
+          "best_progress_pct": 100.0,
+          "survived": true,
+          "surviving_incarnation": 3,
+          "rise": 14.285714285714292
+        },
+        {
+          "n_incarnations": 4,
+          "progress_pct": [
+            57.142857142857146,
+            71.42857142857143,
+            78.57142857142857,
+            100.0
+          ],
+          "pnl_at_death": [
+            -36.762852458640005,
+            -14.175390606164287,
+            -10.1822203177644,
+            12.772858316492007
+          ],
+          "died": [
+            true,
+            true,
+            true,
+            false
+          ],
+          "first_progress_pct": 57.142857142857146,
+          "final_progress_pct": 100.0,
+          "best_progress_pct": 100.0,
+          "survived": true,
+          "surviving_incarnation": 4,
+          "rise": 42.857142857142854
+        },
+        {
+          "n_incarnations": 20,
+          "progress_pct": [
+            57.142857142857146,
+            57.142857142857146,
+            50.0,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            50.0,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            50.0,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146,
+            57.142857142857146
+          ],
+          "pnl_at_death": [
+            -35.23106025056371,
+            -36.70684248,
+            -37.543468568698756,
+            -36.63614145166441,
+            -37.05139194248573,
+            -35.89274412773719,
+            -39.034498902650455,
+            -36.80628142854017,
+            -36.77723503611415,
+            -37.15773360045764,
+            -37.142151310254675,
+            -36.97465845864,
+            -36.45016902761148,
+            -38.86705010358976,
+            -35.67179786561507,
+            -35.99762632161965,
+            -36.501113288285495,
+            -36.93685884918943,
+            -37.32068378595497,
+            -35.45813088045455
+          ],
+          "died": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "first_progress_pct": 57.142857142857146,
+          "final_progress_pct": 57.142857142857146,
+          "best_progress_pct": 57.142857142857146,
+          "survived": false,
+          "surviving_incarnation": null,
+          "rise": 1.1904761904761898
+        },
+        {
+          "n_incarnations": 3,
+          "progress_pct": [
+            64.28571428571429,
+            64.28571428571429,
+            100.0
+          ],
+          "pnl_at_death": [
+            -12.049505036369286,
+            -7.802403528751731,
+            27.784110962280145
+          ],
+          "died": [
+            true,
+            true,
+            false
+          ],
+          "first_progress_pct": 64.28571428571429,
+          "final_progress_pct": 100.0,
+          "best_progress_pct": 100.0,
+          "survived": true,
+          "surviving_incarnation": 3,
+          "rise": 35.71428571428571
+        },
+        {
+          "n_incarnations": 1,
+          "progress_pct": [
+            100.0
+          ],
+          "pnl_at_death": [
+            73.31752503622901
+          ],
+          "died": [
+            false
+          ],
+          "first_progress_pct": 100.0,
+          "final_progress_pct": 100.0,
+          "best_progress_pct": 100.0,
+          "survived": true,
+          "surviving_incarnation": 1,
+          "rise": 0.0
+        }
+      ],
+      "aggregate": {
+        "n_seeds": 5,
+        "survival_rate": 0.8,
+        "mean_best_progress_pct": 91.42857142857143,
+        "mean_final_progress_pct": 91.42857142857143,
+        "mean_rise": 18.80952380952381,
+        "mean_surviving_incarnation": 2.75
+      }
+    }
+  }
+}

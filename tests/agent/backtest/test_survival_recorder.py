@@ -333,6 +333,32 @@ def test_build_survival_journey_dict_shape(tmp_path: Path) -> None:
     json.dumps(journey)
 
 
+def test_journey_seed_block_discloses_exploration_epsilon(tmp_path: Path) -> None:
+    """Active Survival (Hand 1) Task 2: the journey ``seed`` disclosure block
+    carries exploration_epsilon so a downstream loader can round-trip the floor.
+    """
+    import dataclasses
+
+    rows, snaps = _dying_fixture()
+    seed = dataclasses.replace(_fragile_seed(), exploration_epsilon=0.07)
+    recorder = SurvivalRecorder(rows=rows)
+    result = run_survival_season(
+        rows=rows,
+        snapshots=snaps,
+        seed=seed,
+        state_root=tmp_path / "season",
+        initial_breath=3.0,
+        initial_bankroll_usd=100.0,
+        max_lives=5,
+        recorder=recorder,
+    )
+    journey = build_survival_journey(
+        result=result, recorder=recorder, rows=rows, seed=seed, max_steps=2
+    )
+    assert "exploration_epsilon" in journey["seed"]
+    assert journey["seed"]["exploration_epsilon"] == 0.07
+
+
 # --------------------------------------------------------------------------- #
 # A3b — fragile-seed calibration knobs.
 # --------------------------------------------------------------------------- #

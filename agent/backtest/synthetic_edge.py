@@ -1,0 +1,359 @@
+"""Deterministic synthetic-world generator (Active Survival Hand 1, Task 1).
+
+Builds REAL :class:`SignalRow` + :class:`MarketSnapshot` objects the existing
+groundhog sim consumes, joined into :class:`SurvivalRow` via
+:func:`build_survival_rows`. Two regimes, both numerical-only (NO LLM, NO API):
+
+* :func:`build_synthetic_world` — all 5 engine scores ``= C = 0.30`` ⇒ the
+  v3 value-mode fused edge clears ``min_edge`` so the agent BETS. ``edge`` sets
+  the true YES probability, so :func:`agent_ev` recovers it (within Monte-Carlo
+  noise). This is the calibration/validation universe.
+* :func:`build_subgate_world` — identical but ``C = 0.05`` ⇒ the fused edge is
+  BELOW ``min_edge`` so the agent ABSTAINS (the exploration-floor probe).
+
+Settlement clock (the load-bearing timing trick):
+    entry_i        = base_ts + i·1day
+    end_date_iso_i = resolution_ts_i = entry_i + 1min
+    due_i          = max(end_date + 2h lag, resolution) ≈ entry_i + 2h
+so each bet settles ~22 h BEFORE the next entry — mid-schedule — letting a
+fragile dead world die repeatedly across a single pass.
+
+All randomness flows through a single seeded ``random.Random(seed)``; there is
+NO use of the unseeded global ``random`` / ``numpy.random``. ``base_ts`` is a
+fixed constant (never ``datetime.now()``) so worlds are byte-deterministic.
+"""
+
+from __future__ import annotations
+
+import random
+from datetime import UTC, datetime, timedelta
+
+from agent.backtest.cached_sweep import SignalRow
+from agent.backtest.find_optimal_config import StrategyConfig
+from agent.backtest.historical_fetcher import MarketSnapshot, PricePoint
+from agent.backtest.survival_season import (
+    SurvivalRow,
+    build_survival_rows,
+    run_survival_over_rows,
+)
+from agent.backtest.tennis_match_resolver import TennisMatchResolver
+from agent.core.state import Weights
+from agent.engines.decision import RATIONAL_ENGINES, SENTIENT_ENGINES
+
+# The 5 engine slot-keys the fusion consumes; ``decide()`` short-circuits to a
+# missing-signal abstain if any is absent, so every synthetic row carries all 5.
+ENGINES: tuple[str, ...] = (*RATIONAL_ENGINES, *SENTIENT_ENGINES)
+assert len(ENGINES) == 5, "expected exactly 5 decision engine slots"
+
+# Above-gate / below-gate confidence-anchor scores (see module docstring). With
+# the v3 seed (kappa≈0.492, all conf=0.8) the fused edge ≈ 0.394·C, so C=0.30
+# clears min_edge≈0.0349 (above gate) and C=0.05 does not (below gate).
+_ABOVE_GATE_C = 0.30
+_BELOW_GATE_C = 0.05
+_CONFIDENCE = 0.8
+_ENTRY_PRICE = 0.5
+_LIQUIDITY_CAP_USD = 1000.0
+
+# Fixed deterministic base wall-clock — NEVER datetime.now().
+_BASE_TS = datetime(2030, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+
+def _v3_seed() -> StrategyConfig:
+    """The committed v3 value-mode seed (``docs/backtest/value_seed_v3.json``).
+
+    Inlined verbatim (not file-read) so the synthetic season is self-contained
+    and deterministic. This is the SAME seed the Task-1 gate math is calibrated
+    against (kappa≈0.492, min_edge≈0.0349): with it the C=0.30 above-gate edge
+    sizes a bet ABOVE the $4 min-bet floor so settlements — and deaths — occur.
+    The platform DEFAULT_OPTIMUM_SEED (kappa=0.25) would size every above-gate
+    bet at ~$1.79 < $4 ⇒ no settlements ⇒ no deaths, defeating the
+    mid-schedule-settlement assertion.
+    """
+    return StrategyConfig(
+        weights=Weights(
+            alpha=[0.177734375, 0.0703125, 0.751953125],
+            beta=[0.767578125, 0.232421875],
+            rho=0.849609375,
+            w_r=0.583984375,
+            w_s=0.416015625,
+        ),
+        max_breath_risk_pct=0.38134765625,
+        min_confidence=0.07558593749999999,
+        min_bet_size_usd=4.0,
+        min_edge=0.034863281249999996,
+        kappa=0.49208984375,
+    )
+
+
+def _iso(ts: datetime) -> str:
+    """ISO-8601 UTC string (verbatim round-trippable by the ledger)."""
+    return ts.isoformat()
+
+
+def _make_pair(
+    i: int,
+    *,
+    price: float,
+    C: float,
+    won: bool,
+    base_ts: datetime,
+    scores: dict[str, float] | None = None,
+) -> tuple[SignalRow, MarketSnapshot]:
+    """Build the matching ``(SignalRow, MarketSnapshot)`` for market ``i``.
+
+    The slug ``alpha{i}-vs-beta{i}`` deliberately does NOT parse as a tennis
+    match (digit suffix) ⇒ players/surface resolve to ``None`` (benign). The
+    flat 2-point ledger at ``price`` makes the recomputed mid == ``price``
+    exactly, so the entry-price consistency check passes. ``winning_price=1.0``
+    is the WINNING side's price (≈1.0), NOT a YES flag.
+
+    By default every engine slot carries the same anchor ``C``; pass ``scores``
+    (a full per-engine map) to give engines DIFFERENT scores — the subset-edge
+    world uses this to hide the predictive signal in a single engine.
+    """
+    market_id = f"syn-{i:06d}"
+    slug = f"alpha{i}-vs-beta{i}"
+    outcome = "yes" if won else "no"
+
+    entry_ts = base_ts + i * timedelta(days=1)
+    settle_ts = entry_ts + timedelta(minutes=1)
+
+    score_map = scores if scores is not None else {k: C for k in ENGINES}
+    signal_row = SignalRow(
+        market_id=market_id,
+        slug=slug,
+        scores=score_map,
+        confidences={k: _CONFIDENCE for k in ENGINES},
+        entry_price=price,
+        outcome=outcome,
+        winning_price=1.0,
+        liquidity_cap_usd=_LIQUIDITY_CAP_USD,
+    )
+    snapshot = MarketSnapshot(
+        market_id=market_id,
+        slug=slug,
+        outcome=outcome,
+        winning_price=1.0,
+        liquidity_cap_usd=_LIQUIDITY_CAP_USD,
+        end_date_iso=_iso(settle_ts),
+        resolution_ts_iso=_iso(settle_ts),
+        price_ledger=[
+            PricePoint(ts=_iso(entry_ts), mid_price=price),
+            PricePoint(ts=_iso(entry_ts + timedelta(seconds=1)), mid_price=price),
+        ],
+    )
+    return signal_row, snapshot
+
+
+def _build_world(
+    n: int, edge: float, seed: int, *, C: float
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """Shared world builder for the above/below-gate regimes.
+
+    ``true_prob = clip(0.5 + edge, 0, 1)``; each row's YES outcome is drawn as
+    ``won = rng.random() < true_prob`` from a single seeded RNG, so
+    :func:`agent_ev` recovers ``edge`` (within Monte-Carlo noise) and same-seed
+    worlds are byte-identical.
+    """
+    rng = random.Random(seed)
+    true_prob = min(1.0, max(0.0, 0.5 + edge))
+    signal_rows: list[SignalRow] = []
+    snaps: list[MarketSnapshot] = []
+    for i in range(n):
+        won = rng.random() < true_prob
+        sig, snap = _make_pair(i, price=_ENTRY_PRICE, C=C, won=won, base_ts=_BASE_TS)
+        signal_rows.append(sig)
+        snaps.append(snap)
+    rows = build_survival_rows(
+        signal_rows, snaps, TennisMatchResolver(name_index={})
+    )
+    return rows, snaps
+
+
+def build_synthetic_world(
+    n: int, edge: float, seed: int
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """``n`` ABOVE-gate (C=0.30) synthetic markets with true edge ``edge``."""
+    return _build_world(n, edge, seed, C=_ABOVE_GATE_C)
+
+
+def build_subgate_world(
+    n: int, edge: float, seed: int
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """``n`` BELOW-gate (C=0.05) synthetic markets — the agent abstains."""
+    return _build_world(n, edge, seed, C=_BELOW_GATE_C)
+
+
+# ── R9 (execution-validated): VARYING-edge world the agent can SELECT on ──────
+# The constant-C worlds above CANNOT show "edge → survival": the agent gets an
+# identical signal regardless of edge, so it can't pick good bets — the edge only
+# shows as outcome luck, which a few bets can't compound into survival. Here each
+# row carries its OWN signal ``t`` (sign = bet side, |t| = strength); the agent
+# bets sign(t) when the fused edge clears the gate. The chosen side wins with
+# prob ``min(0.95, 0.5 + gain·|t|)`` — ``gain>0`` = a real, selectable edge the
+# agent compounds under TAME sizing; ``gain=0`` = pure noise. Validated to a
+# clean +edge 0.00 / noise 1.00 death split at gain=0.5, breath≈70, fragile≈0.2.
+_VARYING_SIGNAL_RANGE = 0.6
+
+
+def build_varying_world(
+    n: int, gain: float, seed: int
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """``n`` markets whose per-row signal the agent can SELECT on.
+
+    ``t = rng.uniform(-0.6, 0.6)`` is the row signal (all 5 scores ``= t``);
+    sign(t) is the side the agent bets, |t| its strength. The chosen side wins
+    with probability ``min(0.95, 0.5 + gain·|t|)``, so ``gain>0`` makes the signal
+    genuinely predictive (a real, selectable edge) and ``gain=0`` is pure noise.
+    Same seed ⇒ byte-identical. Numerical-only (no LLM).
+    """
+    rng = random.Random(seed)
+    signal_rows: list[SignalRow] = []
+    snaps: list[MarketSnapshot] = []
+    for i in range(n):
+        t = rng.uniform(-_VARYING_SIGNAL_RANGE, _VARYING_SIGNAL_RANGE)
+        p_side_win = min(0.95, 0.5 + gain * abs(t))
+        side_wins = rng.random() < p_side_win
+        # ``won_yes`` = "YES resolves". The agent bets sign(t); its chosen side
+        # winning means YES resolves iff that side IS yes (t>0).
+        won_yes = side_wins if t > 0 else (not side_wins)
+        sig, snap = _make_pair(
+            i, price=_ENTRY_PRICE, C=t, won=won_yes, base_ts=_BASE_TS
+        )
+        signal_rows.append(sig)
+        snaps.append(snap)
+    rows = build_survival_rows(
+        signal_rows, snaps, TennisMatchResolver(name_index={})
+    )
+    return rows, snaps
+
+
+# ── 能学 demo: edge HIDDEN in a single under-weighted engine ──────────────────
+# build_varying_world puts the SAME signal in all 5 engines, so any weighting
+# reads it — there is nothing to LEARN. To demonstrate self-evolution we must
+# hide the predictive signal in ONE engine the v3 prior UNDER-weights
+# (tennis_technical = α[0] = 0.177) and fill the rest with INDEPENDENT noise:
+# a static prior fuses a noise-dominated signal (bets ~random side → dies); a
+# learner that discovers and up-weights the predictive engine aligns its fused
+# sign with the true edge and survives. THAT improvement across lives is "能学".
+_DEFAULT_EDGE_ENGINE: str = ENGINES[0]  # "tennis_technical" (v3 α[0]=0.177)
+
+
+def build_subset_edge_world(
+    n: int,
+    gain: float,
+    seed: int,
+    *,
+    edge_engine: str = _DEFAULT_EDGE_ENGINE,
+    noise_range: float = _VARYING_SIGNAL_RANGE,
+) -> tuple[list[SurvivalRow], list[MarketSnapshot]]:
+    """``n`` markets where ONLY ``edge_engine`` carries the predictive signal.
+
+    Per row: the predictive engine score ``t = uniform(-0.6, 0.6)`` sets the
+    side (sign) and strength (|t|); every OTHER engine carries an INDEPENDENT
+    noise score ``uniform(-noise_range, noise_range)`` uncorrelated with the
+    outcome. YES resolves with probability ``clip(0.5 + gain·t, 0.05, 0.95)`` —
+    driven by the predictive engine ALONE. A prior that under-weights
+    ``edge_engine`` fuses a noise-dominated signal (bets ~random side → dies);
+    a learner that raises ``edge_engine``'s weight aligns the fused sign with
+    ``t`` and survives. ``gain=0`` ⇒ pure noise. Same seed ⇒ byte-identical.
+    Numerical-only (no LLM).
+    """
+    if edge_engine not in ENGINES:
+        raise ValueError(f"edge_engine {edge_engine!r} not in {ENGINES}")
+    rng = random.Random(seed)
+    signal_rows: list[SignalRow] = []
+    snaps: list[MarketSnapshot] = []
+    for i in range(n):
+        t = rng.uniform(-_VARYING_SIGNAL_RANGE, _VARYING_SIGNAL_RANGE)
+        # Draw noise for every NON-edge engine in fixed ENGINES order so the
+        # world stays byte-deterministic for a given seed.
+        scores = {
+            k: (
+                t
+                if k == edge_engine
+                else rng.uniform(-noise_range, noise_range)
+            )
+            for k in ENGINES
+        }
+        p_yes = min(0.95, max(0.05, 0.5 + gain * t))
+        won_yes = rng.random() < p_yes
+        sig, snap = _make_pair(
+            i, price=_ENTRY_PRICE, C=t, won=won_yes, base_ts=_BASE_TS, scores=scores
+        )
+        signal_rows.append(sig)
+        snaps.append(snap)
+    rows = build_survival_rows(
+        signal_rows, snaps, TennisMatchResolver(name_index={})
+    )
+    return rows, snaps
+
+
+def chosen_side_winrate(
+    rows: list[SurvivalRow],
+    *,
+    engine: str = ENGINES[0],
+    min_abs_signal: float = 0.1,
+) -> float:
+    """Realized predictiveness of ``engine``'s signal: fraction of BETTABLE rows
+    (``|engine score| ≥ min_abs_signal``) where the side that engine points to
+    (sign of its score) actually won. ≈0.5 for a noise engine, >0.5 for the
+    predictive engine of a real-edge world. ``engine`` defaults to ``ENGINES[0]``
+    (every-engine-equal worlds carry the same signal in slot 0).
+    """
+    won = 0
+    n = 0
+    for r in rows:
+        t = r.scores[engine]
+        if abs(t) < min_abs_signal:
+            continue
+        n += 1
+        side_is_yes = t > 0
+        if (side_is_yes and r.outcome == "yes") or (
+            not side_is_yes and r.outcome == "no"
+        ):
+            won += 1
+    return won / n if n else 0.0
+
+
+def agent_ev(rows: list[SurvivalRow]) -> float:
+    """Mean per-row YES payoff minus entry price — the realized edge estimate.
+
+    ``(1 if outcome=="yes" else 0) - entry_price`` averaged over rows. With
+    ``entry_price=0.5`` and ``true_prob=0.5+edge`` this converges to ``edge``.
+    """
+    if not rows:
+        return 0.0
+    return sum(
+        (1.0 if r.outcome == "yes" else 0.0) - r.entry_price for r in rows
+    ) / len(rows)
+
+
+def quick_numerical_deaths(
+    rows: list[SurvivalRow],
+    snaps: list[MarketSnapshot],
+    *,
+    loss_multiplier: float,
+    initial_breath: float,
+    max_lives: int,
+    fragile_max_breath_risk_pct: float = 0.95,
+) -> int:
+    """Run the NUMERICAL groundhog season over ``rows`` and return death count.
+
+    Numerical-only (``with_ai=False``, ``preflight=False``) — no LLM, no API.
+    Returns ``summary.deaths``; a value ``> 1`` over a 1-day-spaced world proves
+    mid-schedule settlement (bets settle between entries, so a fragile world can
+    die more than once across a single pass).
+    """
+    journey = run_survival_over_rows(
+        rows,
+        snaps,
+        base_seed=_v3_seed(),
+        loss_multiplier=loss_multiplier,
+        initial_breath=initial_breath,
+        max_lives=max_lives,
+        fragile_max_breath_risk_pct=fragile_max_breath_risk_pct,
+        with_ai=False,
+        preflight=False,
+    )
+    return journey["summary"]["deaths"]

@@ -1,13 +1,26 @@
 # agent/backtest/real_signal_source.py
 """Real per-tick signals for the 5 engine slots (replaces _DeterministicSignalSource).
 
-Slot repurpose (the DecisionEngine keys are unchanged; payloads are real):
-  market_momentum  -> live price drift/velocity from the cassette price_ledger
+⚠️ BACKTEST SLOT SUBSTITUTION — READ THIS BEFORE TRUSTING A SLOT NAME ⚠️
+The 5 DecisionEngine slot keys name GENUINE production engines:
+  smart_money   = on-chain smart-money WALLET alignment (agent/engines/smart_money.py)
+  sentiment_llm = Gemini LLM sentiment                  (agent/engines/sentiment_llm.py)
+  crowd_volume  = Reddit crowd volume                   (agent/engines/crowd_volume.py)
+  tennis_technical / market_momentum = ELO / CLOB drift.
+Those live signals are UNAVAILABLE in a historical backtest (no live chain/LLM/
+Reddit feed for past matches). So this source SUBSTITUTES a Sackmann/CLOB proxy
+into each slot — the slot KEY is unchanged (fusion weights + value_seed still
+address it by key), only the PAYLOAD differs:
+  market_momentum  -> live price drift/velocity from the cassette price_ledger (REAL)
   tennis_technical -> ELO/ranking gap   (Sackmann)
-  smart_money      -> surface advantage (Sackmann)
-  sentiment_llm    -> head-to-head      (Sackmann)
+  smart_money      -> surface advantage (Sackmann)   ← NOT the wallet signal here
+  sentiment_llm    -> head-to-head      (Sackmann)   ← NOT an LLM call here
   crowd_volume     -> rest/recency      (Sackmann)
-Unresolved markets get a neutral tennis signal; momentum is always real.
+=> Do NOT read e.g. "smart_money" in a BACKTEST artifact as the smart-money
+   engine: it is the slot, carrying a Sackmann proxy. The engine NAMES are
+   correct; only this backtest substitution makes a slot's payload differ from
+   its namesake. Unresolved markets get a neutral tennis signal; momentum is
+   always real.
 """
 
 from __future__ import annotations

@@ -350,6 +350,31 @@ def test_groundhog_caps_when_every_life_dies(tmp_path) -> None:
     }
 
 
+def test_groundhog_knobs_disclose_exploration_epsilon(tmp_path) -> None:
+    """Active Survival (Hand 1) Task 2: the groundhog ``knobs`` disclosure
+    block carries the seed's exploration_epsilon floor (sourced from the
+    fragile config, which preserves it via dataclasses.replace)."""
+    import dataclasses
+
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    base_seed = dataclasses.replace(_fragile_seed(), exploration_epsilon=0.07)
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=base_seed,
+        out_path=tmp_path / "g.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+    )
+    assert "exploration_epsilon" in artifact["knobs"]
+    assert artifact["knobs"]["exploration_epsilon"] == pytest.approx(0.07)
+
+
 def test_groundhog_terminates_on_first_surviving_life(tmp_path) -> None:
     """High breath: the first incarnation survives to the final market â€”
     the loop terminates immediately and the headline is THAT life's pnl."""
@@ -600,6 +625,79 @@ def test_groundhog_ai_leg_records_prayers_but_never_carries_them(
         entry_price_floor=0.0,
     )
     assert all(inc["prayer"] is None for inc in art_num["incarnations"])
+
+
+# ========================================================================= #
+# 能学 demo enablement — learning_enabled (frozen null arm) + aux_llm decouple.
+# ========================================================================= #
+
+
+def test_groundhog_learning_disabled_freezes_weights(tmp_path) -> None:
+    """learning_enabled=False ⇒ the inner EMA never adapts: every incarnation
+    starts AND ends at the same base-seed weights (a TRUE non-learning null arm
+    for the 能学 demo — frozen within a life and no drift across lives)."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    rows, snaps = _clustered_dying_fixture()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "frozen.json",
+        max_incarnations=3,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        learning_enabled=False,
+    )
+    incs = artifact["incarnations"]
+    assert len(incs) >= 2
+    ref = incs[0]["start_weights"]
+    for inc in incs:
+        # Frozen within a life: terminal == start (the inner never moved).
+        assert inc["terminal_weights"] == inc["start_weights"]
+        # No drift across lives: every incarnation reuses the same weights.
+        assert inc["start_weights"] == ref
+        # The shared EMA buffer stayed empty (nothing learned).
+        assert inc["carry"]["ema_size"] == 0
+
+
+def test_groundhog_aux_llm_off_keeps_advisor_but_skips_prayer(tmp_path) -> None:
+    """aux_llm=False ⇒ the LEARNING advisor still fires, but prayer is skipped
+    and tribute is decided numerically — so the 能学 demo spends MiniMax calls
+    on learning ONLY, not on per-death prayer / tribute decisions."""
+    from agent.backtest.reincarnation import run_groundhog_export
+    from agent.llm.cost_guard import L3CostGuard
+    from tests.agent.backtest.test_survival_ai_mode import (
+        _FakeAdvisorLLM,
+        _fragile_seed,
+    )
+
+    rows, snaps = _clustered_dying_fixture()
+    fake = _FakeAdvisorLLM()
+    artifact = run_groundhog_export(
+        rows=rows,
+        snapshots=snaps,
+        base_seed=_fragile_seed(),
+        out_path=tmp_path / "aux_off.json",
+        max_incarnations=2,
+        train_fraction=0.67,
+        initial_breath=3.0,
+        entry_price_floor=0.0,
+        rebirth_llm=fake,
+        rebirth_guard=L3CostGuard(hard_cap_usd=10.0),
+        aux_llm=False,
+        tribute=True,
+    )
+    incs = artifact["incarnations"]
+    # The learning brain is STILL on (the whole point: learn, don't pray).
+    assert artifact["rebirth"]["calls"] >= 1
+    # No prayer was recorded on any death — aux_llm gated it off.
+    assert all(inc["prayer"] is None for inc in incs)
+    # Tribute stays economically active (accounting keys present), decided
+    # numerically (ReflexTributePolicy) rather than via the LLM.
+    assert "tributes" in incs[0] and "tributes_paid" in incs[0]
 
 
 # ========================================================================= #
@@ -1087,6 +1185,27 @@ def test_apply_genome_deltas_clamps_and_skips() -> None:
     assert out3 == seed
     assert "min_bet_size_usd" not in GENOME_KEYS
     assert GENOME_MIN_BREATH_RISK_PCT == pytest.approx(0.05)
+
+
+def test_exploration_epsilon_is_not_advisable() -> None:
+    """Active Survival (Hand 1): exploration_epsilon is the anti-freeze floor.
+
+    It rides on StrategyConfig so it threads through the sim, but the rebirth
+    advisor must NEVER be able to tune it — a delta to 0 would reintroduce the
+    freeze the floor exists to prevent. So it stays OUT of GENOME_KEYS, and an
+    advisor proposal naming it is SKIPPED fail-soft (no crash, no effect)."""
+    from agent.backtest.reincarnation import GENOME_KEYS, apply_genome_deltas
+    from tests.agent.backtest.test_survival_ai_mode import _fragile_seed
+
+    assert "exploration_epsilon" not in GENOME_KEYS
+
+    seed = dataclasses.replace(_fragile_seed(), exploration_epsilon=0.07)
+    out = apply_genome_deltas(
+        seed, [{"key": "exploration_epsilon", "delta": -0.07}]
+    )
+    # The advisor cannot touch it: the floor survives verbatim.
+    assert out.exploration_epsilon == pytest.approx(0.07)
+    assert out == seed
 
 
 def test_genome_breath_risk_floor_keeps_engine_constructible() -> None:

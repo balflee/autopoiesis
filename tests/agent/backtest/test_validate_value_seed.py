@@ -71,6 +71,20 @@ def _empty_resolver() -> TennisMatchResolver:
     return TennisMatchResolver(name_index={})
 
 
+def _load_v3_seed_fn() -> Any:
+    """Import run_v3_numerical.load_v3_seed (lives under scripts/), making the
+    scripts dir importable without a module-level sys.path edit (keeps the file
+    ruff-clean — no E402)."""
+    import sys
+
+    scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    from run_v3_numerical import load_v3_seed  # type: ignore[import-not-found]
+
+    return load_v3_seed
+
+
 def _seed_cfg(*, kappa_xm: float = 0.0) -> StrategyConfig:
     return StrategyConfig(
         weights=Weights(
@@ -341,3 +355,87 @@ def test_walk_forward_on_splits_train_select_test_eval(
     assert calls["eval_rows_n"]
     assert all(n == calls["test_n"] for n in calls["eval_rows_n"])
     assert calls["eval_row_types"] == {"SurvivalRow"}
+
+
+# --------------------------------------------------------------------------- #
+# Active Survival (Hand 1) Task 2 — exploration_epsilon round-trips through the
+# serializer (_seed_payload) and the loader (run_v3_numerical.load_v3_seed),
+# and fragile_seed_from_config (dataclasses.replace) preserves it.
+# --------------------------------------------------------------------------- #
+
+
+def test_seed_payload_includes_exploration_epsilon() -> None:
+    """The serializer carries exploration_epsilon as an additive optional key,
+    while every pre-Hand-1 key survives."""
+    import dataclasses
+
+    cfg = dataclasses.replace(_seed_cfg(), exploration_epsilon=0.07)
+    payload = _seed_payload(cfg)
+    assert payload["exploration_epsilon"] == pytest.approx(0.07)
+    assert set(payload) >= {
+        "weights",
+        "max_breath_risk_pct",
+        "min_confidence",
+        "min_bet_size_usd",
+        "min_edge",
+        "kappa",
+        "kappa_xm",
+        "exploration_epsilon",
+    }
+
+
+def test_seed_payload_exploration_epsilon_defaults_zero() -> None:
+    """A pre-Hand-1-shaped config (no exploration_epsilon) serializes 0.0."""
+    assert _seed_payload(_seed_cfg())["exploration_epsilon"] == pytest.approx(0.0)
+
+
+def test_exploration_epsilon_round_trips_through_loader(tmp_path: Path) -> None:
+    """replace(load_v3_seed(), eps=0.07) -> _seed_payload -> JSON ->
+    load_v3_seed(path) -> exploration_epsilon == 0.07 (loader reads the key)."""
+    import dataclasses
+    import json
+
+    load_v3_seed = _load_v3_seed_fn()
+
+    # Seed the round-trip from a fully-shaped on-disk config so the loader's
+    # required keys are all present, then crank the new floor.
+    base_path = tmp_path / "seed_in.json"
+    base_path.write_text(json.dumps(_seed_payload(_seed_cfg())), encoding="utf-8")
+    loaded = load_v3_seed(base_path)
+    assert loaded.exploration_epsilon == pytest.approx(0.0)  # default off-disk
+
+    cranked = dataclasses.replace(loaded, exploration_epsilon=0.07)
+    out_path = tmp_path / "seed_out.json"
+    out_path.write_text(json.dumps(_seed_payload(cranked)), encoding="utf-8")
+
+    reloaded = load_v3_seed(out_path)
+    assert reloaded.exploration_epsilon == pytest.approx(0.07)
+
+
+def test_load_v3_seed_defaults_exploration_epsilon_when_absent(
+    tmp_path: Path,
+) -> None:
+    """A v3/v4 seed JSON lacking exploration_epsilon loads with the 0.0 floor."""
+    import json
+
+    load_v3_seed = _load_v3_seed_fn()
+
+    payload = _seed_payload(_seed_cfg())
+    payload.pop("exploration_epsilon", None)  # simulate a pre-Hand-1 seed file
+    p = tmp_path / "v3_no_eps.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_v3_seed(p).exploration_epsilon == pytest.approx(0.0)
+
+
+def test_fragile_seed_from_config_preserves_exploration_epsilon() -> None:
+    """fragile_seed_from_config uses dataclasses.replace, so any field it does
+    not explicitly override (incl. the new floor) carries verbatim."""
+    import dataclasses
+
+    from agent.backtest.survival_season import fragile_seed_from_config
+
+    base = dataclasses.replace(_seed_cfg(), exploration_epsilon=0.07)
+    fragile = fragile_seed_from_config(base, max_breath_risk_pct=0.95)
+    assert fragile.exploration_epsilon == pytest.approx(0.07)
+    # The override still applied; the floor rode along untouched.
+    assert fragile.max_breath_risk_pct == pytest.approx(0.95)

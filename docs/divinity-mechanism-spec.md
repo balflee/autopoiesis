@@ -83,7 +83,7 @@
 **设计(锁定整套机制前的最后一块)**:
 - **起点(② 层)**:agent 从 `value_seed_v3.json`(保本先验)出发,**不从随机起点**。
 - **学习场**:`build_subset_edge_world` —— edge **只藏在先验最不信的融合槽**(`alpha[1]`,v3 权重 0.070)里,其余 4 个槽是**独立噪声**。静态先验融合出噪声主导的信号→读不到 edge→死;learner 必须**自己发现"该信哪个槽"并抬它的权重**才能活。
-  > **槽名说明**:`decision.py` 的 5 个槽 key 是 NBA 时代旧名,**payload 早已重映射成网球信号**(`real_signal_source.py`):`market_momentum`=CLOB 价格漂移(唯一活信号)、`tennis_technical`=ELO 差、`smart_money`=**场地优势**(Sackmann)、`sentiment_llm`=交手记录、`crowd_volume`=休息/近况。下文用到这些 key **只是融合槽的代号**,不是"smart money"这种活引擎概念——demo 是合成的,槽的 prod payload 跟测试无关。Key 没改是为了不动 v3 种子/advisor(命名债,清理是另一回事)。
+  > **槽名说明(已校正,2026-06-16)**:`decision.py` 的 5 个槽 key 命名的是**真引擎**(`smart_money`=链上 smart-money 钱包对齐、`sentiment_llm`=Gemini LLM 情绪、`crowd_volume`=Reddit 量、`tennis_technical`=ELO、`market_momentum`=CLOB 漂移)——**名字是对的**。误导只发生在 **backtest**:`real_signal_source.py` 因历史上没有活的链上/LLM/Reddit 信号,**把 Sackmann/CLOB 代理塞进这 5 个槽**(槽 key 不变、payload 变),所以 backtest 里 `smart_money` 槽装的是**场地优势**(Sackmann)、`sentiment_llm` 槽装交手记录、`crowd_volume` 槽装休息/近况。**下文这些 key 一律指"融合槽位置",不是活引擎概念**;demo 是合成的,槽的 backtest payload 跟测试无关。(早先"NBA 旧名/命名债"的说法不准——引擎名没错,见 backlog F1 校正与 `real_signal_source.py` 顶部说明。)
 - **经济体**:锁定值(loss 1.2 / fragile 0.15 / breath 70,tithe+tribute,exploration 0.05),gain=0.5,n=400,max 20 世。
 - **三臂**:`frozen`(`learning_enabled=False`,真冻结=零假设)/ `ema`(数值 death-blind,有 per-engine 信用分配)/ `minimax`(LLM 轮回顾问=自我进化;`aux_llm=False` 让 MiniMax 只做学习脑)。
 - **指标**:存活率 + 每世进度曲线的爬升(`survival_metrics.learning_curve`)。

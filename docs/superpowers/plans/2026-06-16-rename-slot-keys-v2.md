@@ -314,11 +314,16 @@ wired — but the producers write to a **FIXED committed path with no `--out`**,
 re-running them OVERWRITES the byte-stable key-rewrite with freshly-computed numbers,
 which a later `git add -A` would then commit, **defeating the zero-change guarantee**.
 So the smoke MUST: (1) be **gated on its gitignored inputs existing** (`_signal_rows.json`
-/ `reports/learning_demo/*` — else skip, per Step 1b's non-vacuity rule); and (2) NOT
-leave the regenerated artifact staged — EITHER add a `--out` flag and point the smoke
-at a tempfile, OR run the producer then immediately `git checkout -- dashboard/public/backtest/static_sweep.json dashboard/public/stage1/stage1_learning.json` to **restore the
-key-rewrite BEFORE any `git add`** (ordering is load-bearing). Assert key-presence on
-the temp/regenerated output, then ensure the committed file on disk is the key-rewrite.
+/ `reports/learning_demo/*` — else skip, per Step 1b's non-vacuity rule); and (2)
+**never write to the committed path** — add a `--out` flag to `build_static_sweep.py`
+/ `build_stage1.py` and point the smoke at a **tempfile**, asserting key-presence on
+that temp output only. **Do NOT use `git checkout -- <fixture>` to "restore"** — at
+smoke time the key-rewrite is unstaged and HEAD still holds the OLD-key fixture, so
+`git checkout --` would revert to OLD keys and DESTROY the rewrite (→ static_sweep
+fails `load_static_sweep` module-eval; stage1 silently reverts its label). The
+deterministic key-rewrite + the producer-source update already give the
+zero-numeric-change guarantee; the `--out` smoke is only a wiring-proof extra (it is
+also fine to DROP the smoke entirely and rely on the key-rewrite + Task 6's full suite).
 Verify: `rg -c 'smart_money|sentiment_llm|crowd_volume' dashboard/public/backtest/static_sweep.json dashboard/public/stage1/stage1_learning.json` → 0.
 
 - [ ] **Step 3: Run dashboard vitest + tsc + next build**
@@ -498,3 +503,5 @@ git commit -m "docs: mark F1 rename DONE + refresh slot-name legends to the real
   - MED (producer smoke clobbers the key-rewrite + fails on fresh checkout): gate it on inputs existing + redirect output (`--out` tempfile OR `git checkout --` restore the key-rewrite BEFORE `git add`).
   - LOW (`/reincarnation` shim over-claim): its loader does NO slot-key validation → rename-agnostic; scoped the shim claim + Step 1b to SURVIVAL journeys (reincarnation = generic parse smoke only).
   - LOW (v0.4.0 description prose rename ungated): added a one-line contract-test assertion that the loaded schema contains none of the 3 old strings.
+- **2026-06-16 round 6** (panel VERDICT HIGH=0 MEDIUM=1 LOW=0 — converging):
+  - MED (the round-5 `git checkout -- <fixture>` "restore" reverts to HEAD's OLD-key version, destroying the key-rewrite — the rewrite is unstaged at smoke time): dropped the `git checkout` path entirely; the producer smoke now uses ONLY a `--out` tempfile (or may be dropped — the key-rewrite + producer-source update already guarantee zero numeric change).

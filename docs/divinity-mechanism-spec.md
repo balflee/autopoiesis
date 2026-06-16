@@ -17,7 +17,7 @@
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **Stage 1** | 数学模拟"**能活 + 能学**"的神性机制 | 🔵 能活=✅;**能学=待 demo** |
+| **Stage 1** | 数学模拟"**能活 + 能学**"的神性机制 | ✅ **能活=✅、能学=✅(已 demo,见 §6)** |
 | **Stage 2** | 对接候选 edge 信号源 → agent 跑 **mock bet** 学习 | ⬜ |
 | **Stage 3** | 掌握 **gain ≥ 0.2** 的 edge → **出师 live** | ⬜ |
 
@@ -37,7 +37,7 @@
 
 **2.5 防摆烂(探索地板)** — `decide()` 在 abstain 门后加 ε-greedy:以 `exploration_epsilon` 概率即使门下也下一个**最小固定探索注**(gated by `epsilon>0 AND rng!=None`,纯学习路径才开)。防止 agent 摆烂到 0 注、保证它一直采样以发现 edge。
 
-**2.6 自我进化(能学)** ⚠️ **待 demo 验证** — agent 逐世**调融合权重/策略**去逼近"会找 edge 的行为"。数值版(`weight_updater` EMA)是 death-blind 对照组;真"自我进化"在 LLM 轮回顾问(treatment)或更强的学习信号。**这是锁定整套机制前的最后一块**(见 §6)。
+**2.6 自我进化(能学)** ✅ **已 demo 验证(2026-06-16,见 §6)** — agent 逐世**调融合权重**去逼近"会找 edge 的行为"。数值版(`weight_updater` EMA,有 per-engine 信用分配)是 death-blind 对照组;真"自我进化"在 LLM 轮回顾问(treatment)。**实证**:edge 藏在先验最不信的引擎里时,**非学习者 0% 存活、两种学习机制 80–100% 存活**,且学习者逐世把藏 edge 引擎的权重抬上去——能学坐实。
 
 ---
 
@@ -78,24 +78,42 @@
 ## 5. 出师门槛(锁定)
 **`gain ≥ 0.2`** —— 这是模拟测出的**存活+盈利双双翻正的临界 edge 强度**。agent 在 mock 里**稳定掌握 ≥0.2 的真 edge → 出师 live**。
 
-## 6. 还差的最后一块:**自我进化(能学)demo**(锁定整套机制前的最后验证)
+## 6. 自我进化(能学)demo —— ✅ 已验证(2026-06-16)
+
+**设计(锁定整套机制前的最后一块)**:
 - **起点(② 层)**:agent 从 `value_seed_v3.json`(保本先验)出发,**不从随机起点**。
-- **学习场**:edge **只藏在部分引擎/信号里**(不是均明牌)的世界,让 agent 必须**自己发现"该信哪个信号"并加权它**——否则静态先验直接就会读、学无可学。
-- **学习机制**:LLM 轮回顾问 / 真学习信号,逐世调权重。
-- **demo 指标**:**存活/盈利随世数上升的曲线** = 自我进化。
-- **它证明的是"agent 有能力学会找 edge"**;至于"真 edge 在不在",留给 Stage 2。
+- **学习场**:`build_subset_edge_world` —— edge **只藏在先验最不信的引擎**(`market_momentum`,v3 α[1]=0.070)里,其余 4 个引擎是**独立噪声**。静态先验融合出噪声主导的信号→读不到 edge→死;learner 必须**自己发现"该信哪个引擎"并抬它的权重**才能活。
+- **经济体**:锁定值(loss 1.2 / fragile 0.15 / breath 70,tithe+tribute,exploration 0.05),gain=0.5,n=400,max 20 世。
+- **三臂**:`frozen`(`learning_enabled=False`,真冻结=零假设)/ `ema`(数值 death-blind,有 per-engine 信用分配)/ `minimax`(LLM 轮回顾问=自我进化;`aux_llm=False` 让 MiniMax 只做学习脑)。
+- **指标**:存活率 + 每世进度曲线的爬升(`survival_metrics.learning_curve`)。
+
+**结果(seeds 0–4;`reports/learning_demo/`)**:
+
+| 臂 | 存活率 | 平均 best_progress | 平均 rise | 平均出师世 |
+|---|---|---|---|---|
+| **frozen(不学)** | **0%**(5/5 全死) | 72.9% | +0.0(平) | — |
+| **ema(数值学习)** | **100%** | 100% | +26.6 | 5.6 |
+| **minimax(LLM 自我进化)** | **80%**(4/5) | 91.4% | +18.8 | 2.8 |
+
+→ **非学习者在每个 seed 都死;两种学习机制把存活拉到 80–100%——agent 能学会发现并吃下隐藏 edge。** 机制坐实:learner 逐世把藏 edge 引擎的权重抬上去(EMA seed 1:`market_momentum` 权重 0.070→0.082→0.095→0.140→0.191→**0.265**,同时砍噪声引擎 `smart_money` 0.752→0.533,第 5 世越过临界即出师)。
+
+**诚实差异**:数值 EMA(有 per-engine 信用分配=有信息的梯度)最稳(100%,但平均更慢);MiniMax LLM(只看总 pnl 盲爬)救回 4/5、在能解的 seed 上反而更快,但**最难的 seed 2(EMA 要 17 世)20 世没攻克**——符合"盲爬 vs 有信息梯度"的预期。
+
+**它证明的是"agent 有能力学会找 edge"(机制可用);** 用的是**合成注入的已知 edge(测试靶)**,**不对"真 edge 在不在"下结论**——那留给 Stage 2。
 
 ## 7. Stage 2 衔接(机制定稿 + 能学 demo 齐了之后)
 对接任何候选 **live edge 信号源**(lead-lag / 盘中 / 微结构 / informed-wallet)→ agent 在 **mock bet** 里用上面这套机制学习 → 看能不能掌握 gain≥0.2 的真 edge → 出师。
 
 ## 8. 实现状态(分支 `active-survival-hand1`)
 - ✅ Task 1 合成 + **varying-edge** 世界;Task 2 `exploration_epsilon`(非 advisable);Task 3 `survival_metrics` + **联合标定**;Task 4 探索地板;Task 5 部署验证经济体(`run_reincarnation.py` 字面量已换成 1.2/0.15/70)。
-- ⬜ Task 6 验证 harness/报告;Phase-5 diff 评审;收分支;**能学 demo(§6)**。
+- ✅ **能学 demo(§6)**:`synthetic_edge.build_subset_edge_world`(edge 藏单引擎子集)+ `run_groundhog_export` 加 `learning_enabled`(真冻结零假设臂)/`aux_llm`(MiniMax 只做学习脑)+ `survival_metrics.learning_curve`/`aggregate_curves` + `scripts/run_learning_demo.py`;数据 `reports/learning_demo/{pilot_frozen_ema,minimax}.json`。
+- ⬜ Task 6 验证 harness/报告;Phase-5 diff 评审;收分支。
 - 旧 g0/g1/g2/numerical 产物 = **pre-R9 旧经济体**(过拟合),留作历史对照,**不是回归基准**。
 
 ---
 
 ## 诚实声明(别自欺)
-- **经济体规则 = 已锁定、已验证**;**自我进化(能学)= 规则锁了但 agent 真能进化还没演示**(§6 待办)。
+- **经济体规则 = 已锁定、已验证**;**自我进化(能学)= 已 demo 验证**(§6:非学习者 0% vs 学习者 80–100% 存活,合成已知 edge 上)。
+- **能学 demo 用的是合成注入的已知 edge(测试靶),不是声称真 edge 存在。** 它证明的是"学习机器能用";**真 edge 在不在**仍是 Stage 2 的事。
 - **整套依赖真 edge(gain≳0.2)存在**——回测公开信息 NO_GO(A17/A18/B′),只 live(Stage 2)可能有。**没真 edge,这是一台漂亮但没油烧的引擎。**
 - **短期叙事为主,长期目标是赚钱**(用户 2026-06-16 定向)。

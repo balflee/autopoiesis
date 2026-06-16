@@ -6,10 +6,16 @@ The locked breath economy (Active Survival Hand 1) proved the agent 能活
 proving 能学 (self-evolution) — that a learner DISCOVERS which engine carries
 the edge and up-weights it across reincarnations, while a frozen prior can't.
 
-World: ``build_subset_edge_world`` hides the predictive signal in ONE engine the
-v3 prior under-weights (tennis_technical, α[0]=0.177); the other four engines are
-independent noise. So the static prior fuses a noise-dominated signal and dies;
-only a learner that raises the edge engine's weight survives.
+World: ``build_subset_edge_world`` hides the predictive signal in ONE fusion slot
+the v3 prior under-weights (default ``market_momentum`` key, α[1]=0.070); the
+other four slots are independent noise. So the static prior fuses a
+noise-dominated signal and dies; only a learner that raises that slot's weight
+survives. NOTE: the five ``decision.py`` slot keys (tennis_technical /
+market_momentum / smart_money / sentiment_llm / crowd_volume) are LEGACY NBA-era
+labels — their real payloads are remapped tennis signals (see
+``real_signal_source.py``: smart_money=surface advantage, etc.). This demo is
+synthetic, so a slot's prod payload is irrelevant — the keys here are just slot
+addresses, not live-engine identities.
 
 Arms (all on the LOCKED economy: loss_multiplier=1.2, fragile=0.15, breath=70,
 tithe+tribute on, exploration_epsilon=0.05; agent starts from value_seed_v3):
@@ -164,8 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-incarnations", type=int, default=20)
     parser.add_argument(
         "--edge-engine", default="market_momentum",
-        help="engine the predictive signal hides in (the validated demo world "
-        "buries it in market_momentum, the v3 prior's LEAST-weighted engine)",
+        help="fusion-slot KEY the predictive signal hides in (the validated demo "
+        "world buries it in the market_momentum slot, α[1]=0.070, the v3 prior's "
+        "LEAST-weighted slot; key is a legacy label, not a live-engine identity)",
     )
     parser.add_argument(
         "--out", type=Path,

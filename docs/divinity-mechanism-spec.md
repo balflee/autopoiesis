@@ -82,7 +82,8 @@
 
 **设计(锁定整套机制前的最后一块)**:
 - **起点(② 层)**:agent 从 `value_seed_v3.json`(保本先验)出发,**不从随机起点**。
-- **学习场**:`build_subset_edge_world` —— edge **只藏在先验最不信的引擎**(`market_momentum`,v3 α[1]=0.070)里,其余 4 个引擎是**独立噪声**。静态先验融合出噪声主导的信号→读不到 edge→死;learner 必须**自己发现"该信哪个引擎"并抬它的权重**才能活。
+- **学习场**:`build_subset_edge_world` —— edge **只藏在先验最不信的融合槽**(`alpha[1]`,v3 权重 0.070)里,其余 4 个槽是**独立噪声**。静态先验融合出噪声主导的信号→读不到 edge→死;learner 必须**自己发现"该信哪个槽"并抬它的权重**才能活。
+  > **槽名说明**:`decision.py` 的 5 个槽 key 是 NBA 时代旧名,**payload 早已重映射成网球信号**(`real_signal_source.py`):`market_momentum`=CLOB 价格漂移(唯一活信号)、`tennis_technical`=ELO 差、`smart_money`=**场地优势**(Sackmann)、`sentiment_llm`=交手记录、`crowd_volume`=休息/近况。下文用到这些 key **只是融合槽的代号**,不是"smart money"这种活引擎概念——demo 是合成的,槽的 prod payload 跟测试无关。Key 没改是为了不动 v3 种子/advisor(命名债,清理是另一回事)。
 - **经济体**:锁定值(loss 1.2 / fragile 0.15 / breath 70,tithe+tribute,exploration 0.05),gain=0.5,n=400,max 20 世。
 - **三臂**:`frozen`(`learning_enabled=False`,真冻结=零假设)/ `ema`(数值 death-blind,有 per-engine 信用分配)/ `minimax`(LLM 轮回顾问=自我进化;`aux_llm=False` 让 MiniMax 只做学习脑)。
 - **指标**:存活率 + 每世进度曲线的爬升(`survival_metrics.learning_curve`)。
@@ -95,12 +96,12 @@
 | **ema(数值学习)** | **100%** | 100% | +26.6 | 5.6 |
 | **minimax(LLM 自我进化)** | **80%**(4/5) | 91.4% | +18.8 | 2.8 |
 
-→ **非学习者在每个 seed 都死;两种学习机制把存活拉到 80–100%——agent 能学会发现并吃下隐藏 edge。** 机制坐实:learner 逐世把藏 edge 引擎的权重抬上去——
-- **EMA seed 1**:`market_momentum` 0.070→0.082→0.095→0.140→0.191→**0.265**,砍噪声引擎 `smart_money` 0.752→0.533,第 5 世越过临界出师。
-- **MiniMax seed 1**:同样把 momentum 抬到 0.275、smart_money 砍到 0.513;LLM 自述理由 *"alpha_2 压倒性主导=过度依赖单一信号类、它造成 6 连败"* → **主动砍掉过度信任的噪声引擎**(死亡感知推理,非脚本)。
+→ **非学习者在每个 seed 都死;两种学习机制把存活拉到 80–100%——agent 能学会发现并吃下隐藏 edge。** 机制坐实:learner 逐世把藏 edge 那个槽的权重抬上去(下文 key 均为融合槽代号,见上方槽名说明)——
+- **EMA seed 1**:藏 edge 的 `alpha[1]`(market_momentum key)0.070→0.082→0.095→0.140→0.191→**0.265**,砍最被高估的噪声槽 `alpha[2]`(smart_money key)0.752→0.533,第 5 世越过临界出师。
+- **MiniMax seed 1**:同样把 `alpha[1]` 抬到 0.275、`alpha[2]` 砍到 0.513;LLM 自述理由 *"alpha_2 压倒性主导=过度依赖单一信号槽、它造成 6 连败"* → **主动砍掉被高估的主导槽**(死亡感知推理,非脚本)。
 
 **两个诚实点(别误读)**:
-1. **`minimax` 臂 = EMA + LLM 叠加**(接上 rebirth_llm 后 EMA 仍在跑),不是纯 LLM;momentum 抬升是"EMA 直接抬 + LLM 砍主导噪声引擎"合力。LLM **非确定性**(同 seed 1 一次 survived@4、一次@7)。
+1. **`minimax` 臂 = EMA + LLM 叠加**(接上 rebirth_llm 后 EMA 仍在跑),不是纯 LLM;edge 槽抬升是"EMA 直接抬 + LLM 砍被高估的主导槽"合力。LLM **非确定性**(同 seed 1 一次 survived@4、一次@7)。
 2. **加 LLM 反而把存活从 EMA 单独的 100% 降到 80%**:LLM 只看总 pnl 的权重猛拽,有时会**扰乱 EMA 的有信息梯度**(最难 seed 2:EMA 单独 17 世能解,叠加 LLM 20 世没攻克),但在易 seed 上更快出师(2.8 vs 5.6 世)。= "盲爬扰动 vs 有信息梯度"的真实权衡,不是 LLM 单调更强。
 
 **它证明的是"agent 有能力学会找 edge"(机制可用);** 用的是**合成注入的已知 edge(测试靶)**,**不对"真 edge 在不在"下结论**——那留给 Stage 2。

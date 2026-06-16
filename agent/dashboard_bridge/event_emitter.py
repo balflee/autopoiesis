@@ -1,11 +1,11 @@
 """WsEventEmitter — produces Track-D-compatible WS frames in-memory.
 
-Wire-schema anchor: ``.dev/contracts/dashboard_ws_message.v0.3.0.json``.
+Wire-schema anchor: ``.dev/contracts/dashboard_ws_message.v0.4.0.json``.
 
-Twelve frame kinds are supported per the v0.3.0 union (v0.3.0 is a
-field-additive MINOR bump over v0.2.0 — ``market_id`` / ``bet_id`` /
-``signals`` added to the ``decision`` payload + ``decision_feed`` entry;
-no new kind):
+Twelve frame kinds are supported per the v0.4.0 union (v0.4.0 is a
+BREAKING bump over v0.3.0 — it renames 3 of the 5 ``signals`` enum keys
+to the Sackmann/CLOB payloads they carry: smart_money->surface_advantage,
+sentiment_llm->head_to_head, crowd_volume->rest_recency; no kind added):
 
     vitals, thought, decision, reflection, weights_updated,
     llm_activated, desperate_mode_entered, terminal_lucidity_start,
@@ -45,13 +45,13 @@ from agent.core.state import Phase
 from agent.engines.decision import RATIONAL_ENGINES, SENTIENT_ENGINES
 
 # Mirror of dashboard/lib/wsContract.ts WS_CONTRACT_VERSION. The Track D
-# interface registry pin is "0.3.0"; we re-export the string so the
+# interface registry pin is "0.4.0"; we re-export the string so the
 # emitter's identity matches the consumer's.
-WS_CONTRACT_VERSION: Final[str] = "0.3.0"
+WS_CONTRACT_VERSION: Final[str] = "0.4.0"
 
-# The 5 LOWERCASE persisted engine keys — the only legal keys in a
+# The 5 LOWERCASE persisted slot keys — the only legal keys in a
 # ``signals`` map (mirrors ``$defs.decision_payload.signals.propertyNames``
-# in dashboard_ws_message.v0.3.0.json and agent.engines.decision.*). Derived
+# in dashboard_ws_message.v0.4.0.json and agent.engines.decision.*). Derived
 # from decision.py's SoT (RATIONAL_ENGINES + SENTIENT_ENGINES) so a slot rename
 # touches one definition site. The producer does NOT enforce the enum (a
 # {str: float} map is accepted) — the WIRE schema is the guard — but the tuple
@@ -236,7 +236,7 @@ class WsEventEmitter:
     """In-memory producer of dashboard WS frames.
 
     Frames are appended to :attr:`frames` (a list of plain dicts, each
-    already conforming to ``dashboard_ws_message.v0.3.0.json``). The
+    already conforming to ``dashboard_ws_message.v0.4.0.json``). The
     emitter does NOT serialise to a socket — that's the sprint_5 WS
     server's job. Tests + the Demo §9 PLAYBACK tape consume
     :attr:`frames` directly.

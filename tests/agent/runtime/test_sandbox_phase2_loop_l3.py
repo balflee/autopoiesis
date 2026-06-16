@@ -77,10 +77,10 @@ from agent.engines._strategy_proposal_schema import (
 )
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 from agent.engines.reflection import SandboxReflectionRecord
@@ -206,17 +206,17 @@ class _ScriptedTickInputs:
                 rationale="momentum agrees",
                 raw_features={"tick": float(tick)},
             ),
-            SMART_MONEY: Signal(
+            SURFACE_ADVANTAGE: Signal(
                 score=0.7, confidence=0.85, available_at=iso,
                 rationale="wallets favour YES",
                 raw_features={"tick": float(tick)},
             ),
-            SENTIMENT_LLM: Signal(
+            HEAD_TO_HEAD: Signal(
                 score=0.6, confidence=0.8, available_at=iso,
                 rationale="sentiment positive",
                 raw_features={"tick": float(tick)},
             ),
-            CROWD_VOLUME: Signal(
+            REST_RECENCY: Signal(
                 score=0.6, confidence=0.85, available_at=iso,
                 rationale="crowd volume rising sharply",
                 raw_features={"tick": float(tick)},
@@ -478,15 +478,15 @@ def test_value_betting_forwards_cross_market_signal_iff_flag_on(
                     score=0.8, confidence=0.9, available_at=iso,
                     rationale="", raw_features={},
                 ),
-                SMART_MONEY: Signal(
+                SURFACE_ADVANTAGE: Signal(
                     score=0.7, confidence=0.85, available_at=iso,
                     rationale="", raw_features={},
                 ),
-                SENTIMENT_LLM: Signal(
+                HEAD_TO_HEAD: Signal(
                     score=0.6, confidence=0.8, available_at=iso,
                     rationale="", raw_features={},
                 ),
-                CROWD_VOLUME: Signal(
+                REST_RECENCY: Signal(
                     score=0.6, confidence=0.85, available_at=iso,
                     rationale="", raw_features={},
                 ),
@@ -891,9 +891,9 @@ def test_signal_scores_threaded_onto_open_bet(tmp_path: Path) -> None:
     # Matches the _ScriptedTickInputs scores for every engine.
     assert scores[TENNIS_TECHNICAL] == pytest.approx(0.9)
     assert scores[MARKET_MOMENTUM] == pytest.approx(0.8)
-    assert scores[SMART_MONEY] == pytest.approx(0.7)
-    assert scores[SENTIMENT_LLM] == pytest.approx(0.6)
-    assert scores[CROWD_VOLUME] == pytest.approx(0.6)
+    assert scores[SURFACE_ADVANTAGE] == pytest.approx(0.7)
+    assert scores[HEAD_TO_HEAD] == pytest.approx(0.6)
+    assert scores[REST_RECENCY] == pytest.approx(0.6)
 
 
 # --------------------------------------------------------------------------- #

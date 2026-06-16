@@ -85,10 +85,10 @@ from agent.dashboard_bridge import WsEventEmitter
 from agent.dashboard_bridge.event_emitter import DEFAULT_LLM_ACTIVATION_NOTE
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
     DecisionEngine,
 )
@@ -667,9 +667,9 @@ def _assert_signal_coverage(signals: dict[str, Signal]) -> None:
     required = (
         TENNIS_TECHNICAL,
         MARKET_MOMENTUM,
-        SMART_MONEY,
-        SENTIMENT_LLM,
-        CROWD_VOLUME,
+        SURFACE_ADVANTAGE,
+        HEAD_TO_HEAD,
+        REST_RECENCY,
     )
     missing = [n for n in required if n not in signals]
     if missing:

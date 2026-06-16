@@ -105,12 +105,12 @@ under a separate task.
 The `WS_CONTRACT_VERSION` string in
 `agent/dashboard_bridge/event_emitter.py` MUST match the Track D
 TypeScript constant in `dashboard/lib/wsContract.ts`. Both are pinned
-to `"0.3.0"` today.
+to `"0.4.0"` today.
 
 * **Risk**: a future MINOR bump on Track D's side (e.g. adding a 13th
   WS kind) would land without bumping Track B's producer. The
   interface_matrix hard gate catches it.
-* **Mitigation today**: the `dashboard_ws_message.v0.3.0.json` schema
+* **Mitigation today**: the `dashboard_ws_message.v0.4.0.json` schema
   is the single source of truth; Pydantic models in
   `event_emitter.py` mirror it field-for-field. A future schema bump
   bumps both sides simultaneously via the existing T-B-* / T-D-*

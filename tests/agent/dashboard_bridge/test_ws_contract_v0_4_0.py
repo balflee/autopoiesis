@@ -1,13 +1,15 @@
-"""F0 — dashboard_ws_message v0.3.0 contract-alignment tests.
+"""F1 — dashboard_ws_message v0.4.0 contract-alignment tests.
 
-The v0.3.0 MINOR bump adds three OPTIONAL fields — ``market_id``,
-``bet_id`` and ``signals`` (a name->score map keyed by the 5 lowercase
-persisted engine names) — to BOTH ``$defs.decision_payload`` and
-``$defs.decision_feed_entry``. The bump MUST be backward-compatible:
-every v0.2.0-shaped decision / decision_feed frame still validates.
+The v0.4.0 BREAKING bump renames 3 of the 5 ``signals`` enum keys to the
+Sackmann/CLOB payloads they actually carry: smart_money->surface_advantage,
+sentiment_llm->head_to_head, crowd_volume->rest_recency. The three OPTIONAL
+fields added in v0.3.0 — ``market_id``, ``bet_id`` and ``signals`` (a
+name->score map keyed by the 5 lowercase persisted slot keys) — are
+unchanged in shape; only the 3 slot-key names move. Backward-compat with
+v0.2.0-shaped frames (no signals/market_id/bet_id) is preserved.
 
 These tests are the LOCKSTEP guard: the JSON schema, the two TS mirrors
-and the Pydantic producer all carry the same three fields. The Python
+and the Pydantic producer all carry the same fields + slot keys. The Python
 side is exercised here; the TS side has its own vitest.
 """
 
@@ -27,23 +29,27 @@ from agent.dashboard_bridge.event_emitter import (
     WsEventEmitter,
 )
 
-# v0.3.0 schema — the canonical wire contract for this bump.
+# v0.4.0 schema — the canonical wire contract for this bump.
 _SCHEMA_PATH = (
     Path(__file__).resolve().parents[3]
     / ".dev"
     / "contracts"
-    / "dashboard_ws_message.v0.3.0.json"
+    / "dashboard_ws_message.v0.4.0.json"
 )
 
-# The 5 LOWERCASE persisted engine keys (NOT the uppercase display
+# The 5 LOWERCASE persisted slot keys (NOT the uppercase display
 # constants). These are the only legal keys in a ``signals`` map.
 _ENGINE_KEYS = (
     "tennis_technical",
     "market_momentum",
-    "smart_money",
-    "sentiment_llm",
-    "crowd_volume",
+    "surface_advantage",
+    "head_to_head",
+    "rest_recency",
 )
+
+# The 3 pre-2026-06-16 misnomers — must NOT appear ANYWHERE in the v0.4.0
+# schema (enum keys OR description prose); this is the canonical-doc guard.
+_LEGACY_SLOT_NAMES = ("smart_money", "sentiment_llm", "crowd_volume")
 
 
 @pytest.fixture(scope="module")
@@ -61,13 +67,22 @@ def _signals_map() -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def test_schema_file_pins_v0_3_0(validator: Draft202012Validator) -> None:
+def test_schema_file_pins_v0_4_0(validator: Draft202012Validator) -> None:
     raw = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    assert raw["version"] == "0.3.0"
+    assert raw["version"] == "0.4.0"
 
 
-def test_emitter_constant_is_v0_3_0() -> None:
-    assert WS_CONTRACT_VERSION == "0.3.0"
+def test_emitter_constant_is_v0_4_0() -> None:
+    assert WS_CONTRACT_VERSION == "0.4.0"
+
+
+def test_no_legacy_slot_names_anywhere_in_schema() -> None:
+    """The whole rename exists to delete these misnomers — they must be gone
+    from the canonical contract doc, including the description prose the
+    propertyNames.enum gate cannot see."""
+    raw = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    blob = json.dumps(raw)
+    assert not any(name in blob for name in _LEGACY_SLOT_NAMES)
 
 
 # ---------------------------------------------------------------------------

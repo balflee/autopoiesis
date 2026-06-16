@@ -101,11 +101,11 @@ class StartingWeightConfig(BaseModel):
         Collapsed scalar form of the 3-vector rational-layer weights
         (PRD §4.1 ``α₁ / α₂ / α₃``). Interpreted as ``α₁`` (the
         tennis-technical engine's share); the remaining mass
-        ``(1 - alpha)`` is split evenly across ``α₂`` (market_momentum
-        + smart_money composite) and ``α₃`` (crowd_volume) in the
-        :meth:`to_weights` projection. The dashboard's Phase-2 demo
-        fixture uses the same collapse, so the wire shape mirrors what
-        the operator already sees.
+        ``(1 - alpha)`` is split evenly across ``α₂`` (market_momentum)
+        and ``α₃`` (surface_advantage) in the :meth:`to_weights`
+        projection. The dashboard's Phase-2 demo fixture uses the same
+        collapse, so the wire shape mirrors what the operator already
+        sees.
 
     ``beta``
         Collapsed scalar form of the 2-vector sentient-layer weights

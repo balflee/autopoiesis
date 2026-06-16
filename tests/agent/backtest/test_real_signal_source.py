@@ -78,14 +78,14 @@ def test_signals_for_returns_all_five_slots() -> None:
         market_id="m1", tick=0, asof_ts=datetime(2026, 1, 1, 6, tzinfo=UTC)
     )
     assert set(out) == {
-        "tennis_technical", "market_momentum", "smart_money",
-        "sentiment_llm", "crowd_volume",
+        "tennis_technical", "market_momentum", "surface_advantage",
+        "head_to_head", "rest_recency",
     }
     # momentum is real (price rose 0.4 -> 0.6)
     assert out["market_momentum"].score > 0.0
     # unresolved slug -> tennis facets neutral
     assert out["tennis_technical"].score == 0.0
-    assert out["smart_money"].confidence == 0.0
+    assert out["surface_advantage"].confidence == 0.0
 
 
 # --- C1: the 4 Sackmann facet normalizers ----------------------------------
@@ -123,7 +123,7 @@ def test_surface_signal_favours_better_surface_record() -> None:
     assert sig.confidence == 0.6
     assert -1.0 <= sig.score <= 1.0
     assert 0.0 <= sig.confidence <= 1.0
-    # Reversing the players flips the sign (smart_money is symmetric).
+    # Reversing the players flips the sign (surface_advantage is symmetric).
     rev = surface_signal(
         "200002", "200001", "Hard", asof_ts=_ASOF,
         loader=_tiny_loader(), year_range=(2025, 2025),
@@ -236,25 +236,25 @@ def test_signals_for_resolved_slug_fills_tennis_facets() -> None:
         market_id="m2", tick=0, asof_ts=_ASOF,
     )
     assert set(out) == {
-        "tennis_technical", "market_momentum", "smart_money",
-        "sentiment_llm", "crowd_volume",
+        "tennis_technical", "market_momentum", "surface_advantage",
+        "head_to_head", "rest_recency",
     }
     # momentum is real (price rose 0.4 -> 0.6 before asof)
     assert out["market_momentum"].score > 0.0
     # the 4 tennis facets are now REAL (Sinner strongly favoured over Shelton).
     assert out["tennis_technical"].score > 0.5      # elo: 11000 vs 2500 -> +
     assert out["tennis_technical"].confidence == 0.7
-    assert out["smart_money"].score > 0.0           # surface: Sinner perfect on Hard
-    assert out["smart_money"].confidence == 0.6
-    assert out["sentiment_llm"].score > 0.0         # h2h: Sinner beat Shelton
-    assert out["sentiment_llm"].confidence > 0.0
+    assert out["surface_advantage"].score > 0.0           # surface: Sinner perfect on Hard
+    assert out["surface_advantage"].confidence == 0.6
+    assert out["head_to_head"].score > 0.0         # h2h: Sinner beat Shelton
+    assert out["head_to_head"].confidence > 0.0
     # rest: both 142d apart in fixture -> score 0.0 but signal still emitted
-    assert out["crowd_volume"].confidence == 0.4
+    assert out["rest_recency"].confidence == 0.4
     # the wired facets MUST equal the standalone normalizer outputs.
     assert out["tennis_technical"].score == elo_signal(
         "200001", "200002", asof_ts=_ASOF, loader=_tiny_loader()
     ).score
-    assert out["sentiment_llm"].score == h2h_signal(
+    assert out["head_to_head"].score == h2h_signal(
         "200001", "200002", asof_ts=_ASOF,
         loader=_tiny_loader(), year_range=(2025, 2025),
     ).score
@@ -272,6 +272,6 @@ def test_signals_for_unresolved_slug_stays_neutral() -> None:
         market_id="m1", tick=0, asof_ts=datetime(2026, 1, 1, 6, tzinfo=UTC)
     )
     assert out["market_momentum"].score > 0.0
-    for slot in ("tennis_technical", "smart_money", "sentiment_llm", "crowd_volume"):
+    for slot in ("tennis_technical", "surface_advantage", "head_to_head", "rest_recency"):
         assert out[slot].score == 0.0
         assert out[slot].confidence == 0.0

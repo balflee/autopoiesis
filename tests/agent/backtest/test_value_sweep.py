@@ -72,9 +72,9 @@ def _strong_row(market_id: str, *, entry_price: float, outcome: str) -> SignalRo
     slots = (
         "tennis_technical",
         "market_momentum",
-        "smart_money",
-        "sentiment_llm",
-        "crowd_volume",
+        "surface_advantage",
+        "head_to_head",
+        "rest_recency",
     )
     return SignalRow(
         market_id=market_id,

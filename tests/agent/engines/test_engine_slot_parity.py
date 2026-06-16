@@ -18,7 +18,8 @@ def test_event_emitter_signal_keys_derive_from_decision_sot() -> None:
 
 
 def test_sot_carries_the_expected_slot_values() -> None:
-    # NOTE: these are the OLD values in Task 1 (pre-rename); Task 2 Step 5 updates
-    # them to the new names — this is the assertion that PINS the rename.
-    assert RATIONAL_ENGINES == ("tennis_technical", "market_momentum", "smart_money")
-    assert SENTIENT_ENGINES == ("sentiment_llm", "crowd_volume")
+    # Pins the post-2026-06-16-rename slot keys: the 3 formerly-misnamed slots
+    # now carry the Sackmann payload they actually hold. This is the assertion
+    # that fails loudly if a key ever drifts back to a dead-engine namesake.
+    assert RATIONAL_ENGINES == ("tennis_technical", "market_momentum", "surface_advantage")
+    assert SENTIENT_ENGINES == ("head_to_head", "rest_recency")

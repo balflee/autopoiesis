@@ -21,14 +21,13 @@ import pytest
 
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 from agent.runtime.sandbox_phase2_loop import TickInputs
-
 from tests.agent.runtime.test_sandbox_phase2_loop_l3 import (
     _build_loop,
     _drive,
@@ -37,9 +36,9 @@ from tests.agent.runtime.test_sandbox_phase2_loop_l3 import (
 _ENGINE_KEYS = {
     TENNIS_TECHNICAL,
     MARKET_MOMENTUM,
-    SMART_MONEY,
-    SENTIMENT_LLM,
-    CROWD_VOLUME,
+    SURFACE_ADVANTAGE,
+    HEAD_TO_HEAD,
+    REST_RECENCY,
 }
 
 

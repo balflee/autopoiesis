@@ -41,9 +41,9 @@ from agent.runtime.sandbox_phase2_loop import TickInputs
 _SLOTS = (
     "tennis_technical",
     "market_momentum",
-    "smart_money",
-    "sentiment_llm",
-    "crowd_volume",
+    "surface_advantage",
+    "head_to_head",
+    "rest_recency",
 )
 
 # Match the executor default so the schedule's settle checkpoints line up with
@@ -233,7 +233,7 @@ def test_tick_source_serves_cached_signals_in_entry_order() -> None:
     assert set(out0.signals) == set(_SLOTS)
     assert all(isinstance(s, Signal) for s in out0.signals.values())
     # mB's cached score is 0.2 across the 5 slots.
-    assert out0.signals["smart_money"].score == 0.2
+    assert out0.signals["surface_advantage"].score == 0.2
 
     # The next DECISION stop is mA (06-03). Find its tick index in the schedule.
     decision_ticks = [
@@ -247,7 +247,7 @@ def test_tick_source_serves_cached_signals_in_entry_order() -> None:
     assert isinstance(outa, TickInputs)
     assert outa.market_id == "mA"
     assert outa.price == 0.40
-    assert outa.signals["smart_money"].score == 0.6
+    assert outa.signals["surface_advantage"].score == 0.6
 
 
 def test_tick_source_returns_none_on_settle_only_tick() -> None:

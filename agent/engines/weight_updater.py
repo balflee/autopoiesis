@@ -386,8 +386,8 @@ class WeightUpdater:
         ``w_r / w_s`` only train when the gradient layer sees
         ``rational_stream_quality`` / ``sentient_stream_quality``. We
         aggregate the rational group (``tennis_technical`` +
-        ``market_momentum`` + ``smart_money``) and the sentient group
-        (``sentiment_llm`` + ``crowd_volume``) into those two keys.
+        ``market_momentum`` + ``surface_advantage``) and the sentient group
+        (``head_to_head`` + ``rest_recency``) into those two keys.
 
         Honors the phase freeze list + ``desperate`` LR exactly like
         :meth:`update` (delegates to it).

@@ -1,26 +1,18 @@
 # agent/backtest/real_signal_source.py
-"""Real per-tick signals for the 5 engine slots (replaces _DeterministicSignalSource).
+"""Real per-tick signals for the 5 fusion slots (replaces _DeterministicSignalSource).
 
-⚠️ BACKTEST SLOT SUBSTITUTION — READ THIS BEFORE TRUSTING A SLOT NAME ⚠️
-The 5 DecisionEngine slot keys name GENUINE production engines:
-  smart_money   = on-chain smart-money WALLET alignment (agent/engines/smart_money.py)
-  sentiment_llm = Gemini LLM sentiment                  (agent/engines/sentiment_llm.py)
-  crowd_volume  = Reddit crowd volume                   (agent/engines/crowd_volume.py)
-  tennis_technical / market_momentum = ELO / CLOB drift.
-Those live signals are UNAVAILABLE in a historical backtest (no live chain/LLM/
-Reddit feed for past matches). So this source SUBSTITUTES a Sackmann/CLOB proxy
-into each slot — the slot KEY is unchanged (fusion weights + value_seed still
-address it by key), only the PAYLOAD differs:
-  market_momentum  -> live price drift/velocity from the cassette price_ledger (REAL)
-  tennis_technical -> ELO/ranking gap   (Sackmann)
-  smart_money      -> surface advantage (Sackmann)   ← NOT the wallet signal here
-  sentiment_llm    -> head-to-head      (Sackmann)   ← NOT an LLM call here
-  crowd_volume     -> rest/recency      (Sackmann)
-=> Do NOT read e.g. "smart_money" in a BACKTEST artifact as the smart-money
-   engine: it is the slot, carrying a Sackmann proxy. The engine NAMES are
-   correct; only this backtest substitution makes a slot's payload differ from
-   its namesake. Unresolved markets get a neutral tennis signal; momentum is
-   always real.
+This is the signal source the system ACTUALLY runs — backtest, the 能学 demo, and
+prod (agent/server/main.py `_make_prod_signal_source`). Every slot carries a real
+Sackmann/CLOB proxy; the slot keys are named for that payload (2026-06-16 rename):
+  market_momentum   -> live price drift/velocity from the cassette price_ledger (CLOB)
+  tennis_technical  -> ELO/ranking gap        (Sackmann)
+  surface_advantage -> surface-specific edge  (Sackmann)
+  head_to_head      -> head-to-head record    (Sackmann)
+  rest_recency      -> rest / recent form     (Sackmann)
+The dead prototype modules agent/engines/{smart_money,sentiment_llm,crowd_volume}.py
+(on-chain wallet / LLM / Reddit) are NEVER instantiated and are NOT what these slots
+carry — do not reattach those names to these keys. Unresolved markets get a neutral
+tennis signal; momentum is always real.
 """
 
 from __future__ import annotations
@@ -33,10 +25,10 @@ from statistics import StatisticsError, fmean, stdev
 from agent.backtest.tennis_match_resolver import TennisMatchResolver
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 from agent.engines.tennis_technical import (
@@ -151,7 +143,7 @@ def surface_signal(
     loader: SackmannLoader,
     year_range: tuple[int, int],
 ) -> Signal:
-    """Surface advantage -> smart_money slot.
+    """Surface advantage -> surface_advantage slot.
 
     ``score = compute_surface_advantage(...)`` (already in [-1, 1], positive
     favours p1); ``confidence = 0.0`` when the advantage is exactly 0 (no edge)
@@ -178,7 +170,7 @@ def h2h_signal(
     loader: SackmannLoader,
     year_range: tuple[int, int],
 ) -> Signal:
-    """Head-to-head -> sentiment_llm slot.
+    """Head-to-head -> head_to_head slot.
 
     ``score = 2 * (p1_win_rate - 0.5)`` when they've met (maps a [0, 1] win rate
     to [-1, 1], positive favours p1) else ``0.0``; ``confidence = min(0.9,
@@ -211,7 +203,7 @@ def rest_signal(
     loader: SackmannLoader,
     year_range: tuple[int, int],
 ) -> Signal:
-    """Rest/recency -> crowd_volume slot.
+    """Rest/recency -> rest_recency slot.
 
     ``d1, d2`` = days since each player's last match. When BOTH are known,
     ``score = tanh((d2 - d1) / 14)`` (positive when the opponent is the more-
@@ -269,9 +261,9 @@ class RealSignalSource:
         out: dict[str, Signal] = {
             MARKET_MOMENTUM: momentum_signal(snaps, asof_ts=asof_ts),
             TENNIS_TECHNICAL: _neutral(asof_ts, "tennis_technical: unresolved"),
-            SMART_MONEY: _neutral(asof_ts, "surface: unresolved"),
-            SENTIMENT_LLM: _neutral(asof_ts, "h2h: unresolved"),
-            CROWD_VOLUME: _neutral(asof_ts, "rest: unresolved"),
+            SURFACE_ADVANTAGE: _neutral(asof_ts, "surface: unresolved"),
+            HEAD_TO_HEAD: _neutral(asof_ts, "h2h: unresolved"),
+            REST_RECENCY: _neutral(asof_ts, "rest: unresolved"),
         }
         # When the slug resolves to two Sackmann players + surface, replace the 4
         # neutral tennis slots with the REAL facet signals. Momentum is always real.
@@ -281,15 +273,15 @@ class RealSignalSource:
             out[TENNIS_TECHNICAL] = elo_signal(
                 rm.p1_id, rm.p2_id, asof_ts=asof_ts, loader=self.loader
             )
-            out[SMART_MONEY] = surface_signal(
+            out[SURFACE_ADVANTAGE] = surface_signal(
                 rm.p1_id, rm.p2_id, rm.surface, asof_ts=asof_ts,
                 loader=self.loader, year_range=self.year_range,
             )
-            out[SENTIMENT_LLM] = h2h_signal(
+            out[HEAD_TO_HEAD] = h2h_signal(
                 rm.p1_id, rm.p2_id, asof_ts=asof_ts,
                 loader=self.loader, year_range=self.year_range,
             )
-            out[CROWD_VOLUME] = rest_signal(
+            out[REST_RECENCY] = rest_signal(
                 rm.p1_id, rm.p2_id, asof_ts=asof_ts,
                 loader=self.loader, year_range=self.year_range,
             )

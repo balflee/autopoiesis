@@ -11,11 +11,10 @@ the v3 prior under-weights (default ``market_momentum`` key, α[1]=0.070); the
 other four slots are independent noise. So the static prior fuses a
 noise-dominated signal and dies; only a learner that raises that slot's weight
 survives. NOTE: the five ``decision.py`` slot keys (tennis_technical /
-market_momentum / smart_money / sentiment_llm / crowd_volume) are LEGACY NBA-era
-labels — their real payloads are remapped tennis signals (see
-``real_signal_source.py``: smart_money=surface advantage, etc.). This demo is
+market_momentum / surface_advantage / head_to_head / rest_recency) name the real
+Sackmann/CLOB payloads they carry (see ``real_signal_source.py``). This demo is
 synthetic, so a slot's prod payload is irrelevant — the keys here are just slot
-addresses, not live-engine identities.
+addresses.
 
 Arms (all on the LOCKED economy: loss_multiplier=1.2, fragile=0.15, breath=70,
 tithe+tribute on, exploration_epsilon=0.05; agent starts from value_seed_v3):

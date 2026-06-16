@@ -22,25 +22,24 @@ import pytest
 from agent.core.state import ActionKind, Side
 from agent.engines.base import EngineSignal
 from agent.engines.decision import (
-    CROWD_VOLUME,
     DEFAULT_CONVERSION_RATE,
     DEFAULT_MAX_BREATH_RISK_PCT,
     DEFAULT_MIN_BET_SIZE_USD,
     DESPERATE_BET_SIZE_CAP,
-    DecisionEngine,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
     NO_BET_BELOW_MIN_SIZE,
     NO_BET_LOW_CONFIDENCE,
     NO_BET_MISSING_SIGNAL,
     NO_BET_NEUTRAL_FUSED,
     NORMAL_BET_SIZE_CAP,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
+    DecisionEngine,
     _fuse_signals,
     _kelly_fraction,
 )
-
 
 # ── helpers ───────────────────────────────────────────────────────────
 
@@ -69,9 +68,9 @@ def _full_signals(
     return {
         TENNIS_TECHNICAL: _sig(tennis, confidence),
         MARKET_MOMENTUM: _sig(mm, confidence),
-        SMART_MONEY: _sig(sm, confidence),
-        SENTIMENT_LLM: _sig(llm, confidence),
-        CROWD_VOLUME: _sig(cv, confidence),
+        SURFACE_ADVANTAGE: _sig(sm, confidence),
+        HEAD_TO_HEAD: _sig(llm, confidence),
+        REST_RECENCY: _sig(cv, confidence),
     }
 
 
@@ -227,7 +226,7 @@ def test_bet_size_constrained_by_desired() -> None:
     assert action.kind == ActionKind.BET
     assert action.size_usd is not None
     # desired = ρ·k·conf·bankroll = 0.5·k·1.0·100
-    # With Phase 1 freeze (β₂=1, β₁=0) and crowd_volume score = 0,
+    # With Phase 1 freeze (β₂=1, β₁=0) and rest_recency score = 0,
     # the Sentient stream contributes 0; fused = 0.6·R.
     # R = (1/3)·0.5·1.0 + (1/3)·0.5·1.0 + (1/3)·0.5·1.0 = 0.5
     # fused = 0.6·0.5 = 0.3, kelly = 0.3/0.7 ≈ 0.4286
@@ -279,7 +278,7 @@ def test_bet_size_constrained_by_bankroll_cap() -> None:
     # Maximally strong signal so desired is large — k → 1
     sigs = _full_signals(tennis=1.0, mm=1.0, sm=1.0, confidence=1.0)
     # With perfect score, raw_r = 1.0, fused = 0.6 (with phase1 β=[0,1] +
-    # crowd_volume=0). kelly = 0.6/0.4 = 1.5 → clamp to 1.0.
+    # rest_recency=0). kelly = 0.6/0.4 = 1.5 → clamp to 1.0.
     # desired = 0.5·1.0·1.0·100 = 50.
     # bankroll_cap = 100·0.30 = 30 ← binding.
     action = asyncio.run(

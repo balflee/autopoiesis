@@ -50,9 +50,9 @@ from agent.runtime.agent_runner import AgentRunner
 _SLOTS = (
     "tennis_technical",
     "market_momentum",
-    "smart_money",
-    "sentiment_llm",
-    "crowd_volume",
+    "surface_advantage",
+    "head_to_head",
+    "rest_recency",
 )
 
 

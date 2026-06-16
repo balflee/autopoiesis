@@ -43,9 +43,9 @@ def _strong_gradient() -> dict[str, float]:
     return {
         "tennis_technical_quality": 1.0,
         "market_momentum_quality": -1.0,
-        "smart_money_quality": -1.0,
-        "sentiment_llm_quality": 1.0,
-        "crowd_volume_quality": -1.0,
+        "surface_advantage_quality": -1.0,
+        "head_to_head_quality": 1.0,
+        "rest_recency_quality": -1.0,
         "rational_stream_quality": 1.0,
         "sentient_stream_quality": -1.0,
         "rho_quality": 0.8,

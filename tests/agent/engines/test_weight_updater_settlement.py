@@ -45,7 +45,7 @@ def test_yes_win_shifts_alpha_toward_agreeing_engine() -> None:
             signal_scores={
                 "tennis_technical": 1.0,
                 "market_momentum": 0.0,
-                "smart_money": 0.0,
+                "surface_advantage": 0.0,
             },
             bet_direction=1.0,
         )
@@ -74,7 +74,7 @@ def test_winning_no_bet_still_rewards_the_driving_engine() -> None:
             signal_scores={
                 "tennis_technical": -1.0,
                 "market_momentum": 0.0,
-                "smart_money": 0.0,
+                "surface_advantage": 0.0,
             },
             bet_direction=-1.0,
         )
@@ -97,7 +97,7 @@ def test_losing_no_bet_penalizes_the_driving_engine() -> None:
             signal_scores={
                 "tennis_technical": -1.0,
                 "market_momentum": 0.0,
-                "smart_money": 0.0,
+                "surface_advantage": 0.0,
             },
             bet_direction=-1.0,
         )
@@ -152,9 +152,9 @@ def test_stream_weights_train_from_rational_vs_sentient_groups() -> None:
             signal_scores={
                 "tennis_technical": 1.0,
                 "market_momentum": 1.0,
-                "smart_money": 1.0,
-                "sentiment_llm": 0.0,
-                "crowd_volume": 0.0,
+                "surface_advantage": 1.0,
+                "head_to_head": 0.0,
+                "rest_recency": 0.0,
             },
             bet_direction=1.0,
         )

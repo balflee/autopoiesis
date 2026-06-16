@@ -477,7 +477,7 @@ def _per_engine_quality_features(
         _QUALITY_KEYS_RATIONAL[2]: err * w_r * sm_sc,
         # β channels: β₁ frozen at 0, β₂ active. Emit both keys so a
         # Phase 2 unfreeze inherits the pipeline.
-        _QUALITY_KEYS_SENTIENT[0]: 0.0,  # sentiment_llm — frozen, no signal
+        _QUALITY_KEYS_SENTIENT[0]: 0.0,  # head_to_head (β₁) — frozen, no signal
         _QUALITY_KEYS_SENTIENT[1]: err * w_s * cv_sc,
         "rational_stream_quality": err * rational_contrib,
         "sentient_stream_quality": err * sentient_contrib,
@@ -759,7 +759,7 @@ reviewer can verify β₁ never moves.
 |--------|-----------|-----------|----|
 | tennis_technical | {initial.alpha[0]:.4f} | {final.alpha[0]:.4f} | {final.alpha[0] - initial.alpha[0]:+.4f} |
 | market_momentum  | {initial.alpha[1]:.4f} | {final.alpha[1]:.4f} | {final.alpha[1] - initial.alpha[1]:+.4f} |
-| smart_money      | {initial.alpha[2]:.4f} | {final.alpha[2]:.4f} | {final.alpha[2] - initial.alpha[2]:+.4f} |
+| surface_advantage | {initial.alpha[2]:.4f} | {final.alpha[2]:.4f} | {final.alpha[2] - initial.alpha[2]:+.4f} |
 
 The simplex sums to 1.0 within ±1e-6 (validated by `agent.core.state.Weights`).
 

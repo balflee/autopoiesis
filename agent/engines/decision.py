@@ -84,33 +84,32 @@ from agent.engines.base import EngineSignal
 # nba_technical.py engine module are deleted in lockstep so there is
 # one unambiguous source of truth for α₁'s identity.
 #
-# ⚠️ SLOT NAME ≠ BACKTEST PAYLOAD — read before trusting one of these names.
-# These 5 keys name GENUINE production engines (smart_money = on-chain
-# smart-money WALLET alignment, sentiment_llm = Gemini LLM sentiment,
-# crowd_volume = Reddit volume; see agent/engines/<name>.py). BUT in the path
-# we actually run — backtest, and prod when the RealSignalSource flag is on —
-# those live signals don't exist, so agent/backtest/real_signal_source.py
-# SUBSTITUTES a Sackmann/CLOB proxy into each slot (key unchanged, payload
-# differs): smart_money -> surface advantage, sentiment_llm -> head-to-head,
-# crowd_volume -> rest/recency. => In ANY backtest artifact / sim / the 能学
-# demo, a slot key means the SLOT (carrying a Sackmann proxy), NOT its namesake
-# engine. Don't repeat the "smart_money == smart money" misread (it isn't, here).
+# Slot keys now NAME WHAT THEY CARRY (2026-06-16 rename). The path we actually
+# run — backtest, the 能学 demo, and prod via agent/backtest/real_signal_source.py
+# — feeds every slot a real Sackmann/CLOB proxy, so the three formerly-misnamed
+# keys were renamed to their payload: smart_money -> surface_advantage (Sackmann
+# surface edge), sentiment_llm -> head_to_head (Sackmann H2H), crowd_volume ->
+# rest_recency (Sackmann rest / recent form). The dead prototype engine modules
+# agent/engines/{smart_money,sentiment_llm,crowd_volume}.py still exist (future
+# A15 edge-layer seeds) but are NEVER instantiated and are NOT what these slots
+# carry — do not reattach those names to these keys. Legacy old-name data on disk
+# is upgraded at the read boundaries via agent/engines/slot_aliases.py.
 TENNIS_TECHNICAL: Final[str] = "tennis_technical"
 MARKET_MOMENTUM: Final[str] = "market_momentum"
-SMART_MONEY: Final[str] = "smart_money"
-SENTIMENT_LLM: Final[str] = "sentiment_llm"
-CROWD_VOLUME: Final[str] = "crowd_volume"
+SURFACE_ADVANTAGE: Final[str] = "surface_advantage"
+HEAD_TO_HEAD: Final[str] = "head_to_head"
+REST_RECENCY: Final[str] = "rest_recency"
 
 # Ordered tuples — used to verify alpha[i] / beta[i] index ↔ engine
 # name mapping in tests. Re-ordering these is a BREAKING change.
 RATIONAL_ENGINES: Final[tuple[str, str, str]] = (
     TENNIS_TECHNICAL,
     MARKET_MOMENTUM,
-    SMART_MONEY,
+    SURFACE_ADVANTAGE,
 )
 SENTIENT_ENGINES: Final[tuple[str, str]] = (
-    SENTIMENT_LLM,
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
+    REST_RECENCY,
 )
 
 # Bet-size cap fractions per TP §4.7. The desperate-mode flip is an
@@ -686,13 +685,13 @@ def _value_side(
 
 
 __all__ = [
-    "CROWD_VOLUME",
     "DEFAULT_CONVERSION_RATE",
     "DEFAULT_KAPPA",
     "DEFAULT_MAX_BREATH_RISK_PCT",
     "DEFAULT_MIN_BET_SIZE_USD",
     "DEFAULT_MIN_CONFIDENCE",
     "DESPERATE_BET_SIZE_CAP",
+    "HEAD_TO_HEAD",
     "MARKET_MOMENTUM",
     "NORMAL_BET_SIZE_CAP",
     "NO_BET_BELOW_MIN_SIZE",
@@ -703,9 +702,9 @@ __all__ = [
     "NO_BET_PRICE_FLOOR",
     "NO_BET_ZERO_KELLY",
     "RATIONAL_ENGINES",
+    "REST_RECENCY",
     "SENTIENT_ENGINES",
-    "SENTIMENT_LLM",
-    "SMART_MONEY",
+    "SURFACE_ADVANTAGE",
     "TENNIS_TECHNICAL",
     "DecisionEngine",
     "FusionResult",

@@ -132,9 +132,9 @@ def _row_for(snap: MarketSnapshot, *, entry_price: float) -> SignalRow:
     slots = (
         "tennis_technical",
         "market_momentum",
-        "smart_money",
-        "sentiment_llm",
-        "crowd_volume",
+        "surface_advantage",
+        "head_to_head",
+        "rest_recency",
     )
     return SignalRow(
         market_id=snap.market_id,
@@ -292,9 +292,9 @@ def _survival_row(
     slots = (
         "tennis_technical",
         "market_momentum",
-        "smart_money",
-        "sentiment_llm",
-        "crowd_volume",
+        "surface_advantage",
+        "head_to_head",
+        "rest_recency",
     )
     sig = SignalRow(
         market_id=market_id,
@@ -451,9 +451,9 @@ def _survival_row_xm(
     slots = (
         "tennis_technical",
         "market_momentum",
-        "smart_money",
-        "sentiment_llm",
-        "crowd_volume",
+        "surface_advantage",
+        "head_to_head",
+        "rest_recency",
     )
     sig = SignalRow(
         market_id=market_id,
@@ -638,16 +638,16 @@ def _row_6a(snap: MarketSnapshot) -> SignalRow:
         scores={k: 0.8 for k in (
             "tennis_technical",
             "market_momentum",
-            "smart_money",
-            "sentiment_llm",
-            "crowd_volume",
+            "surface_advantage",
+            "head_to_head",
+            "rest_recency",
         )},
         confidences={k: 0.95 for k in (
             "tennis_technical",
             "market_momentum",
-            "smart_money",
-            "sentiment_llm",
-            "crowd_volume",
+            "surface_advantage",
+            "head_to_head",
+            "rest_recency",
         )},
         entry_price=snap.price_ledger[0].mid_price,
         outcome=snap.outcome or "no",

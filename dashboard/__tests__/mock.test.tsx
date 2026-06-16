@@ -69,9 +69,9 @@ function v030Frame(): DecisionFeedMessage {
         signals: {
           tennis_technical: 0.42,
           market_momentum: -0.15,
-          smart_money: 0.31,
-          sentiment_llm: 0.08,
-          crowd_volume: -0.22,
+          surface_advantage: 0.31,
+          head_to_head: 0.08,
+          rest_recency: -0.22,
         },
       },
     ],
@@ -152,9 +152,9 @@ describe("MockRoute — F2 L5 gate (deep-link block)", () => {
     for (const key of [
       "tennis_technical",
       "market_momentum",
-      "smart_money",
-      "sentiment_llm",
-      "crowd_volume",
+      "surface_advantage",
+      "head_to_head",
+      "rest_recency",
     ]) {
       expect(
         within(signals).getByTestId(`decision-feed-signal-${key}`),

@@ -60,9 +60,9 @@ function signals(): Record<string, number> {
   return {
     tennis_technical: 0.5,
     market_momentum: 0.1,
-    smart_money: -0.2,
-    sentiment_llm: 1,
-    crowd_volume: 0,
+    surface_advantage: -0.2,
+    head_to_head: 1,
+    rest_recency: 0,
   };
 }
 
@@ -226,6 +226,29 @@ describe("validateSurvivalJourney (happy path)", () => {
     }
   });
 
+  it("upgrades a legacy old-key journey via the slot-alias shim", () => {
+    // Simulate a non-regenerable archived journey carrying the pre-2026-06-16
+    // slot keys; the shim must normalize them so the strict loader validates
+    // and the result exposes the NEW keys.
+    const raw = clone(buildRaw());
+    for (const step of raw.steps as Array<Record<string, unknown>>) {
+      step.signals = {
+        tennis_technical: 0.5,
+        market_momentum: 0.1,
+        smart_money: -0.2,
+        sentiment_llm: 1,
+        crowd_volume: 0,
+      };
+    }
+    const f = validateSurvivalJourney(raw);
+    const sig = f.steps[0]!.signals;
+    expect(sig.surface_advantage).toBe(-0.2);
+    expect(sig.head_to_head).toBe(1);
+    expect(sig.rest_recency).toBe(0);
+    // Old keys are gone from the validated shape.
+    expect((sig as Record<string, unknown>).smart_money).toBeUndefined();
+  });
+
   it("omits the optional `reflection` field on numerical steps (key absent)", () => {
     const f = validateSurvivalJourney(buildRaw());
     for (const step of f.steps) {
@@ -327,8 +350,8 @@ describe("validateSurvivalJourney (rejection paths)", () => {
         string,
         unknown
       >
-    ).crowd_volume;
-    expect(() => validateSurvivalJourney(r)).toThrow(/signals\.crowd_volume/);
+    ).rest_recency;
+    expect(() => validateSurvivalJourney(r)).toThrow(/signals\.rest_recency/);
   });
 
   it("rejects a missing baseline key", () => {

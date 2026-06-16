@@ -35,29 +35,32 @@
  * server loader and any future client hydration.
  */
 
+import { normalizeSlotKeys } from "./slot_key_aliases";
+
 /* ------------------------------------------------------------------ */
 /* Slot / weight keys                                                  */
 /* ------------------------------------------------------------------ */
 
-/** The five engine-slot signal keys, in stable display order. Shared with the
- *  static-sweep fixture — same five tennis payloads (elo / CLOB momentum /
- *  surface / h2h / rest), repurposed onto the legacy engine-slot names. */
+/** The five fusion-slot signal keys, in stable display order. Shared with the
+ *  static-sweep fixture — the same five Sackmann/CLOB payloads (elo / CLOB
+ *  momentum / surface / h2h / rest), and (post-2026-06-16-rename) the keys are
+ *  named for those payloads. */
 export const SURVIVAL_SIGNAL_KEYS = [
   "tennis_technical",
   "market_momentum",
-  "smart_money",
-  "sentiment_llm",
-  "crowd_volume",
+  "surface_advantage",
+  "head_to_head",
+  "rest_recency",
 ] as const;
 export type SurvivalSignalKey = (typeof SURVIVAL_SIGNAL_KEYS)[number];
 
-/** Human-facing label per slot (reflects the repurposed payload, not the key). */
+/** Human-facing label per slot (the Sackmann/CLOB payload the slot carries). */
 export const SURVIVAL_SIGNAL_LABEL: Record<SurvivalSignalKey, string> = {
   tennis_technical: "ELO / Ranking",
   market_momentum: "CLOB Momentum",
-  smart_money: "Surface",
-  sentiment_llm: "Head-to-Head",
-  crowd_volume: "Rest / Recency",
+  surface_advantage: "Surface",
+  head_to_head: "Head-to-Head",
+  rest_recency: "Rest / Recency",
 };
 
 /** The eight fusion-weight keys carried at every learner step. Survival weights
@@ -357,7 +360,10 @@ function validateSignals(
   raw: unknown,
   where: string,
 ): Record<SurvivalSignalKey, number> {
-  const o = asObject(raw, where);
+  // Upgrade any legacy (pre-2026-06-16) slot keys before strict validation, so
+  // non-regenerable archived journeys still expose the renamed keys. Identity
+  // for already-new-key files ⇒ zero behavior change.
+  const o = normalizeSlotKeys(asObject(raw, where));
   const out = {} as Record<SurvivalSignalKey, number>;
   for (const k of SURVIVAL_SIGNAL_KEYS) {
     out[k] = asFinite(o[k], `${where}.${k}`);

@@ -21,33 +21,31 @@ import fixtureJson from "../public/backtest/static_sweep.json";
 
 export const STATIC_SWEEP_SCHEMA_VERSION = "0.1.0" as const;
 
-/** The 5 engine-slot keys, in stable display order.
+/** The 5 fusion-slot keys, in stable display order.
  *
- *  The slot keys name GENUINE engines (smart_money = on-chain smart-money WALLET
- *  alignment, sentiment_llm = Gemini LLM, crowd_volume = Reddit). In BACKTEST,
- *  however, the live signals don't exist for past matches, so
- *  agent/backtest/real_signal_source.py SUBSTITUTES a Sackmann/CLOB proxy into
- *  each slot (key unchanged, payload differs). The labels below reflect what THIS
- *  backtest fed each slot — NOT the engine's namesake: tennis_technical = ELO,
- *  market_momentum = CLOB momentum, smart_money = surface advantage,
- *  sentiment_llm = head-to-head, crowd_volume = rest/recency. */
+ *  The slot keys are named for the real Sackmann/CLOB payload the active signal
+ *  source (agent/backtest/real_signal_source.py) actually feeds each slot — used
+ *  by backtest, the 能学 demo, and prod: tennis_technical = ELO, market_momentum
+ *  = CLOB momentum, surface_advantage = surface edge, head_to_head = H2H,
+ *  rest_recency = rest/recency. The genuine wallet/LLM/Reddit engine modules
+ *  (agent/engines/{smart_money,sentiment_llm,crowd_volume}.py) are kept as future
+ *  edge-layer prototypes but are NOT what these slots carry. */
 export const SIGNAL_SLOT_KEYS = [
   "tennis_technical",
   "market_momentum",
-  "smart_money",
-  "sentiment_llm",
-  "crowd_volume",
+  "surface_advantage",
+  "head_to_head",
+  "rest_recency",
 ] as const;
 export type SignalSlotKey = (typeof SIGNAL_SLOT_KEYS)[number];
 
-/** Human-facing label per slot — the BACKTEST payload fed into the slot (a
- *  Sackmann/CLOB proxy), not the slot's namesake live engine. */
+/** Human-facing label per slot — the Sackmann/CLOB payload fed into the slot. */
 export const SIGNAL_SLOT_LABEL: Record<SignalSlotKey, string> = {
   tennis_technical: "ELO / Ranking",
   market_momentum: "CLOB Momentum",
-  smart_money: "Surface",
-  sentiment_llm: "Head-to-Head",
-  crowd_volume: "Rest / Recency",
+  surface_advantage: "Surface",
+  head_to_head: "Head-to-Head",
+  rest_recency: "Rest / Recency",
 };
 
 /** The fusion weights of a config. */

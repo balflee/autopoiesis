@@ -425,15 +425,14 @@ export default function MechanismPage(): JSX.Element {
                 ))}
               </ol>
               <Caveat>
-                The DecisionEngine keys three of these slots{" "}
-                <Hi>smart_money</Hi>, <Hi>sentiment_llm</Hi>,{" "}
-                <Hi>crowd_volume</Hi> — and those names are{" "}
-                <Hi>genuine engines</Hi> (on-chain wallet alignment, a Gemini LLM,
-                and Reddit volume) that run when wired to a live feed. In the{" "}
-                <Hi>backtest</Hi> you see here those live feeds don&apos;t exist
-                for past matches, so the signal source substitutes a tennis
-                feature into each slot — surface win-rate, head-to-head, and rest.
-                The labels above are what the backtest actually fuses.
+                The DecisionEngine names three of these slots{" "}
+                <Hi>surface_advantage</Hi>, <Hi>head_to_head</Hi>,{" "}
+                <Hi>rest_recency</Hi> — for the{" "}
+                <Hi>Sackmann tennis features</Hi> they actually carry (surface
+                win-rate, head-to-head, and rest). The genuine wallet / LLM /
+                Reddit engine modules of the same family are kept as future
+                edge-layer prototypes but do not feed these slots. The labels
+                above are what the backtest actually fuses.
               </Caveat>
             </SpineSection>
 

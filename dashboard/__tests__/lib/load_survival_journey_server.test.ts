@@ -47,9 +47,9 @@ function signals(): Record<string, number> {
   return {
     tennis_technical: 0.5,
     market_momentum: 0.1,
-    smart_money: -0.2,
-    sentiment_llm: 1,
-    crowd_volume: 0,
+    surface_advantage: -0.2,
+    head_to_head: 1,
+    rest_recency: 0,
   };
 }
 function market(id: string): Record<string, unknown> {

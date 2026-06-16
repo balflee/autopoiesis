@@ -60,9 +60,9 @@ function signals(): Record<string, number> {
   return {
     tennis_technical: 0.6,
     market_momentum: 0.1,
-    smart_money: -0.2,
-    sentiment_llm: 1,
-    crowd_volume: 0,
+    surface_advantage: -0.2,
+    head_to_head: 1,
+    rest_recency: 0,
   };
 }
 function market(id: string): Record<string, unknown> {
@@ -336,9 +336,9 @@ describe("SurvivalJourneyView — adapter → chart primitives smoke", () => {
     for (const k of [
       "tennis_technical",
       "market_momentum",
-      "smart_money",
-      "sentiment_llm",
-      "crowd_volume",
+      "surface_advantage",
+      "head_to_head",
+      "rest_recency",
     ]) {
       expect(within(card).getByTestId(`survival-signal-${k}`)).toBeInTheDocument();
     }

@@ -20,18 +20,18 @@ from __future__ import annotations
 import asyncio
 import math
 
+import numpy as np
 import pytest
 
 from agent.core.state import Phase, Weights
 from agent.engines.weight_updater import (
+    _LOOKAHEAD_FORBIDDEN_PREFIXES,  # type: ignore[attr-defined]
     DEFAULT_LEARNING_RATE,
     DESPERATE_LR_MULTIPLIER,
     WeightUpdater,
-    _LOOKAHEAD_FORBIDDEN_PREFIXES,  # type: ignore[attr-defined]
     _logit_from_simplex,  # type: ignore[attr-defined]
     _softmax,  # type: ignore[attr-defined]
 )
-import numpy as np
 
 
 def _phase1_weights() -> Weights:
@@ -50,7 +50,7 @@ def _strong_alpha_gradient() -> dict[str, float]:
     return {
         "tennis_technical_quality": 1.0,
         "market_momentum_quality": -1.0,
-        "smart_money_quality": -1.0,
+        "surface_advantage_quality": -1.0,
         "rho_quality": 0.5,
     }
 
@@ -130,7 +130,7 @@ def test_phase1_freezes_beta1_byte_identical_across_1000_updates() -> None:
 def test_phase1_freezes_w_r_w_s_byte_identical_across_1000_updates() -> None:
     """Brief: 'Phase 1 mode: weight_updater never modifies W_R/W_S'.
 
-    Sentient layer is degenerate when β₁=0 (only crowd_volume contributes),
+    Sentient layer is degenerate when β₁=0 (only rest_recency contributes),
     so training W_R/W_S would optimise against a one-dim signal — see
     delivery_report.md.
     """
@@ -197,7 +197,7 @@ def test_phase2_trains_all_six_parameters() -> None:
     w = initial
     features = {
         "tennis_technical_quality": 1.0,
-        "sentiment_llm_quality": 1.0,
+        "head_to_head_quality": 1.0,
         "rational_stream_quality": 1.0,
         "sentient_stream_quality": -1.0,
         "rho_quality": 0.5,

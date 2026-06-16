@@ -54,10 +54,10 @@ from agent.data.sandbox_state import (
 )
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 from agent.engines.reflection import SandboxReflectionRecord
@@ -76,9 +76,9 @@ from tests.agent.runtime.fixtures.mock_gamma_api import MockGammaAPI
 _SLOTS = (
     "tennis_technical",
     "market_momentum",
-    "smart_money",
-    "sentiment_llm",
-    "crowd_volume",
+    "surface_advantage",
+    "head_to_head",
+    "rest_recency",
 )
 
 
@@ -479,9 +479,9 @@ class _ScriptedTickInputs:
             for slot in (
                 TENNIS_TECHNICAL,
                 MARKET_MOMENTUM,
-                SMART_MONEY,
-                SENTIMENT_LLM,
-                CROWD_VOLUME,
+                SURFACE_ADVANTAGE,
+                HEAD_TO_HEAD,
+                REST_RECENCY,
             )
         }
         return TickInputs(

@@ -43,10 +43,10 @@ from agent.core.memory_bank import MemoryBank
 from agent.core.state import ActionKind, Phase
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 from agent.runtime import Phase2LaunchOrchestrator
@@ -145,7 +145,7 @@ def _build_signals(
             rationale=f"{n} fake signal",
             raw_features={"smoke": 1.0},
         )
-        for n in (TENNIS_TECHNICAL, MARKET_MOMENTUM, SMART_MONEY, SENTIMENT_LLM, CROWD_VOLUME)
+        for n in (TENNIS_TECHNICAL, MARKET_MOMENTUM, SURFACE_ADVANTAGE, HEAD_TO_HEAD, REST_RECENCY)
     }
 
 

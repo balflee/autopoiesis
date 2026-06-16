@@ -2,7 +2,7 @@
 
 Producer for ``dashboard_death_watch.v0.1.0.json`` (Track D consumer:
 ``dashboard/lib/wsEvents.ts``). Emits the four NEW kinds added on top
-of ``dashboard_ws_message.v0.3.0.json``:
+of ``dashboard_ws_message.v0.4.0.json``:
 
   * ``energy_threshold_crossed`` — fired when ``energy_pct`` crosses a
     configured threshold (10% = Death-Watch UI takeover trigger per

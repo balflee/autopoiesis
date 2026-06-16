@@ -204,9 +204,9 @@
       "signals": {
         "tennis_technical": 0.9961,
         "market_momentum": 0.1514,
-        "smart_money": 0.4,
-        "sentiment_llm": 1.0,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.4,
+        "head_to_head": 1.0,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.48,
@@ -224,9 +224,9 @@
       "signals": {
         "tennis_technical": 0.9726,
         "market_momentum": 0.1996,
-        "smart_money": 0.15,
-        "sentiment_llm": 1.0,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.15,
+        "head_to_head": 1.0,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.24,
@@ -244,9 +244,9 @@
       "signals": {
         "tennis_technical": 0.9994,
         "market_momentum": 0.3542,
-        "smart_money": 0.5,
-        "sentiment_llm": 1.0,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.5,
+        "head_to_head": 1.0,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.76,
@@ -264,9 +264,9 @@
       "signals": {
         "tennis_technical": -0.7644,
         "market_momentum": -0.0984,
-        "smart_money": -0.15,
-        "sentiment_llm": -1.0,
-        "crowd_volume": 0.0
+        "surface_advantage": -0.15,
+        "head_to_head": -1.0,
+        "rest_recency": 0.0
       },
       "side": "NO",
       "size": 4.31,
@@ -284,9 +284,9 @@
       "signals": {
         "tennis_technical": 0.9978,
         "market_momentum": 0.0609,
-        "smart_money": 0.1,
-        "sentiment_llm": 0.5,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.1,
+        "head_to_head": 0.5,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.06,
@@ -304,9 +304,9 @@
       "signals": {
         "tennis_technical": 0.9696,
         "market_momentum": 0.0236,
-        "smart_money": 0.15,
-        "sentiment_llm": 1.0,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.15,
+        "head_to_head": 1.0,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.89,
@@ -324,9 +324,9 @@
       "signals": {
         "tennis_technical": 0.8908,
         "market_momentum": 0.0249,
-        "smart_money": 0.2,
-        "sentiment_llm": 0.4286,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.2,
+        "head_to_head": 0.4286,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.57,
@@ -344,9 +344,9 @@
       "signals": {
         "tennis_technical": 0.9992,
         "market_momentum": 0.3189,
-        "smart_money": 0.25,
-        "sentiment_llm": 1.0,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.25,
+        "head_to_head": 1.0,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.28,
@@ -364,9 +364,9 @@
       "signals": {
         "tennis_technical": -0.9845,
         "market_momentum": -0.1481,
-        "smart_money": 0.05,
-        "sentiment_llm": -0.6,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.05,
+        "head_to_head": -0.6,
+        "rest_recency": 0.0
       },
       "side": "NO",
       "size": 4.84,
@@ -384,9 +384,9 @@
       "signals": {
         "tennis_technical": 0.6884,
         "market_momentum": 0.0191,
-        "smart_money": 0.25,
-        "sentiment_llm": 0.6667,
-        "crowd_volume": 0.0
+        "surface_advantage": 0.25,
+        "head_to_head": 0.6667,
+        "rest_recency": 0.0
       },
       "side": "YES",
       "size": 4.11,
@@ -404,9 +404,9 @@
       "signals": {
         "tennis_technical": -0.9893,
         "market_momentum": -0.3217,
-        "smart_money": -0.6333,
-        "sentiment_llm": 0.0,
-        "crowd_volume": -0.9453
+        "surface_advantage": -0.6333,
+        "head_to_head": 0.0,
+        "rest_recency": -0.9453
       },
       "side": "NO",
       "size": 5.0,
@@ -424,9 +424,9 @@
       "signals": {
         "tennis_technical": 0.8476,
         "market_momentum": 0.018,
-        "smart_money": 0.7,
-        "sentiment_llm": 0.0,
-        "crowd_volume": 1.0
+        "surface_advantage": 0.7,
+        "head_to_head": 0.0,
+        "rest_recency": 1.0
       },
       "side": "YES",
       "size": 4.45,

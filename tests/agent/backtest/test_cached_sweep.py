@@ -23,10 +23,10 @@ from agent.backtest.tennis_match_resolver import TennisMatchResolver, build_name
 from agent.core.state import Weights
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 
@@ -197,8 +197,8 @@ def test_precompute_rows_builds_one_resolvable_row() -> None:
     assert row.slug == snap.slug
     # All 5 slots populated in both score + confidence maps.
     expected_slots = {
-        "tennis_technical", "market_momentum", "smart_money",
-        "sentiment_llm", "crowd_volume",
+        "tennis_technical", "market_momentum", "surface_advantage",
+        "head_to_head", "rest_recency",
     }
     assert set(row.scores) == expected_slots
     assert set(row.confidences) == expected_slots
@@ -262,9 +262,9 @@ def test_precompute_rows_mixed_batch_keeps_only_scorable() -> None:
 _ALL_SLOTS = (
     TENNIS_TECHNICAL,
     MARKET_MOMENTUM,
-    SMART_MONEY,
-    SENTIMENT_LLM,
-    CROWD_VOLUME,
+    SURFACE_ADVANTAGE,
+    HEAD_TO_HEAD,
+    REST_RECENCY,
 )
 
 

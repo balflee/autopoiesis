@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent.core.state import Phase
+from agent.engines.slot_aliases import alias_slot
 from agent.engines.weight_updater import WeightUpdater
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,23 @@ _PHASE_MAP: dict[str, Phase] = {
 }
 
 _SCORE_PREFIX = "score_"
+
+
+def _unflatten_scores(signals: dict[str, float]) -> dict[str, float]:
+    """Strip the ``score_`` prefix off per-engine keys and upgrade any legacy
+    slot name to its post-rename key (:func:`alias_slot`).
+
+    In-flight ``open_bets.jsonl`` BetRecords written before the 2026-06-16 slot
+    rename carry ``score_smart_money`` etc.; without the alias the renamed
+    weight_updater would ``.get(new_key, 0.0)`` and silently zero that engine's
+    settlement credit. ``alias_slot`` is the identity for already-new keys, so
+    this is a zero-behavior-change normalization for fresh data.
+    """
+    return {
+        alias_slot(k[len(_SCORE_PREFIX) :]): v
+        for k, v in signals.items()
+        if k.startswith(_SCORE_PREFIX)
+    }
 
 
 @dataclass
@@ -75,11 +93,7 @@ class _SettlementLearningWeightUpdater:
         # signals is a FLAT dict[str, float]: pnl_usd / size_usd +
         # "score_<engine>" per-engine keys + "bet_direction" (+1 YES / -1 NO),
         # all flattened by the poller from the due open BetRecord.
-        scores = {
-            k[len(_SCORE_PREFIX) :]: v
-            for k, v in signals.items()
-            if k.startswith(_SCORE_PREFIX)
-        }
+        scores = _unflatten_scores(signals)
         # bet_direction is REQUIRED — do NOT silently default to YES (+1),
         # which would invert learning for NO bets. Skip + warn if absent.
         if "bet_direction" not in signals:
@@ -101,4 +115,4 @@ class _SettlementLearningWeightUpdater:
         self.weights_holder._weights = new_weights
 
 
-__all__ = ["_SettlementLearningWeightUpdater"]
+__all__ = ["_SettlementLearningWeightUpdater", "_unflatten_scores"]

@@ -42,9 +42,9 @@ const SIGNAL_ENGINE_LABELS: ReadonlyArray<
 > = [
   ["tennis_technical", "ELO / Ranking"],
   ["market_momentum", "CLOB Momentum"],
-  ["smart_money", "Surface"],
-  ["sentiment_llm", "Head-to-Head"],
-  ["crowd_volume", "Rest / Recency"],
+  ["surface_advantage", "Surface"],
+  ["head_to_head", "Head-to-Head"],
+  ["rest_recency", "Rest / Recency"],
 ];
 
 export function DecisionFeed({

@@ -14,12 +14,12 @@ import { DEATH_WATCH_KINDS, DEATH_WATCH_CONTRACT_VERSION } from "../../lib/wsEve
 /**
  * Verifies the TypeScript mirror in wsContract.ts + types.ts + wsEvents.ts
  * has not drifted from the two canonical wire schemas:
- *   - .dev/contracts/dashboard_ws_message.v0.3.0.json (12 main kinds)
+ *   - .dev/contracts/dashboard_ws_message.v0.4.0.json (12 main kinds)
  *   - .dev/contracts/dashboard_death_watch.v0.1.0.json (4 death-watch kinds)
  *
  * Acceptance criterion (T-D-003): "WS contract types in
  * dashboard/lib/wsContract.ts byte-identical to backend Pydantic
- * models — diff check against .dev/contracts/dashboard_ws_message.v0.3.0.json"
+ * models — diff check against .dev/contracts/dashboard_ws_message.v0.4.0.json"
  *
  * Acceptance criterion (T-D-004): the death-watch type guards in
  * wsEvents.ts mirror the four kinds in dashboard_death_watch.v0.1.0.json.
@@ -50,7 +50,7 @@ describe("wsContract drift check vs .dev/contracts schemas", () => {
     // __dirname → dashboard/__tests__/lib ; up 3 = worktree root.
     const schemaPath = resolve(
       __dirname,
-      "../../../.dev/contracts/dashboard_ws_message.v0.3.0.json",
+      "../../../.dev/contracts/dashboard_ws_message.v0.4.0.json",
     );
     const raw = readFileSync(schemaPath, "utf8");
     const schema = JSON.parse(raw) as { version: string };
@@ -76,7 +76,7 @@ describe("wsContract drift check vs .dev/contracts schemas", () => {
   it("types.ts KNOWN_KINDS = v0.2.0 main kinds ∪ death_watch kinds", () => {
     const mainPath = resolve(
       __dirname,
-      "../../../.dev/contracts/dashboard_ws_message.v0.3.0.json",
+      "../../../.dev/contracts/dashboard_ws_message.v0.4.0.json",
     );
     const deathPath = resolve(
       __dirname,

@@ -65,10 +65,10 @@ from agent.core.memory_bank import MemoryBank
 from agent.core.state import Action, ActionKind, Phase, Side, Weights
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
     DecisionEngine,
     _fuse_signals,  # TODO(track-b): promote to public API alongside FusionResult
@@ -312,7 +312,7 @@ def _signals_from_market(
     # Other engines get smaller, neutral-ish reads so the dry-run
     # produces a mix of BET / NO_BET across the tick window.
     other_score = 0.05 * ((tick % 3) - 1)  # cycles -0.05, 0, +0.05
-    sentiment_score = 0.1 * ((tick % 2) - 0.5) * 2.0
+    h2h_score = 0.1 * ((tick % 2) - 0.5) * 2.0
 
     return {
         TENNIS_TECHNICAL: Signal(
@@ -329,25 +329,25 @@ def _signals_from_market(
             rationale="orderbook drift placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
-        SMART_MONEY: Signal(
+        SURFACE_ADVANTAGE: Signal(
             score=other_score * 0.5,
             confidence=0.35,
             available_at=asof_iso,
-            rationale="wallet_basket placeholder (no live feed in dry-run)",
+            rationale="surface-edge placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
-        SENTIMENT_LLM: Signal(
-            score=sentiment_score,
+        HEAD_TO_HEAD: Signal(
+            score=h2h_score,
             confidence=0.3,
             available_at=asof_iso,
-            rationale="reddit sentiment placeholder (no live LLM call in dry-run)",
+            rationale="head-to-head placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
-        CROWD_VOLUME: Signal(
+        REST_RECENCY: Signal(
             score=-other_score,
             confidence=0.4,
             available_at=asof_iso,
-            rationale="reddit volume z-score placeholder",
+            rationale="rest/recency placeholder (no live feed in dry-run)",
             raw_features={"tick_phase": float(tick)},
         ),
     }

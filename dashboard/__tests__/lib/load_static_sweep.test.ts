@@ -159,8 +159,8 @@ describe("validateFixture rejection paths", () => {
     const bets = f.sample_bets as Record<string, unknown>[];
     delete (
       (bets[0] as Record<string, unknown>).signals as Record<string, unknown>
-    ).crowd_volume;
-    expect(() => validateFixture(f)).toThrow(/signals\.crowd_volume/);
+    ).rest_recency;
+    expect(() => validateFixture(f)).toThrow(/signals\.rest_recency/);
   });
 
   it("rejects a non-2-element players tuple", () => {
@@ -188,9 +188,9 @@ describe("helpers", () => {
     signals: {
       tennis_technical: 0.1,
       market_momentum: 0.1,
-      smart_money: 0.1,
-      sentiment_llm: 0.1,
-      crowd_volume: 0.1,
+      surface_advantage: 0.1,
+      head_to_head: 0.1,
+      rest_recency: 0.1,
     },
     side: "YES",
     size: 4,

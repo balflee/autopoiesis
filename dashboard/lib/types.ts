@@ -3,7 +3,7 @@
  *
  * Track B is the PRODUCER (agent runtime emits frames over the WS
  * bridge); Track D consumes them. The wire schema mirror lives at
- * `.dev/contracts/dashboard_ws_message.v0.3.0.json` and is what the
+ * `.dev/contracts/dashboard_ws_message.v0.4.0.json` and is what the
  * registry checks during interface_contract_gate.
  *
  * v0.3.0 (F0) — field-additive MINOR bump from v0.2.0:
@@ -67,16 +67,16 @@ export interface WeightsPayload {
 }
 
 /**
- * v0.3.0 — the 5 LOWERCASE persisted engine names that may key a
+ * v0.4.0 — the 5 LOWERCASE persisted slot keys that may key a
  * `signals` map (mirrors $defs.*.signals.propertyNames in the wire
  * schema). NOT the uppercase display constants, NOT 5 fixed scalars.
  */
 export type SignalEngineKey =
   | "tennis_technical"
   | "market_momentum"
-  | "smart_money"
-  | "sentiment_llm"
-  | "crowd_volume";
+  | "surface_advantage"
+  | "head_to_head"
+  | "rest_recency";
 
 /** v0.3.0 — decision-time per-engine score map (`{engine_name: score}`). */
 export type EngineSignalMap = Partial<Record<SignalEngineKey, number>>;

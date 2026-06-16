@@ -717,7 +717,7 @@ def test_signal_scores_persisted_on_status_flip_record(
 ) -> None:
     """The settled status-flip BetRecord copies the open row's signal_scores
     verbatim (append-only — the open row is never mutated)."""
-    scores = {"tennis_technical": 0.5, "smart_money": -0.3}
+    scores = {"tennis_technical": 0.5, "surface_advantage": -0.3}
     _seed_bet(
         writer,
         expected_settle_ts="2026-05-26T18:00:00+00:00",

@@ -46,9 +46,9 @@ _ENGINES = (*RATIONAL_ENGINES, *SENTIENT_ENGINES)
 _ENGINE_DESC = {
     "tennis_technical": "pre-match technical read (elo/surface/h2h-class)",
     "market_momentum": "intraday CLOB price drift",
-    "smart_money": "informed wallet flow",
-    "sentiment_llm": "news/sentiment lean",
-    "crowd_volume": "crowd volume pressure",
+    "surface_advantage": "Sackmann surface-specific edge",
+    "head_to_head": "Sackmann head-to-head record",
+    "rest_recency": "Sackmann rest / recent-form signal",
 }
 
 _PRED_SCHEMA: dict[str, Any] = {

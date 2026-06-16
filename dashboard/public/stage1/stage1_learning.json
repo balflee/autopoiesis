@@ -241,7 +241,7 @@
   },
   "weight_trajectory": {
     "edge_slot_label": "edge slot \u03b1\u2082 (market_momentum key) \u2014 where the hidden edge lives",
-    "noise_slot_label": "over-trusted slot \u03b1\u2083 (smart_money key)",
+    "noise_slot_label": "over-trusted slot \u03b1\u2083 (surface_advantage key)",
     "incarnations": [
       0,
       1,

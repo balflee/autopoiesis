@@ -489,7 +489,7 @@ export default function BacktestRoute(): JSX.Element {
     {
       id: "alpha_3",
       label: "α₃",
-      sub: SIGNAL_SLOT_LABEL.smart_money,
+      sub: SIGNAL_SLOT_LABEL.surface_advantage,
       value: w.alpha[2],
       display: num(w.alpha[2]),
       accent: false,
@@ -497,7 +497,7 @@ export default function BacktestRoute(): JSX.Element {
     {
       id: "beta_1",
       label: "β₁",
-      sub: SIGNAL_SLOT_LABEL.sentiment_llm,
+      sub: SIGNAL_SLOT_LABEL.head_to_head,
       value: w.beta[0],
       display: num(w.beta[0]),
       accent: false,
@@ -505,7 +505,7 @@ export default function BacktestRoute(): JSX.Element {
     {
       id: "beta_2",
       label: "β₂",
-      sub: SIGNAL_SLOT_LABEL.crowd_volume,
+      sub: SIGNAL_SLOT_LABEL.rest_recency,
       value: w.beta[1],
       display: num(w.beta[1]),
       accent: false,
@@ -600,16 +600,15 @@ export default function BacktestRoute(): JSX.Element {
                   backtest slot substitution
                 </p>
                 <p className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--ab-dim)]">
-                  The slot keys name <span className="text-[var(--ab-text)]">genuine
-                  engines</span> (smart_money = on-chain wallets, sentiment_llm =
-                  Gemini, crowd_volume = Reddit). In backtest those live signals
-                  don&apos;t exist for past matches, so each slot is fed a
-                  Sackmann/CLOB proxy:{" "}
+                  The five slot keys are <span className="text-[var(--ab-text)]">named
+                  for the Sackmann/CLOB payload</span> each one carries:{" "}
                   <span className="text-[var(--ab-text)]">elo</span>,{" "}
                   <span className="text-[var(--ab-text)]">CLOB momentum</span>,{" "}
                   <span className="text-[var(--ab-text)]">surface</span>,{" "}
                   <span className="text-[var(--ab-text)]">head-to-head</span>, and{" "}
                   <span className="text-[var(--ab-text)]">rest / recency</span>. The
+                  genuine wallet / LLM / Reddit engine modules are kept as future
+                  edge-layer prototypes but are not what these slots feed. The
                   α-simplex weights the first three; the β-pair weights the last two.
                 </p>
               </div>

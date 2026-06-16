@@ -23,12 +23,12 @@ import pytest
 from agent.core.state import ActionKind, Side
 from agent.engines.base import EngineSignal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
     NO_BET_NO_EDGE,
     NO_BET_PRICE_FLOOR,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
     DecisionEngine,
     _value_kelly_fraction,
@@ -49,9 +49,9 @@ def _uniform_signals(score: float, confidence: float = 0.8) -> Mapping[str, Engi
     return {
         TENNIS_TECHNICAL: _sig(score, confidence),
         MARKET_MOMENTUM: _sig(score, confidence),
-        SMART_MONEY: _sig(score, confidence),
-        SENTIMENT_LLM: _sig(score, confidence),
-        CROWD_VOLUME: _sig(score, confidence),
+        SURFACE_ADVANTAGE: _sig(score, confidence),
+        HEAD_TO_HEAD: _sig(score, confidence),
+        REST_RECENCY: _sig(score, confidence),
     }
 
 

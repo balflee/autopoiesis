@@ -1,10 +1,11 @@
 /**
  * wsContract.ts — Track-D-canonical TypeScript mirror of the
- * `dashboard_ws_message.v0.3.0.json` wire schema.
+ * `dashboard_ws_message.v0.4.0.json` wire schema.
  *
- * v0.3.0 (F0) is a field-additive MINOR bump over v0.2.0: it adds three
- * OPTIONAL fields — `market_id`, `bet_id`, `signals` — to BOTH the
- * decision payload and the decision_feed entry. No new kinds.
+ * v0.4.0 (F1) is a BREAKING bump over v0.3.0: it renames 3 of the 5
+ * `signals` enum keys to the Sackmann/CLOB payloads they carry
+ * (smart_money→surface_advantage, sentiment_llm→head_to_head,
+ * crowd_volume→rest_recency). No new kinds; no shape change otherwise.
  *
  * This file is a **pure type declaration module**; it has no runtime
  * footprint other than the `WS_CONTRACT_VERSION` constant and the
@@ -37,19 +38,19 @@ import type {
 } from "./types";
 
 /** Canonical version string consumed by the interface registry. */
-export const WS_CONTRACT_VERSION = "0.3.0" as const;
+export const WS_CONTRACT_VERSION = "0.4.0" as const;
 
 /**
- * v0.3.0 — the 5 LOWERCASE persisted engine names that key a `signals`
+ * v0.4.0 — the 5 LOWERCASE persisted slot keys that key a `signals`
  * map (mirrors $defs.*.signals.propertyNames in the wire schema). NOT
  * the uppercase display constants, NOT 5 fixed scalars.
  */
 export const SIGNAL_ENGINE_KEYS = [
   "tennis_technical",
   "market_momentum",
-  "smart_money",
-  "sentiment_llm",
-  "crowd_volume",
+  "surface_advantage",
+  "head_to_head",
+  "rest_recency",
 ] as const;
 
 export type SignalEngineKey = (typeof SIGNAL_ENGINE_KEYS)[number];

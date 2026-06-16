@@ -489,7 +489,7 @@ def _per_engine_quality_features(
         _QUALITY_KEYS_RATIONAL[0]: err * w_r * tt_sc,
         _QUALITY_KEYS_RATIONAL[1]: err * w_r * mm_sc,
         _QUALITY_KEYS_RATIONAL[2]: err * w_r * sm_sc,
-        _QUALITY_KEYS_SENTIENT[0]: 0.0,  # sentiment_llm frozen β₁=0
+        _QUALITY_KEYS_SENTIENT[0]: 0.0,  # head_to_head (β₁) frozen β₁=0
         _QUALITY_KEYS_SENTIENT[1]: err * w_s * cv_sc,
         "rational_stream_quality": err * rational_contrib,
         "sentient_stream_quality": err * sentient_contrib,

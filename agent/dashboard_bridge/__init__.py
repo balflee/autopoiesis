@@ -3,11 +3,11 @@
 This package owns the Pydantic models + emitters that produce frames
 conforming to:
 
-* ``.dev/contracts/dashboard_ws_message.v0.3.0.json`` — the 12-kind
+* ``.dev/contracts/dashboard_ws_message.v0.4.0.json`` — the 12-kind
   main wire schema (vitals, thought, decision, reflection, weights, etc.).
-  v0.3.0 (F0) is a field-additive MINOR bump: ``market_id`` / ``bet_id``
-  / ``signals`` on the ``decision`` payload + ``decision_feed`` entry.
-  Producer: :class:`WsEventEmitter` (T-B-008).
+  v0.4.0 (F1) is a BREAKING bump: renames 3 of the 5 ``signals`` enum keys
+  (smart_money->surface_advantage, sentiment_llm->head_to_head,
+  crowd_volume->rest_recency). Producer: :class:`WsEventEmitter` (T-B-008).
 * ``.dev/contracts/dashboard_death_watch.v0.1.0.json`` — the four Demo
   §9 climax death events (energy_threshold_crossed,
   terminal_lucidity_entered, last_words_emitted, tombstone_minted).

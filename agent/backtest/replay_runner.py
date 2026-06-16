@@ -95,13 +95,13 @@ from agent.data.sandbox_state import (
 )
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
     DEFAULT_MAX_BREATH_RISK_PCT,
     DEFAULT_MIN_BET_SIZE_USD,
     DEFAULT_MIN_CONFIDENCE,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
     DecisionEngine,
 )
@@ -167,9 +167,9 @@ in ONE place rather than at every aggregation call site.
 _ALL_ENGINES: Final[tuple[str, ...]] = (
     TENNIS_TECHNICAL,
     MARKET_MOMENTUM,
-    SMART_MONEY,
-    SENTIMENT_LLM,
-    CROWD_VOLUME,
+    SURFACE_ADVANTAGE,
+    HEAD_TO_HEAD,
+    REST_RECENCY,
 )
 
 

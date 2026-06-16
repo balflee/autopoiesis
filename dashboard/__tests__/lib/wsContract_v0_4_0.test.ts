@@ -12,33 +12,32 @@ import type {
 import { isWsMessage } from "../../lib/types";
 
 /**
- * F0 lockstep — verifies the TS mirrors (wsContract.ts + types.ts) carry
- * the v0.3.0 additive fields (market_id / bet_id / signals on BOTH the
- * decision payload and the decision_feed entry) and stay in sync with
- * .dev/contracts/dashboard_ws_message.v0.3.0.json.
- *
- * The three new fields are OPTIONAL, so every v0.2.0-shaped object still
- * type-checks; this suite asserts the new fields are ACCEPTED (compile-
- * time) and that the runtime isWsMessage guard is unaffected (additive
- * fields don't change the discriminant set).
+ * F1 lockstep — verifies the TS mirrors (wsContract.ts + types.ts) carry
+ * the v0.4.0 `signals` enum keys (the 2026-06-16 rename of 3 slot keys to
+ * the Sackmann/CLOB payloads they carry) and stay in sync with
+ * .dev/contracts/dashboard_ws_message.v0.4.0.json. The market_id / bet_id /
+ * signals fields stay OPTIONAL, so every v0.2.0-shaped object still
+ * type-checks; this suite asserts the fields are ACCEPTED (compile-time)
+ * and that the runtime isWsMessage guard is unaffected (the rename does not
+ * change the discriminant set).
  */
 
 const SCHEMA_PATH = resolve(
   __dirname,
-  "../../../.dev/contracts/dashboard_ws_message.v0.3.0.json",
+  "../../../.dev/contracts/dashboard_ws_message.v0.4.0.json",
 );
 
 const ENGINE_KEYS = [
   "tennis_technical",
   "market_momentum",
-  "smart_money",
-  "sentiment_llm",
-  "crowd_volume",
+  "surface_advantage",
+  "head_to_head",
+  "rest_recency",
 ] as const;
 
-describe("wsContract v0.3.0 additive fields", () => {
-  it("WS_CONTRACT_VERSION is bumped to 0.3.0", () => {
-    expect(WS_CONTRACT_VERSION).toBe("0.3.0");
+describe("wsContract v0.4.0 signals enum + additive fields", () => {
+  it("WS_CONTRACT_VERSION is bumped to 0.4.0", () => {
+    expect(WS_CONTRACT_VERSION).toBe("0.4.0");
   });
 
   it("schema file version matches the TS contract version constant", () => {
@@ -90,10 +89,10 @@ describe("wsContract v0.3.0 additive fields", () => {
       action: "BET",
       market_id: "0xmarket",
       bet_id: "uuid-abc",
-      signals: { smart_money: 0.9 },
+      signals: { surface_advantage: 0.9 },
     };
     expect(entry.bet_id).toBe("uuid-abc");
-    expect(entry.signals?.smart_money).toBe(0.9);
+    expect(entry.signals?.surface_advantage).toBe(0.9);
   });
 
   it("isWsMessage still guards a decision frame carrying the new fields", () => {

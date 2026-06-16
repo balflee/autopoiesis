@@ -56,10 +56,10 @@ from agent.data.sandbox_state import (
 from agent.engines._strategy_proposal_schema import StrategyProposal
 from agent.engines.base import Signal
 from agent.engines.decision import (
-    CROWD_VOLUME,
+    HEAD_TO_HEAD,
     MARKET_MOMENTUM,
-    SENTIMENT_LLM,
-    SMART_MONEY,
+    REST_RECENCY,
+    SURFACE_ADVANTAGE,
     TENNIS_TECHNICAL,
 )
 from agent.engines.strategy_advisor import (
@@ -80,7 +80,6 @@ from agent.runtime.sandbox_phase2_loop import (
     WeightUpdaterPhase,
 )
 from tests.agent.runtime.fixtures.mock_gamma_api import MockGammaAPI
-
 
 # --------------------------------------------------------------------------- #
 # Shared fakes (locally copied from test_sandbox_restart so this module
@@ -198,19 +197,19 @@ class _ScriptedTickInputs:
                 rationale="momentum agrees",
                 raw_features={"tick": float(tick)},
             ),
-            SMART_MONEY: Signal(
+            SURFACE_ADVANTAGE: Signal(
                 score=0.7, confidence=0.85, available_at=iso,
-                rationale="wallets favour YES",
+                rationale="surface edge favours YES",
                 raw_features={"tick": float(tick)},
             ),
-            SENTIMENT_LLM: Signal(
+            HEAD_TO_HEAD: Signal(
                 score=0.6, confidence=0.8, available_at=iso,
-                rationale="sentiment positive",
+                rationale="head-to-head favours YES",
                 raw_features={"tick": float(tick)},
             ),
-            CROWD_VOLUME: Signal(
+            REST_RECENCY: Signal(
                 score=0.6, confidence=0.85, available_at=iso,
-                rationale="crowd volume rising sharply",
+                rationale="rest/recency favours YES",
                 raw_features={"tick": float(tick)},
             ),
         }

@@ -36,6 +36,7 @@ from agent.backtest.tennis_match_resolver import TennisMatchResolver
 from agent.core.state import ActionKind
 from agent.engines.base import Signal
 from agent.engines.decision import DecisionEngine
+from agent.engines.slot_aliases import alias_slot
 
 # At $100 bankroll the per-bet sizer caps at $5 (NORMAL_BET_SIZE_CAP=0.05), so a
 # config whose ``min_bet_size_usd`` >= $5 can never place a bet — every BET is
@@ -500,9 +501,27 @@ def save_rows(rows: list[SignalRow], path: Path) -> None:
 
 
 def load_rows(path: Path) -> list[SignalRow]:
-    """Load the JSON array written by :func:`save_rows` back into rows."""
+    """Load the JSON array written by :func:`save_rows` back into rows.
+
+    ``scores``/``confidences`` keys are normalized through :func:`alias_slot`, so
+    a ``_signal_rows.json`` written before the 2026-06-16 slot rename (carrying
+    ``smart_money``/``sentiment_llm``/``crowd_volume``) loads with the NEW slot
+    keys. Without this, ``row_to_signals`` over the renamed ``decision.py`` slots
+    would KeyError / route every row to NO_BET and collapse every regenerated
+    sweep. ``alias_slot`` is the identity for already-new keys (zero change for
+    freshly-precomputed rows).
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
-    return [SignalRow(**item) for item in payload]
+    rows: list[SignalRow] = []
+    for item in payload:
+        if item.get("scores"):
+            item["scores"] = {alias_slot(k): v for k, v in item["scores"].items()}
+        if item.get("confidences"):
+            item["confidences"] = {
+                alias_slot(k): v for k, v in item["confidences"].items()
+            }
+        rows.append(SignalRow(**item))
+    return rows
 
 
 def run_cached_sweep(

@@ -106,16 +106,16 @@ FRONTIER: list[dict[str, Any]] = [
     {"rank": 10, "sharpe": 0.396, "net_pnl": 3517, "win_rate": 0.753, "bets": 697, "w_r": 0.02, "alpha": [0.72, 0.05, 0.23], "rho": 0.56, "max_breath_risk_pct": 0.41, "min_bet_size_usd": 4.0},
 ]
 
-# The 5 engine-slot keys, in stable display order. Slot KEYS carry repurposed
-# payloads (see the "Slot-name repurpose" caveat in real_signal_sweep.md):
+# The 5 fusion-slot keys, in stable display order. The keys are named for the
+# real Sackmann/CLOB payload each carries (2026-06-16 rename):
 #   tennis_technical = elo, market_momentum = CLOB momentum,
-#   smart_money = surface, sentiment_llm = h2h, crowd_volume = rest.
+#   surface_advantage = surface, head_to_head = h2h, rest_recency = rest.
 SLOT_KEYS = (
     "tennis_technical",
     "market_momentum",
-    "smart_money",
-    "sentiment_llm",
-    "crowd_volume",
+    "surface_advantage",
+    "head_to_head",
+    "rest_recency",
 )
 
 # How many sample bets to surface in the table.

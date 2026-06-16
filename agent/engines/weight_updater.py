@@ -73,6 +73,7 @@ from typing import Final
 import numpy as np
 
 from agent.core.state import Phase, Weights
+from agent.engines.decision import RATIONAL_ENGINES, SENTIENT_ENGINES
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -168,20 +169,14 @@ class WeightDelta:
     w_l1: float
     rho_delta: float
 
-# Engine names that index alpha[0..2] / beta[0..1] respectively. Must
-# match agent.engines.decision.RATIONAL_ENGINES / SENTIENT_ENGINES.
-# Re-imported here would create a cycle — keep the tuple local but
-# referenced in tests. Sprint_7 sport pivot: α[0] is the tennis
-# technical engine (was nba_technical pre-pivot).
-_ALPHA_ENGINES: Final[tuple[str, str, str]] = (
-    "tennis_technical",
-    "market_momentum",
-    "smart_money",
-)
-_BETA_ENGINES: Final[tuple[str, str]] = (
-    "sentiment_llm",
-    "crowd_volume",
-)
+# Engine names that index alpha[0..2] / beta[0..1] respectively. decision.py is
+# the import-safe single source of truth (it imports only agent.core.state +
+# agent.engines.base, neither of which imports back here — no cycle), so we
+# DERIVE rather than re-hardcode: a slot rename then touches one definition site.
+# Sprint_7 sport pivot: α[0] is the tennis technical engine (was nba_technical
+# pre-pivot). Parity is locked by tests/agent/engines/test_engine_slot_parity.py.
+_ALPHA_ENGINES = RATIONAL_ENGINES
+_BETA_ENGINES = SENTIENT_ENGINES
 
 
 def _assert_no_lookahead_keys(features: dict[str, float]) -> None:
@@ -391,8 +386,8 @@ class WeightUpdater:
         ``w_r / w_s`` only train when the gradient layer sees
         ``rational_stream_quality`` / ``sentient_stream_quality``. We
         aggregate the rational group (``tennis_technical`` +
-        ``market_momentum`` + ``smart_money``) and the sentient group
-        (``sentiment_llm`` + ``crowd_volume``) into those two keys.
+        ``market_momentum`` + ``surface_advantage``) and the sentient group
+        (``head_to_head`` + ``rest_recency``) into those two keys.
 
         Honors the phase freeze list + ``desperate`` LR exactly like
         :meth:`update` (delegates to it).

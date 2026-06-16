@@ -70,7 +70,7 @@ def main() -> None:
         # over-trusted noise slot, until it crosses the survival threshold.
         "weight_trajectory": {
             "edge_slot_label": "edge slot α₂ (market_momentum key) — where the hidden edge lives",
-            "noise_slot_label": "over-trusted slot α₃ (smart_money key)",
+            "noise_slot_label": "over-trusted slot α₃ (surface_advantage key)",
             "incarnations": [0, 1, 2, 3, 4, 5],
             "edge_weight": [0.070, 0.082, 0.095, 0.140, 0.191, 0.265],
             "noise_weight": [0.752, 0.709, 0.674, 0.608, 0.572, 0.533],

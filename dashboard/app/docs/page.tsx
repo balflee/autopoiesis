@@ -545,6 +545,23 @@ export default function DocsPage(): JSX.Element {
                   >
                     /reincarnation
                   </Link>
+                  . The latest milestone — <Hi>Stage 1</Hi>&apos;s calibrated
+                  economy (loss ×1.2 / fragile 0.15 / breath 70) and the
+                  controlled three-arm{" "}
+                  <Hi>能学 (self-evolution) demo</Hi> (frozen{" "}
+                  <Glow>0%</Glow> vs EMA <Glow>100%</Glow> vs MiniMax{" "}
+                  <Glow>80%</Glow> survival, on a synthetic injected edge) — is
+                  specified canonically in{" "}
+                  <Ext href="https://github.com/balflee/autopoiesis/blob/main/docs/divinity-mechanism-spec.md">
+                    divinity-mechanism-spec.md ↗
+                  </Ext>{" "}
+                  and shown on{" "}
+                  <Link
+                    href="/survival"
+                    className="text-[var(--ab-glow)] underline decoration-[var(--ab-glow)]/40 underline-offset-2"
+                  >
+                    /survival
+                  </Link>
                   .
                 </Caveat>
               </Panel>

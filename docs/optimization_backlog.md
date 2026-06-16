@@ -379,8 +379,22 @@ G1/G2 的所有 null**（无涌现、γ 游走、深度没复现）：**没有 e
 - E4 · Phase A/B/C 深层自治（breath 进感知特征、进化选择/谱系淘汰）— 早期讨论，
   A1/A2 是其落地切片。
 
----
+## F. 工程债 / 命名
 
-## 当前进行中（非 backlog）
+### F1 · 5 个引擎槽 key 改名至实归（清理 NBA 旧名）— `PROPOSED`（用户 2026-06-16 提出）
+- **动机**：`decision.py` 的 5 个融合槽 key 是 NBA 时代旧名，**payload 早已重映射成网球信号**
+  （`real_signal_source.py` 顶部 "Slot repurpose" 文档），名实不符、读文档/对外口径易误导
+  （用户 2026-06-16 正确质疑"为什么有 smart_money 这个参数"）。当前真实映射：
+  `market_momentum`=CLOB 价格漂移(唯一活信号)、`tennis_technical`=ELO 差、
+  **`smart_money`=场地优势 surface advantage**、`sentiment_llm`=交手记录 H2H、
+  `crowd_volume`=休息/近况 rest/recency。（D1 也早埋过一句"`smart_money` 槽位名至实归"。）
+- **改什么**：把 5 个 dict key 改成实义名（如 `smart_money`→`surface_advantage`、
+  `sentiment_llm`→`head_to_head`、`crowd_volume`→`rest_recency`），全仓库寻址点同步。
+- **前置/成本**：中。寻址点广——`value_seed_v3.json` 种子、advisor 提示词/schema
+  (`_strategy_prompts.py`/`strategy_advisor_impl.py`)、`weight_updater`、各引擎模块、
+  dashboard、合成世界/demo（`synthetic_edge.py`/`run_learning_demo.py`）。需一次性改全 + 回归。
+- **风险/诚实**：纯重命名**零行为变化**，但漏改一处寻址即静默错配；建议配一个
+  "旧名→新名"映射 + 全量测试护栏。**不影响任何功能**，纯可读性/防误导；可与 D1（槽位真接
+  锐线/smart-money 数据时本就要正名）合并做。不清也行，只是名字误导。
 - groundhog v2 双腿真实 run（对照 + Gemini treatment，cap 120）→ 跑完后
   README/文档（含 B1 措辞修正）→ 全量回归 → push → 部署 → 线上验证。

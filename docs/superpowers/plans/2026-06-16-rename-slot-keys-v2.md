@@ -61,8 +61,9 @@ lists get their values + adds a guard test.
 
 ```python
 # tests/agent/engines/test_engine_slot_parity.py
-"""weight_updater + event_emitter slot lists MUST equal decision.py's SoT —
-guards the {name}_quality credit-assignment from drift across the rename."""
+"""weight_updater + event_emitter slot lists MUST equal decision.py's SoT (guards a
+future re-hardcode from drifting), AND the SoT tuples carry the EXPECTED slot
+VALUES (pins the rename so it can actually fail if a key is wrong)."""
 from __future__ import annotations
 from agent.dashboard_bridge.event_emitter import SIGNAL_ENGINE_KEYS
 from agent.engines.decision import RATIONAL_ENGINES, SENTIENT_ENGINES
@@ -74,6 +75,12 @@ def test_weight_updater_derives_from_decision_sot() -> None:
 
 def test_event_emitter_signal_keys_derive_from_decision_sot() -> None:
     assert tuple(SIGNAL_ENGINE_KEYS) == (*RATIONAL_ENGINES, *SENTIENT_ENGINES)
+
+def test_sot_carries_the_expected_slot_values() -> None:
+    # NOTE: these are the OLD values in Task 1 (pre-rename); Task 2 Step 5 updates
+    # them to the new names — this is the assertion that PINS the rename.
+    assert RATIONAL_ENGINES == ("tennis_technical", "market_momentum", "smart_money")
+    assert SENTIENT_ENGINES == ("sentiment_llm", "crowd_volume")
 ```
 
 - [ ] **Step 2: Run it.** `PYTHONPATH="$(pwd)" python -m pytest tests/agent/engines/test_engine_slot_parity.py -q` — expect PASS (values currently match; the test now LOCKS equality). If the real symbol names differ, fix the import first.
@@ -114,36 +121,41 @@ git commit -m "refactor(engines): derive slot-key lists from decision.py SoT + p
 
 **Files (Python):** `agent/engines/decision.py` (3 constants + the `⚠️ SLOT NAME` caveat block), `agent/backtest/real_signal_source.py` (slot-mapping targets + header), every Python string-literal slot-key site (`replay_runner`, `reincarnation`, `survival_season`, `sandbox_phase2_loop`, `cached_sweep`, `find_optimal_config`, `agent/training/*`, `scripts/probe_llm_fusion.py::_ENGINE_DESC`, etc.), the settlement read boundary (`agent/backtest/settlement_learner.py` ~:78-82), `.dev/contracts/dashboard_ws_message.v0.4.0.json` (new), `.dev/contracts/_registry.json`, `agent/dashboard_bridge/event_emitter.py` (`WS_CONTRACT_VERSION` constant), the renamed Python contract test, and every Python test asserting an old slot key.
 
-- [ ] **Step 1: Add the score_{engine} backward-compat remap (the landmine), with a test**
+- [ ] **Step 1: Add the backward-compat slot-key aliases at BOTH persisted-data read boundaries, with extracted, unit-tested helpers**
 
-At the settlement read boundary where `score_<engine>` keys are unflattened
-(`settlement_learner.py` ~:78-82 — a dict-comprehension over the `score_`-prefixed
-keys; there is NO scalar `engine` variable, so adapt the alias INTO the
-comprehension), apply a static alias so a legacy persisted bet (`open_bets.jsonl`)
-keyed by an OLD slot name still credits the NEW slot:
+Old-key persisted data exists on disk and is read back: (i) in-flight bets
+(`open_bets.jsonl`) via `score_<engine>` at settlement; (ii) **the replay INPUT
+`reports/backtest/_signal_rows.json` (+ `_signal_rows_v4.json`), keyed by the OLD
+slot names in `SignalRow.scores`** — consumed by `cached_sweep.load_rows` →
+`row_to_signals`, by `build_static_sweep.py`, `survival_season`, and
+`run_reincarnation`. WITHOUT a load-side alias, after the rename `decision.py`'s
+missing-signal guard iterates the NEW keys while the rows yield OLD keys → **every
+row routes to NO_BET → every regenerated fixture/journey COLLAPSES** (HIGH). Add one
+shared alias map applied at both boundaries (identity for new keys ⇒ zero behavior
+change):
 
 ```python
-# agent/backtest/settlement_learner.py (module-level)
-# Legacy persisted bets carry score_<old-slot-key>; remap to the renamed slot so an
-# in-flight bet settled after the rename credits the right slot (zero behavior change
-# — identity for unrenamed keys).
-_SLOT_KEY_ALIASES = {
-    "smart_money": "surface_advantage",
-    "sentiment_llm": "head_to_head",
-    "crowd_volume": "rest_recency",
-}
-def _alias(engine: str) -> str:
-    return _SLOT_KEY_ALIASES.get(engine, engine)
-# In the score_ unflatten comprehension, alias the extracted engine token, e.g.:
-#   {_alias(k[len("score_"):]): v for k, v in signals.items() if k.startswith("score_")}
+# a shared module (e.g. agent/engines/slot_aliases.py)
+SLOT_KEY_ALIASES = {"smart_money": "surface_advantage",
+                    "sentiment_llm": "head_to_head", "crowd_volume": "rest_recency"}
+def alias_slot(k: str) -> str: return SLOT_KEY_ALIASES.get(k, k)
 ```
-Add a **pure unit test** on the unflatten/alias (it passes INDEPENDENT of the
-constant rename): a `score_smart_money` input yields a `surface_advantage` key, and
-unrenamed keys pass through unchanged. (The end-to-end "credit lands on the slot" is
-NOT asserted here — `_ALPHA_ENGINES` is still OLD-named until Step 3; the full credit
-path is verified by Step 6's suite after the rename.)
+- **settlement boundary** (`settlement_learner.py` ~:78-82 — currently an INLINE
+  dict-comprehension inside `_SettlementLearningWeightUpdater.update`): **EXTRACT** it
+  to a module-level `def _unflatten_scores(signals) -> dict[str,float]` that strips
+  `score_` AND applies `alias_slot`, and call it from `update`. (Extraction is what
+  makes the comprehension's aliasing actually testable.)
+- **load boundary** (`cached_sweep.load_rows`): normalize `SignalRow.scores` (and
+  `confidences`) keys via `alias_slot` at load, so `row.scores[k]` over the NEW
+  `SLOT_KEYS` (e.g. `build_static_sweep.py:198`) finds new keys instead of KeyError-ing.
 
-- [ ] **Step 2: Run the remap unit test — fails (no alias) then passes.** `pytest <new remap test> -v`.
+Add **pure unit tests** (pass INDEPENDENT of the constant rename): `_unflatten_scores`
+maps `score_smart_money`→`surface_advantage` (+ identity passthrough); `load_rows`
+upgrades an OLD-key SignalRow to NEW keys. (End-to-end credit is verified by Step 6's
+full suite after the rename.) **NOTE**: these aliases are a THIRD kept-alias surface —
+whitelist `slot_aliases.py` / the alias call sites in Task 4(a)'s gate.
+
+- [ ] **Step 2: Run the alias unit tests — fail (no alias) then pass.** `pytest <new alias tests> -v`.
 
 - [ ] **Step 3: Rename the 3 constants at the SoT + sweep every Python string-literal site**
 
@@ -169,16 +181,31 @@ AND **rewrite the description VALUES** to the real Sackmann payload (the old val
 the dead module — replace with surface-advantage / head-to-head / rest-recency, or
 the slot won't describe what it carries).
 
-**Python in-code prose/docstrings that NAME the renamed slots** (the anchored
-quoted/constant greps DON'T catch these — enumerate + REWRITE, distinct from kept
-`*_score`/`*_positions`/module-name refs): `real_signal_source.py:154,181,214` slot
-docstrings ("Surface advantage -> smart_money slot" etc.); `weight_updater.py:394-395`
-group comment ("…tennis_technical + market_momentum + smart_money … sentiment_llm +
-crowd_volume"); `agent/server/models.py:104-105` ("α₂ (market_momentum + smart_money
-composite) and α₃ (crowd_volume)"); `agent/training/phase1_runner.py:762` generated
-report label `| smart_money |` — **this label is asserted by `test_phase1_runner`,
-so the label and the test expectation rename in LOCKSTEP** (check the test before
-editing the label).
+**Python in-code prose/docstrings that NAME the renamed slots** — the anchored
+quoted/constant greps DON'T see bare names, so run a **MANDATED bare-name triage
+sweep** (a checklist gate, NOT a "must be zero" assertion — most bare-name hits are
+legitimately KEPT module/`.name`/`*_score` refs):
+```bash
+rg -nw 'smart_money|sentiment_llm|crowd_volume' agent/ scripts/ \
+  | rg -v 'engines\.(smart_money|sentiment_llm|crowd_volume)|name = "|_score|_conf|_wallet|_position|_quality'
+```
+Triage EACH surviving hit rename-vs-keep. Known slot-prose to REWRITE (verified
+in-scope): `real_signal_source.py:154,181,214` slot docstrings; `weight_updater.py:
+394-395` group comment; `scripts/run_learning_demo.py:13-18` docstring (calls the
+keys "LEGACY NBA-era labels … smart_money=surface advantage" — rewrite to the
+post-rename framing); `agent/training/{phase1_runner.py:480,tennis_runner.py:492}`
+("# sentiment_llm frozen β₁=0" → `head_to_head`); `agent/training/phase1_runner.py:762`
+generated report label `| smart_money |` (verified NOT asserted by `test_phase1_runner`
+— it only checks the report path exists + non-empty; the label rename is safe but
+UNVERIFIED, do not claim a lockstep test).
+- **`agent/server/models.py:104-105` is PRE-EXISTINGLY WRONG** — it says the mass
+  splits "α₂ (market_momentum + smart_money composite) and α₃ (crowd_volume)", but
+  per `decision.py` α₂=market_momentum, **α₃=smart_money**, and crowd_volume is β₂
+  (sentient), not in the α split. **REWRITE to the true mapping** (α₃ =
+  surface_advantage; DELETE the crowd_volume/rest_recency ref from the rational-stream
+  prose). A naive token-rename here would produce "α₃ (rest_recency)" — a NEW false
+  statement (a sentient slot in the rational position), the exact dishonesty the
+  rename exists to remove.
 
 > The named sites are illustrative; the **authoritative worklist is the grep
 > output** (both the `SMART_MONEY|SENTIMENT_LLM|CROWD_VOLUME` constants AND the
@@ -274,13 +301,16 @@ cp dashboard/public/backtest/static_sweep.json /tmp/static_sweep.orig.json
 cp dashboard/public/stage1/stage1_learning.json /tmp/stage1.orig.json
 PYTHONPATH="$(pwd)" python dashboard/scripts/build_static_sweep.py
 PYTHONPATH="$(pwd)" python dashboard/scripts/build_stage1.py
-# Equivalence guard: the regenerated fixture must equal the original AFTER applying
-# the old->new key rename — i.e. differ ONLY in the 3 keys, with byte-identical
-# numbers. A small python check: load both, rename the 3 keys in the ORIGINAL, assert
-# deepequal vs regenerated. If it differs beyond keys → the producer is
-# non-deterministic; PIN ITS SEED (or do a deterministic key-only rewrite of the
-# committed fixture instead of regenerating) before committing. Do NOT claim
-# zero-change until this passes.
+# Equivalence guard — PER ARTIFACT (the two fixtures change shape differently):
+#  • static_sweep.json: the slot keys are per-row signal KEYS → normalize old→new
+#    KEYS on the ORIGINAL, then deep-equal vs regenerated (must differ ONLY in keys,
+#    byte-identical numbers).
+#  • stage1_learning.json: the only slot ref is the VALUE of edge/noise_slot_label
+#    (an opaque string) → rewrite that VALUE old→new on the ORIGINAL, then deep-equal.
+#    A stage1 mismatch on noise_slot_label is the INTENDED value rename, NOT drift.
+# If static_sweep STILL differs beyond keys, the cause is the _signal_rows.json
+# old-key collapse (Task 2 Step 1 load_rows alias not wired) — fix THAT, not a seed.
+# Do NOT claim zero-change until both pass.
 ```
 Verify: `rg -c 'smart_money|sentiment_llm|crowd_volume' dashboard/public/backtest/static_sweep.json dashboard/public/stage1/stage1_learning.json` → 0.
 
@@ -337,8 +367,18 @@ pytest+vitest+build" alone is NOT accepted as proof the `/survival` showpiece wo
 
 Run the producers so freshly-served journeys carry new keys (numerical legs only):
 ```bash
+cp dashboard/public/backtest/survival_journey.json /tmp/survival_journey.orig.json  # pre-rename
 PYTHONPATH="$(pwd)" python scripts/run_reincarnation.py --provider numerical  # + survival_season producer per its docstring
 ```
+**Journey equivalence guard (NOT just 'loads green'):** a collapsed journey
+(all-NO_BET / agent dies, 0 bets) is structurally valid and loads without throwing,
+so Step 1b's "no throw" would pass while `/survival` silently regresses from
+"learner +$17k, survives" to a dead agent. Assert the regenerated numerical journey
+equals the pre-rename one **modulo the 3 keys** (same `summary.total_steps`,
+`learner_final_pnl`, per-step `cum_pnl`/weights) — at minimum that `total_steps` +
+`learner_final_pnl` are non-trivial AND unchanged. If they collapsed, the
+`load_rows` alias (Task 2 Step 1) is not wired.
+
 **The `{slot}_quality` EMA keys (e.g. `surface_advantage_quality`) rename implicitly
 by derivation** — no separate rename; the §D `score_<old>` settlement alias + the
 TS read shim cover persisted/served legacy data. The `_ai`/`_gemini`/`_run1`/`_run2`
@@ -425,3 +465,12 @@ git commit -m "docs: mark F1 rename DONE + refresh slot-name legends to the real
   - LOW (score remap test can't be end-to-end pre-rename + snippet didn't match the dict-comprehension): made it a pure unit test on the alias; fixed the snippet to a `_alias()` helper applied inside the comprehension.
   - LOW (Step 1b runtime gate vacuous if journeys absent): assert ≥1 loaded + run after regen; the synthetic-old-key vitest (Task 3 Step 0) is the authoritative shim guard.
   - LOW (miscount "THREE literals"): corrected to two code literals (:53,:79) + the :17/:22 docstring refresh.
+- **2026-06-16 round 3** (panel VERDICT HIGH=1 MEDIUM=4 LOW=3, 0 vote-rejected — all accepted, all NEW (not re-reports)):
+  - HIGH (replay input `reports/backtest/_signal_rows.json` keyed by OLD names → every regen collapses to NO_BET): Task 2 Step 1 now adds a shared `alias_slot` at BOTH read boundaries — settlement `_unflatten_scores` (extracted module-level) AND `cached_sweep.load_rows` (upgrades persisted `SignalRow.scores`); whitelisted as a 3rd alias site in the gate.
+  - MED (no equivalence guard on regenerated gitignored journeys — a collapsed journey passes green): Task 4 Step 2 now asserts the numerical journey equals pre-rename modulo keys (total_steps + learner_final_pnl non-trivial + unchanged).
+  - MED (bare-name slot prose invisible to the gate + hand-list incomplete): replaced the illustrative list with a MANDATED bare-name triage sweep (checklist, not assertion); added run_learning_demo:13-18, phase1_runner:480, tennis_runner:492.
+  - MED (`models.py:104-105` is PRE-EXISTINGLY WRONG: α₃=crowd_volume): rewrite to the true mapping (α₃=surface_advantage; delete the sentient crowd_volume from the rational prose) — a token-rename would manufacture "α₃ (rest_recency)".
+  - MED (equivalence guard modeled KEY rename but stage1's change is a label VALUE): split the guard per artifact (static_sweep=key-normalize, stage1=value-rewrite); corrected the mis-targeted "pin seed" remedy.
+  - LOW (parity test tautology): added a concrete-VALUE assertion that pins the rename (updated old→new in Task 2 Step 5).
+  - LOW (false "phase1_runner:762 asserted by test" claim): corrected — the label has no test coverage (rename safe but unverified).
+  - LOW (score-remap "pure unit test" couldn't reach the inline comprehension): extract `_unflatten_scores` to a module-level function + unit-test that.

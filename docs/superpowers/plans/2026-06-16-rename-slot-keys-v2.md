@@ -229,9 +229,9 @@ Wait — do NOT git mv (immutable versioning keeps v0.3.0). Instead **copy**:
 rg -n 'dashboard_ws_message\.v0\.3\.0' agent/ dashboard/ tests/ --glob '!*v0.3.0.json'
 rg -n 'WS_CONTRACT_VERSION' agent/ dashboard/   # the constants + their 0.3.0 neighbours
 ```
-Update EVERY hit's literal/comment to v0.4.0 (known sites incl. `agent/runtime/{phase2_launch.py,sandbox_phase2_loop.py}`, `dashboard/lib/{types.ts,wsContract.ts,wsEvents.ts}`, `dashboard/components/DecisionFeed.tsx`, `event_emitter.py`/`__init__`/`death_watch_emitter`/runbooks). Completeness gate: `rg -n 'dashboard_ws_message\.v0\.3\.0' agent/ dashboard/ --glob '!*v0.3.0.json'` → ZERO in active code. **Python contract test**: `git mv …/test_ws_contract_v0_3_0.py …/test_ws_contract_v0_4_0.py`; repoint `_SCHEMA_PATH` to v0.4.0; it has **TWO** version assertions (`test_schema_file_pins_v0_3_0` asserts `raw['version']=='0.3.0'`; `test_emitter_constant_is_v0_3_0` asserts `WS_CONTRACT_VERSION=='0.3.0'`) — update BOTH assertions AND rename BOTH functions to `…_v0_4_0`; update expected keys.
+Update EVERY hit's literal/comment to v0.4.0 (known sites incl. `agent/runtime/{phase2_launch.py,sandbox_phase2_loop.py}`, `dashboard/lib/{types.ts,wsContract.ts,wsEvents.ts}`, `dashboard/components/DecisionFeed.tsx`, `event_emitter.py`/`__init__`/`death_watch_emitter`/runbooks). Completeness gate: `rg -n 'dashboard_ws_message\.v0\.3\.0' agent/ dashboard/ --glob '!*v0.3.0.json'` → ZERO in active code. **Python contract test**: `git mv …/test_ws_contract_v0_3_0.py …/test_ws_contract_v0_4_0.py`; repoint `_SCHEMA_PATH` to v0.4.0; it has **TWO** version assertions (`test_schema_file_pins_v0_3_0` asserts `raw['version']=='0.3.0'`; `test_emitter_constant_is_v0_3_0` asserts `WS_CONTRACT_VERSION=='0.3.0'`) — update BOTH assertions AND rename BOTH functions to `…_v0_4_0`; update expected keys. **Gate the description-prose rename** (otherwise a forgotten rename leaves the misnomer in the canonical doc, caught by nothing — the `.dev/` tree is outside the grep gate and only the enum is validated): add a one-line assertion `assert not any(k in json.dumps(raw) for k in ("smart_money","sentiment_llm","crowd_volume"))` (the committed v0.4.0 file is readable by the test).
 
-- [ ] **Step 5: Update every Python test asserting an old slot KEY** (`test_decision`, `test_weight_updater_settlement`, `test_real_signal_source`, `test_cached_sweep`, `test_value_sweep`, `test_survival_*`, `test_run_cross_market_journey`, `test_phase1_runner`, `test_sandbox_settlement_poller`, `test_validate_value_seed`, the parity test now asserts the new tuple, plus whatever the grep surfaces). **`test_each_engine.py` is NOT in this list** — it is a kept-MODULE unit test (wallet positions / LLM calls / crowd windows) and asserts the modules' frozen `.name=="smart_money"`/`"sentiment_llm"`/`"crowd_volume"`; it needs **zero change**. **RULE**: LEAVE any assertion of a KEPT engine module's `.name` (== the old string) UNCHANGED — "updating" it to the new slot name would FAIL (the frozen module still returns the old name). Only rename DECISION-SLOT-KEY assertions.
+- [ ] **Step 5: Update every Python test asserting an old slot KEY or `{slot}_quality` literal** (`test_decision`, `test_weight_updater_settlement`, **`test_weight_updater.py`** (`smart_money_quality`/`sentiment_llm_quality` at :53,:200), **`test_weight_updater_desperate.py`** (`smart_money_quality`/`sentiment_llm_quality`/`crowd_volume_quality` :46-48), `test_real_signal_source`, `test_cached_sweep`, `test_value_sweep`, `test_survival_*`, `test_run_cross_market_journey`, `test_phase1_runner`, `test_sandbox_settlement_poller`, `test_validate_value_seed`, the parity test now asserts the new tuple, plus whatever the grep surfaces). **`{slot}_quality` keys**: in PRODUCTION CODE they rename automatically (derived `f"{engine}_quality"` from the renamed `RATIONAL/SENTIENT_ENGINES` in `weight_updater.py:404`, `phase1_runner.py:120,123`) — no code edit — but TESTS that hardcode `smart_money_quality` literals must rename them (else `.get(...,0.0)` silently zeroes the gradient → red pytest). The `_quality` keys in the FROZEN `reincarnation*.json` `carry.ema_keys` stay old (Step 3b). **`test_each_engine.py` is NOT in this list** — it is a kept-MODULE unit test (wallet positions / LLM calls / crowd windows) and asserts the modules' frozen `.name=="smart_money"`/`"sentiment_llm"`/`"crowd_volume"`; it needs **zero change**. **RULE**: LEAVE any assertion of a KEPT engine module's `.name` (== the old string) UNCHANGED — "updating" it to the new slot name would FAIL (the frozen module still returns the old name). Only rename DECISION-SLOT-KEY assertions.
 
 - [ ] **Step 6: Run the FULL Python suite + ruff + (mypy if configured)**
 
@@ -260,7 +260,7 @@ git commit -m "refactor(engines): rename slot keys smart_money/sentiment_llm/cro
 
 - [ ] **Step 0 (the load-bearing fix): read-side alias shim mirroring the Python remap**
 
-The on-disk journey artifacts (`survival_journey*.json`, `reincarnation*.json`) carry the OLD slot keys, and several are **non-regenerable** (the verbatim `*_run1/*_run2` finetune-log exhibits) or **Gemini-gated** (`*_ai*`/`*_gemini*`). A strict renamed loader (`load_survival_journey.ts::validateSignals` iterates `SURVIVAL_SIGNAL_KEYS` → `asFinite(o[k])` → throws on a missing key) would break `/survival` (and `/reincarnation`) at request time. Add a static old→new alias normalize at every loader that reads per-step slot signals from an on-disk journey, BEFORE validation (identity for new-key files ⇒ zero behavior change):
+The on-disk journey artifacts (`survival_journey*.json`, `reincarnation*.json`) carry the OLD slot keys, and several are **non-regenerable** (the verbatim `*_run1/*_run2` finetune-log exhibits) or **Gemini-gated** (`*_ai*`/`*_gemini*`). A strict renamed loader (`load_survival_journey.ts::validateSignals` iterates `SURVIVAL_SIGNAL_KEYS` → `asFinite(o[k])` → throws on a missing key) would break `/survival` at request time. (`/reincarnation` is rename-AGNOSTIC: `load_reincarnation.ts` does NO slot-key validation — `carry.ema_keys` is only `Array.isArray`-checked, genomes/knobs validated by VALUE not key — so it neither breaks nor needs the shim; do not claim it as shim evidence.) Add a static old→new alias normalize at the SURVIVAL loader that reads per-step slot signals from an on-disk journey, BEFORE validation (identity for new-key files ⇒ zero behavior change):
 
 ```ts
 // dashboard/lib/slot_key_aliases.ts (new)
@@ -308,13 +308,17 @@ guarantee structural, not empirical:
 # Assert the parsed JSON is IDENTICAL except those exact paths (no other byte moves).
 ```
 THEN update the PRODUCERS so a future regen stays correct + consistent: `build_static_sweep.py`
-(its `SLOT_KEYS`) and `build_stage1.py` (the `{edge,noise}_slot_label` values). Add a
-LIGHT producer smoke (KEY-presence only, NOT a numeric diff): re-run each producer and
-assert the output carries the NEW keys and zero old keys — this proves the producer +
-the `load_rows` alias (Task 2 Step 1) are wired, without depending on baseline
-idempotency. (If you nonetheless want a numeric-equivalence check, the trustworthy
-baseline is the key-rewritten fixture above — byte-stable by construction — NOT a
-re-run.)
+(its `SLOT_KEYS`) and `build_stage1.py` (the `{edge,noise}_slot_label` values). A LIGHT
+producer smoke (KEY-presence only) proves the producer + the `load_rows` alias are
+wired — but the producers write to a **FIXED committed path with no `--out`**, so
+re-running them OVERWRITES the byte-stable key-rewrite with freshly-computed numbers,
+which a later `git add -A` would then commit, **defeating the zero-change guarantee**.
+So the smoke MUST: (1) be **gated on its gitignored inputs existing** (`_signal_rows.json`
+/ `reports/learning_demo/*` — else skip, per Step 1b's non-vacuity rule); and (2) NOT
+leave the regenerated artifact staged — EITHER add a `--out` flag and point the smoke
+at a tempfile, OR run the producer then immediately `git checkout -- dashboard/public/backtest/static_sweep.json dashboard/public/stage1/stage1_learning.json` to **restore the
+key-rewrite BEFORE any `git add`** (ordering is load-bearing). Assert key-presence on
+the temp/regenerated output, then ensure the committed file on disk is the key-rewrite.
 Verify: `rg -c 'smart_money|sentiment_llm|crowd_volume' dashboard/public/backtest/static_sweep.json dashboard/public/stage1/stage1_learning.json` → 0.
 
 - [ ] **Step 3: Run dashboard vitest + tsc + next build**
@@ -350,8 +354,10 @@ Expect ALL green.
 `/survival` + `/reincarnation` are `force-dynamic` (skipped by `next build`), and
 vitest exercises inline fixtures — so the gates above never load the real on-disk
 journeys. Add a runtime smoke that loads EVERY journey artifact present on disk via
-the server loaders and asserts no throw (this is what proves the read-side alias
-shim actually rescues the old-key + verbatim-archive journeys):
+the server loaders and asserts no throw (an integration check that the SURVIVAL
+shim rescues old-key + verbatim-archive survival journeys; the reincarnation arms
+are loaded only as a generic "still parses" smoke — they are rename-agnostic, not
+shim evidence):
 ```bash
 # dashboard/scripts/smoke_journeys.mjs — iterate every SurvivalJourneyMode +
 # reincarnation arm present under public/backtest/, call the loader, assert no throw.
@@ -394,29 +400,36 @@ ripgrep skips gitignored paths (the `public/backtest/*` journeys + the whole `.d
 tree), so a bare `rg` returns a FALSE "clean". Run with `--no-ignore` and split the
 gate:
 
-**(a) CODE/active-config must be CLEAN of the 3 slot KEYS** — use the SAME
-**anchored** pattern Task 2 uses (quoted keys + the constants), NOT a bare
-substring (a bare sweep collides with the kept `smart_money_score`/`_conf`,
-`smart_money_positions`, `smart_money_quality`, `smart_money_wallets`, and the
-unrelated proposal id `smart_money_ofi_5m` — ~40 legitimate hits, never zero):
+**THE AUTHORITATIVE COMPLETENESS GATE IS THE GREEN SUITE**, not these greps:
+full `pytest` (a missed Python key/`_quality` test literal → red), `tsc --noEmit`
+(a missed TS slot-key / `Record` member → compile error), `vitest`, `next build`,
+the synthetic-old-key shim vitest (Task 3 Step 0), and the deterministic-key-rewrite
+zero-change proof (Task 3 Step 2). The greps below are **DISCOVERY AIDS** to find
+sites + a sanity readout — they are NOT a "must be zero" gate, and you must NEVER
+edit a flagged KEPT/alias site to force zero.
+
+**(a) CODE slot-KEY discovery sweep** — anchored (quoted keys + constants; excludes
+`_score`/`_conf`/`_ofi_5m`/`_positions`/`_wallets`/`_quality` by construction since
+e.g. `"smart_money"` ≠ `"smart_money_quality"`):
 ```bash
 rg -n --no-ignore '"smart_money"|"sentiment_llm"|"crowd_volume"|\bSMART_MONEY\b|\bSENTIMENT_LLM\b|\bCROWD_VOLUME\b' \
   agent/ scripts/ tests/ dashboard/ \
   --glob '!agent/engines/smart_money.py' --glob '!agent/engines/sentiment_llm.py' \
-  --glob '!agent/engines/crowd_volume.py' \
+  --glob '!agent/engines/crowd_volume.py' --glob '!agent/engines/slot_aliases.py' \
+  --glob '!dashboard/lib/slot_key_aliases.ts' \
   --glob '!.dev/contracts/dashboard_ws_message.v0.3.0.json'
 rg -n --no-ignore 'SmartMoneyEngine|SentimentLLMEngine|CrowdVolumeEngine' agent/ tests/
 ```
-Expect: ZERO for the quoted/constant gate (the anchored pattern excludes
-`_score`/`_ofi_5m`/`_positions`/`_wallets`/`_quality` by construction), EXCEPT the
-kept `.name="smart_money"` literals inside the 3 engine modules (globbed out above)
-and any kept engine-module `.name` test assertions. The CamelCase grep returns only
-the 3 module defs + their importer tests. **NOTE**: TS member-access forms
-(`SIGNAL_SLOT_LABEL.smart_money`) and bare-name prose are NOT matched by the quoted
-pattern — those are caught by `tsc --noEmit` (a missed `Record` member is a compile
-error) and by the explicit prose-rewrite steps (Task 2 prose step + Task 3 prose),
-so the quoted gate + tsc + pytest + vitest are a complete backstop. Known frozen
-bare-name comments to leave: `agent/core/agent.py:345-346` engine-fanout comment;
+Surviving hits should be ONLY the enumerated KEPT-ALIAS surfaces (do NOT delete them
+to reach zero — that destroys the old→new map and collapses every legacy bet/row/
+journey): the `SLOT_KEY_ALIASES` maps in `slot_aliases.py` + `slot_key_aliases.ts`
+and their **alias unit tests** (in `tests/` — globs don't reach them; they legitimately
+assert `alias_slot("smart_money")=="surface_advantage"`); the kept engine-module
+`.name="smart_money"` literals + their `.name` test assertions. **`{slot}_quality`**:
+renames in code by DERIVATION (the f-string is not a literal → no gate hit; correct);
+its test literals are renamed by Step 5; the frozen-artifact `_quality` stays (3b).
+TS member-access (`SIGNAL_SLOT_LABEL.smart_money`) + bare-name prose are caught by tsc
++ the prose-rewrite steps. Known frozen bare-name comments to leave: `agent/core/agent.py:345-346` engine-fanout comment;
 the `smart_money_ofi_5m` proposal id in the sprint10 e2e spec.
 
 **(b) The intentionally-FROZEN old-key sites are EXPECTED, not failures** — enumerate
@@ -479,3 +492,9 @@ git commit -m "docs: mark F1 rename DONE + refresh slot-name legends to the real
   - HIGH/MED (journey equivalence regenerated the WRONG artifact — `run_reincarnation` writes `reincarnation.json`, not `survival_journey.json` → vacuous guard + showpiece never cut over) **and** MED (equivalence-guard baseline never proven idempotent; 4 MB journeys absent on fresh CI): root-cause SIMPLIFICATION — Task 3 Step 2 now does a **deterministic key-only rewrite** of the COMMITTED fixtures (structural zero-numeric-change, no producer/baseline/determinism dependence) + updates the producers + a key-presence smoke; Task 4 Step 2 makes journey correctness the TS shim (not regeneration; they're uncommitted), with an OPTIONAL smoke via the CORRECT producer `run_v3_numerical.py` gated on the input existing.
   - MED (wire-version `v0.3.0` sweep incomplete + a blanket replace corrupts unrelated ABI contracts): replaced the hand-list with an ANCHORED `dashboard_ws_message.v0.3.0` + `WS_CONTRACT_VERSION` sweep + a completeness gate + an explicit "never bare v0.3.0" warning; and rename the 3 slot-key NAMES inside the v0.4.0 schema description prose.
   - LOW (contract test under-enumerated): the Python test has TWO version assertions + TWO `v0_3_0` function names (update both, rename both); the wsContract.test.ts death-watch resolve is at :66, not :64.
+- **2026-06-16 round 5** (panel VERDICT HIGH=1 MEDIUM=2 LOW=2, 0 vote-rejected):
+  - HIGH (`{slot}_quality` derived keys: 2 test files feed old `*_quality` → red pytest; plan self-contradicted — Step 2 "renames" vs Step 3a "kept"): added `test_weight_updater.py` + `test_weight_updater_desperate.py` to Step 5; clarified `_quality` renames in code by derivation, test literals must rename, frozen-artifact `_quality` stays; removed the "kept smart_money_quality" framing.
+  - MED (root-cause for the recurring gate self-inconsistency): **demoted the anchored greps to DISCOVERY AIDS** and made the **GREEN SUITE the authoritative completeness gate** (pytest/tsc/vitest/build + shim vitest + key-rewrite proof); added `slot_aliases.py`/`slot_key_aliases.ts` + their alias unit tests to the kept-alias allow-list (NEVER edit the alias to reach zero).
+  - MED (producer smoke clobbers the key-rewrite + fails on fresh checkout): gate it on inputs existing + redirect output (`--out` tempfile OR `git checkout --` restore the key-rewrite BEFORE `git add`).
+  - LOW (`/reincarnation` shim over-claim): its loader does NO slot-key validation → rename-agnostic; scoped the shim claim + Step 1b to SURVIVAL journeys (reincarnation = generic parse smoke only).
+  - LOW (v0.4.0 description prose rename ungated): added a one-line contract-test assertion that the loaded schema contains none of the 3 old strings.

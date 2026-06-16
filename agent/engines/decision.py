@@ -83,6 +83,18 @@ from agent.engines.base import EngineSignal
 # TENNIS_TECHNICAL post-pivot. The NBA_TECHNICAL constant + the
 # nba_technical.py engine module are deleted in lockstep so there is
 # one unambiguous source of truth for α₁'s identity.
+#
+# ⚠️ SLOT NAME ≠ BACKTEST PAYLOAD — read before trusting one of these names.
+# These 5 keys name GENUINE production engines (smart_money = on-chain
+# smart-money WALLET alignment, sentiment_llm = Gemini LLM sentiment,
+# crowd_volume = Reddit volume; see agent/engines/<name>.py). BUT in the path
+# we actually run — backtest, and prod when the RealSignalSource flag is on —
+# those live signals don't exist, so agent/backtest/real_signal_source.py
+# SUBSTITUTES a Sackmann/CLOB proxy into each slot (key unchanged, payload
+# differs): smart_money -> surface advantage, sentiment_llm -> head-to-head,
+# crowd_volume -> rest/recency. => In ANY backtest artifact / sim / the 能学
+# demo, a slot key means the SLOT (carrying a Sackmann proxy), NOT its namesake
+# engine. Don't repeat the "smart_money == smart money" misread (it isn't, here).
 TENNIS_TECHNICAL: Final[str] = "tennis_technical"
 MARKET_MOMENTUM: Final[str] = "market_momentum"
 SMART_MONEY: Final[str] = "smart_money"

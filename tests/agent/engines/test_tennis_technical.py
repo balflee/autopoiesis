@@ -1,4 +1,3 @@
-# ruff: noqa: RUF003
 """α₁ tennis technical engine tests — T-B-014 acceptance criteria.
 
 Brief acceptance: ≥15 cases (5 funcs × {happy, nil, PIT-boundary})
@@ -22,7 +21,7 @@ snapshot leaks in.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest

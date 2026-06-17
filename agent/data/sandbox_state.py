@@ -253,6 +253,13 @@ class SettledBetRecord(BaseModel):
     winning_price: float = Field(ge=0.0, le=1.0)
     pnl_usd: float
     status: Literal["settled"] = "settled"
+    # V1.4b — why a bet was terminally closed without a real resolution, e.g.
+    # ``"terminal_query_failed"`` when the agent dies with an open bet and the
+    # Gamma settlement query exhausted its retries. ``None`` for a normal
+    # resolution-driven settlement; omitted from the JSONL (exclude_none in
+    # :meth:`SandboxStateWriter.append_settled_bet`) so existing settled rows
+    # stay byte-identical.
+    reason: str | None = None
 
 
 class DecisionRecord(BaseModel):
@@ -495,8 +502,15 @@ class SandboxStateWriter:
         )
 
     def append_settled_bet(self, bet: SettledBetRecord) -> None:
-        """Append one settled-bet line to ``settled_bets.jsonl``."""
-        self._append_jsonl(self.settled_bets_path, bet.model_dump_json())
+        """Append one settled-bet line to ``settled_bets.jsonl``.
+
+        ``exclude_none=True`` omits the optional V1.4b ``reason`` when absent;
+        all other fields are required (non-None), so a normal settled row stays
+        byte-identical to the pre-V1.4b shape.
+        """
+        self._append_jsonl(
+            self.settled_bets_path, bet.model_dump_json(exclude_none=True)
+        )
 
     def append_decision(self, decision: DecisionRecord) -> None:
         """Append one decision line to ``decisions.jsonl``."""

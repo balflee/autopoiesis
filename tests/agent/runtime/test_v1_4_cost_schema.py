@@ -13,6 +13,7 @@ import pytest
 from agent.data.polymarket_settlement import SettlementResult
 from agent.data.sandbox_state import (
     BetRecord,
+    SettledBetRecord,
     assert_cost_fields_present,
     bet_record_jsonl_dict,
     execution_cost_usd,
@@ -93,3 +94,25 @@ def test_winner_uses_actual_fill_price_when_stamped() -> None:
     # decision price 0.5 but actual fill 0.4 → 5*(1/0.4 - 1) = 7.5, minus 0 cost
     b = _bet(fill_price=0.4, fee_bps=0.0, spread_paid_usd=0.0)
     assert _compute_pnl(bet=b, outcome=_settle("yes")) == pytest.approx(7.5)
+
+
+# --- V1.4b SettledBetRecord.reason (omit-when-None → byte-identical) ---------- #
+
+def _settled(**over: object) -> SettledBetRecord:
+    base = dict(
+        bet_id="b1", market_id="m1", settled_ts=_TS, outcome="yes",
+        winning_price=1.0, pnl_usd=5.0,
+    )
+    base.update(over)
+    return SettledBetRecord(**base)  # type: ignore[arg-type]
+
+
+def test_settled_record_omits_reason_when_none() -> None:
+    assert "reason" not in _settled().model_dump_json(exclude_none=True)
+
+
+def test_settled_record_includes_reason_when_set() -> None:
+    js = _settled(outcome="void", pnl_usd=0.0, reason="terminal_query_failed").model_dump_json(
+        exclude_none=True
+    )
+    assert "terminal_query_failed" in js

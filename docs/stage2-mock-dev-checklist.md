@@ -99,8 +99,36 @@ One **per-tick decision loop** nested in a **per-life survival/learning meta-loo
 
 **Three pillars:** PREDICT (`p_model` = 5 baseline + Edge layer) · TRADE (entry/exit/size
 incl. in-play unwind) · SURVIVE+LEARN (breath/permadeath + 能学 EMA across lives).
-**Build order:** Block 1 (start, hold-to-resolution baseline) → Block 1.5 (trading layer)
-→ Block 2 (edge probes) → Block 3 (deferred). Per-component status is in §1.
+
+## 0.6 Scope — build Minimal V1 first (Codex review 2026-06-17: "NO-GO as scoped")
+
+The full design (trading layer + 4 probes + learner-hardening + P4 wallet reconstruction +
+Lane B) is **scope-overloaded vs what the code supports today** (buy-and-hold-to-resolution
+only). Codex's full-architecture review → **cut to a Minimal Coherent V1, run it, then
+decide.** The trading layer + P4 are NOT cancelled — they are **sequenced to V2**, each
+behind a gate.
+
+**V1 — build now (coherent, runnable, honest):**
+- **Block 1** live paper loop on the 5 baseline signals (hold-to-resolution), AND
+- **P2** (favorite-longshot calibration, backtest-only) as the **ONLY** probe, with the
+  **gain metric + placebo/holdout guard CODED and default-ON** (not doc-only).
+- Present the result as a **bounded NO-GO search** unless P2 clears the cost-net threshold.
+
+**V2 — deferred, each gated:**
+- **Trading layer (Block 1.5)** — **BLOCKED on §5 #10**: the survival economy is
+  *settlement-triggered*; open positions / unrealized MtM / exits are undefined against
+  breath / death / reincarnation / learner-credit. **Decide the accounting before writing
+  any trading code** (realized-only vs MtM vs forced-liquidation).
+- **P4 smart/dumb-wallet tracker** — a separate **data-engineering project** (as-of
+  reconstruction from per-wallet `/activity`); defer until V1 runs.
+- **P1 order-flow reversion** — needs the live loop + the trading layer.
+- **P3 spread capture / Lane B maker** — no executor skeleton; deferred.
+
+**Graduation honesty (Codex HIGH):** the `gain≥0.2` metric + placebo/holdout/isolation must
+be **coded + default-ON before any edge claim** (settlement PnL is still the resolution
+formula with realism switches default-OFF). Trading + a per-wallet learner *raise* the
+manufacture-a-false-graduation risk — V1 is kept minimal precisely to limit the degrees of
+freedom.
 
 ## 1. Readiness matrix
 
@@ -264,9 +292,12 @@ baseline, and the loop running IS the milestone.*
    → **At this point the mock bet is RUNNING** (hold-to-resolution baseline). Everything
    below is the *trading* layer + the *find-edge* experiment.
 
-### Block 1.5 — Trading layer (PREDICTION + TRADING + survival; enables in-play)
-*Goal: the agent can EXIT a position before resolution (滚球 / dynamic close) — the
-execution capability the surviving probes require. NOT needed for the Block-1 loop.*
+### Block 1.5 — Trading layer (V2 — ⚠️ BLOCKED until §5 #10 is decided)
+> **Codex: NO-GO until the trading × survival accounting (§5 #10) is a written decision.**
+> The survival economy is settlement-triggered and undefined for open / unrealized
+> positions — building SELL/MtM first makes the breath/death economy self-contradictory.
+*Goal (V2): the agent can EXIT a position before resolution (滚球 / dynamic close) — the
+execution capability the surviving probes require. NOT needed for the Block-1 V1 loop.*
 
 - **T1. `SELL`/`EXIT` action + position manager** — add a `SELL` `ActionKind`; track open
   positions (token, entry price, size) + their live mark from the CLOB mid; let the agent
@@ -280,7 +311,11 @@ execution capability the surviving probes require. NOT needed for the Block-1 lo
   in-play markets, not first-set only. *small* *(depends: 2, T1)*
 
 ### Block 2 — Falsification probes (FIND edge — bounded, one at a time)
-6. **DEFINE `gain` (Codex CRITICAL — BEFORE any edge claim)** — net ROI/EV per $ staked,
+> **V1 = steps 6 + 7 only** (define `gain`, then P2 backtest). Steps 7b/8/9/10/11/12 (P4,
+> learner-isolation, cross-life, P1, live-loop run, E2E) are **V2**, gated behind V1 running
+> + the Block-1.5 accounting decision (§5 #10).
+
+6. **DEFINE `gain` (Codex CRITICAL — BEFORE any edge claim; CODE it, default-ON)** — net ROI/EV per $ staked,
    after fees + half-spread/crossing + failed fills + liquidity caps; Brier a *diagnostic
    only*, monetary edge primary; with a **cluster-bootstrap / placebo NO-GO-capable stat
    guard**. Without this the design can manufacture a false graduation. *medium*
@@ -352,6 +387,15 @@ execution capability the surviving probes require. NOT needed for the Block-1 lo
 9. **Lane B scope** — build the maker executor + inventory/risk ledger for P3 spread
    capture as a separate Stage-2 module, or declare it out of scope and Stage-2 stays
    directional-only?
+10. **Trading × survival accounting (Codex BLOCKER — decide BEFORE writing any Block-1.5
+    code)** — the survival economy (breath / death / reincarnation, `sandbox_phase2_loop.py`
+    death path ~:2203-2216) is **settlement-triggered**; trading adds open inventory +
+    unrealized MtM + early exits. Define explicitly: (a) does unrealized MtM move
+    breath/bankroll (risk: double-count at settlement) or realized-only (risk: delay death
+    while bleeding)? (b) what happens to OPEN positions at death / reincarnation — the
+    backtest voids unsettled bets (`survival_season.py` ~:1834), adopt or reject? (c) how is
+    learner credit assigned for an exited-early position vs a settled one? **No trading code
+    until this is a written decision.** This is the single biggest blind spot Codex found.
 
 ## 6. Honest caveats (carry into every readout)
 

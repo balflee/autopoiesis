@@ -168,6 +168,49 @@ _ATP_MATCHES_2025 = "\n".join(
     ]
 )
 
+# WTA matches — the surface/h2h/rest computes walk BOTH tours (a player only
+# appears in one), so the loader reads wta_matches_{year}.csv for every year in
+# the default range. We vendor tiny WTA files with WTA-only ids (220xxx) so the
+# fixture is OFFLINE-hermetic (no GitHub fallback) WITHOUT touching the ATP-player
+# assertions — the ATP test ids (210xxx) never match a WTA row, so WTA contributes
+# nothing to those computations. (Previously WTA was omitted, which forced a live
+# GitHub fetch that 404s in offline/CI envs → the 9 known failures.)
+_WTA_MATCHES_2024 = "\n".join(
+    [
+        _MATCH_HEADER,
+        _match_row(
+            tourney_id="2024-w01",
+            surface="Hard",
+            tourney_date="20240310",
+            match_num=1,
+            winner_id="220001",
+            loser_id="220099",
+        ),
+        _match_row(
+            tourney_id="2024-w02",
+            surface="Clay",
+            tourney_date="20240610",
+            match_num=1,
+            winner_id="220002",
+            loser_id="220099",
+        ),
+    ]
+)
+
+_WTA_MATCHES_2025 = "\n".join(
+    [
+        _MATCH_HEADER,
+        _match_row(
+            tourney_id="2025-w01",
+            surface="Hard",
+            tourney_date="20250120",
+            match_num=1,
+            winner_id="220001",
+            loser_id="220002",
+        ),
+    ]
+)
+
 
 @pytest.fixture
 def snapshot_dir(tmp_path: Path) -> Path:
@@ -178,7 +221,10 @@ def snapshot_dir(tmp_path: Path) -> Path:
     (snap / "wta_rankings_current.csv").write_text(_WTA_RANKINGS_CSV, encoding="utf-8")
     (snap / "atp_matches_2024.csv").write_text(_ATP_MATCHES_2024, encoding="utf-8")
     (snap / "atp_matches_2025.csv").write_text(_ATP_MATCHES_2025, encoding="utf-8")
-    # WTA matches absent — exercises the "single-tour" code path.
+    # WTA matches vendored too (WTA-only ids) so the both-tours computes read them
+    # OFFLINE — no live GitHub fallback (which 404s in offline/CI envs).
+    (snap / "wta_matches_2024.csv").write_text(_WTA_MATCHES_2024, encoding="utf-8")
+    (snap / "wta_matches_2025.csv").write_text(_WTA_MATCHES_2025, encoding="utf-8")
     return snap
 
 

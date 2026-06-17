@@ -546,6 +546,21 @@ class TickInputs:
     # constructors in capture_money_shot.py / replay_runner.py / server/main.py
     # keep working unchanged (they omit it → 0.0).
     cross_market_signal: float = 0.0
+    # V1.2 LIVE execution-cost inputs (plan-loop 2026-06-17): the cost
+    # components a LIVE TickInputSource reads off the book, so the loop can
+    # thread them onto the BetRecord for cost-NET settlement PnL + the
+    # fail-closed LIVE-settlement guard (assert_cost_fields_present). All
+    # Optional/None so the replay / idle / backtest TickInputs constructors
+    # (which omit them) stay byte-identical — only the LIVE source sets them.
+    # These are SIZE-INDEPENDENT (the live source cannot know the Kelly stake,
+    # decided downstream): ``fill_price`` = the entry mid, ``fee_bps`` =
+    # fee RATE, ``half_spread_frac`` = half the bid/ask spread as a FRACTION of
+    # notional. ``_tick`` converts ``half_spread_frac`` → the dollar
+    # ``spread_paid_usd`` once the stake is sized. ``liquidity_cap_usd`` above is
+    # the fourth cost stamp (always present, used for decision-time sizing too).
+    fill_price: float | None = None
+    fee_bps: float | None = None
+    half_spread_frac: float | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -1798,12 +1813,39 @@ class SandboxPhase2Loop:
                     "gamma_at_bet": diag.gamma,
                     "eff_min_edge_at_bet": diag.eff_min_edge,
                 }
+            # V1.2 — thread the LIVE execution-cost stamps onto the BetRecord as
+            # a SET so settlement is cost-NET + the fail-closed LIVE guard
+            # (assert_cost_fields_present) is satisfied. ``fill_price`` is the
+            # LIVE discriminator: a replay/idle/backtest tick leaves it None, so
+            # NONE of the 4 stamps are threaded and the JSONL row stays
+            # byte-identical to the pre-V1.2 shape (liquidity_cap_usd is always
+            # present on TickInputs for decision-time sizing, but is only
+            # PERSISTED as a cost stamp on the LIVE path). The dollar
+            # ``spread_paid_usd`` is derived HERE — the live source only knows the
+            # size-independent half-spread FRACTION; the stake (action.size_usd)
+            # is decided just above by the Kelly gate. ``fee_bps`` is a RATE
+            # passed through verbatim — never coerced — so an incomplete LIVE
+            # tick still trips the fail-closed guard at settlement.
+            cost_stamps: dict[str, float | None] = {}
+            if inputs.fill_price is not None:
+                spread_paid_usd = (
+                    inputs.half_spread_frac * action.size_usd
+                    if inputs.half_spread_frac is not None
+                    else None
+                )
+                cost_stamps = {
+                    "fill_price": inputs.fill_price,
+                    "fee_bps": inputs.fee_bps,
+                    "spread_paid_usd": spread_paid_usd,
+                    "liquidity_cap_usd": inputs.liquidity_cap_usd,
+                }
             order_result = await self._executor.place_order(
                 market_id=inputs.market_id,
                 side=_side_to_literal(action.side),
                 price=inputs.price,
                 size_usd=action.size_usd,
                 signal_scores=signal_scores,
+                **cost_stamps,
                 **storm_stamps,
             )
             # bet_id == executor order_id (one uuid minted for both); this

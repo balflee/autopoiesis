@@ -187,6 +187,11 @@ class _ScriptedTickInputs:
     market_id: str = "m-l3-001"
     price: float = 0.4
     liquidity_cap_usd: float = 50.0
+    # V1.2 — optional execution-cost inputs a LIVE source would carry. Default
+    # None ⇒ existing tests (which omit them) keep byte-identical open-bet rows.
+    fill_price: float | None = None
+    fee_bps: float | None = None
+    half_spread_frac: float | None = None
 
     def inputs_for(
         self,
@@ -227,6 +232,9 @@ class _ScriptedTickInputs:
             signals=signals,
             price=self.price,
             liquidity_cap_usd=self.liquidity_cap_usd,
+            fill_price=self.fill_price,
+            fee_bps=self.fee_bps,
+            half_spread_frac=self.half_spread_frac,
         )
 
 
@@ -894,6 +902,50 @@ def test_signal_scores_threaded_onto_open_bet(tmp_path: Path) -> None:
     assert scores[SURFACE_ADVANTAGE] == pytest.approx(0.7)
     assert scores[HEAD_TO_HEAD] == pytest.approx(0.6)
     assert scores[REST_RECENCY] == pytest.approx(0.6)
+
+
+def test_execution_cost_stamps_threaded_onto_open_bet(tmp_path: Path) -> None:
+    """V1.2: when the LIVE tick carries execution-cost inputs, the loop threads
+    them through ``place_order`` onto the open ``BetRecord`` (so the LIVE
+    cost-NET settlement + the fail-closed cost guard see them). The dollar
+    ``spread_paid_usd`` is DERIVED from the size-independent half-spread fraction
+    × the Kelly-sized stake (the live source cannot know the stake)."""
+    loop, _hook, writer, clock = _build_loop(
+        tmp_path=tmp_path,
+        strategy_advisor_tick_interval=10_000,
+        strategy_advisor_stability_window=10_000,
+        tick_inputs=_ScriptedTickInputs(
+            fill_price=0.42, fee_bps=200.0, half_spread_frac=0.01,
+            liquidity_cap_usd=20.0,
+        ),
+    )
+    _drive(loop, n=1, clock=clock)
+
+    rows = iter_jsonl(writer.open_bets_path)
+    assert len(rows) == 1, f"expected one open bet; got {len(rows)}"
+    row = rows[0]
+    assert row["fill_price"] == pytest.approx(0.42)
+    assert row["fee_bps"] == pytest.approx(200.0)
+    assert row["liquidity_cap_usd"] == pytest.approx(20.0)
+    # spread_paid_usd = half_spread_frac (0.01) × the actual staked size.
+    assert row["spread_paid_usd"] == pytest.approx(0.01 * row["size_usd"])
+    assert row["spread_paid_usd"] > 0.0
+
+
+def test_no_cost_stamps_keeps_open_bet_row_byte_identical(tmp_path: Path) -> None:
+    """The default (stamp-less) LIVE/replay tick leaves the open-bet row free of
+    cost keys — the omit-when-None discipline keeps pre-V1.2 rows byte-identical."""
+    loop, _hook, writer, clock = _build_loop(
+        tmp_path=tmp_path,
+        strategy_advisor_tick_interval=10_000,
+        strategy_advisor_stability_window=10_000,
+    )
+    _drive(loop, n=1, clock=clock)
+
+    rows = iter_jsonl(writer.open_bets_path)
+    assert len(rows) == 1
+    for k in ("fill_price", "fee_bps", "spread_paid_usd", "liquidity_cap_usd"):
+        assert k not in rows[0]
 
 
 # --------------------------------------------------------------------------- #

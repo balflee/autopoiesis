@@ -138,6 +138,63 @@ new adapter `agent/runtime/polymarket_settlement_client.py`; new test
   token's market resolves to the SAME `conditionId` the settlement uses (else: failed/mis-settled bets).
 - [ ] Step 4 — test green; ruff; commit. **Budget for iteration here — do not assume a 1-hour swap.**
 
+#### V1.2 GROUNDING (Step-1 deliverable — code-grounded 2026-06-17 via the v12-grounding workflow)
+**Exact contracts the LIVE path must honor (anchor by symbol; line numbers drift):**
+- `TickInputSource.inputs_for(*, asof_ts: datetime, tick: int) -> TickInputs | None` (`sandbox_phase2_loop.py:529`).
+  `TickInputs(market_id: str, signals: dict[str, Signal], price: float, liquidity_cap_usd: float,
+  cross_market_signal: float = 0.0)` (`:537-548`). **Gap found:** V1.4 added the cost stamps to
+  `place_order` (`polymarket_sandbox_executor.py:166-183`) + `BetRecord`, but `_tick`
+  (`sandbox_phase2_loop.py:1801-1808`) does NOT pass them and `TickInputs` does NOT carry them — so the
+  LIVE cost-net path is INCOMPLETE. V1.2 completes it: add OPTIONAL `fill_price`/`fee_bps`/
+  `spread_paid_usd` to `TickInputs` (liquidity_cap already present; default None → replay/idle unchanged) +
+  thread them `_tick → place_order` so the fail-closed LIVE settlement guard (`assert_cost_fields_present`)
+  is satisfied.
+- `RealSignalSource.signals_for(*, market_id, tick, asof_ts) -> dict[str, Signal]`
+  (`real_signal_source.py:256`). Reuse VERBATIM. It needs only a `provider.get(market_id) -> snap`
+  exposing `.price_ledger: list[PricePoint(ts: iso-str, mid_price: float)]` (structural Protocol,
+  `:231-232`) + a `TennisMatchResolver` + `SackmannLoader`. The 4 tennis facets use ONLY `asof_ts`
+  (static Sackmann corpus); MOMENTUM is the ONLY slot consuming `price_ledger`, filtered `ts <= asof_ts`
+  by `_snapshots_until` (`:290-297`). Empty/unresolved → `_neutral` (score 0, conf 0); momentum is ALWAYS
+  real (even if the slug doesn't resolve).
+- **THE RABBIT HOLE (confirmed):** `price_ledger` is a frozen retrospective list in backtest. LIVE has no
+  ledger at decision time. **Resolution:** `LiveTickInputSource` maintains a mutable per-market rolling
+  buffer `dict[market_id, list[PricePoint]]`, appends `(now, mid)` each tick, and exposes a tiny live
+  provider whose `.get()` returns a snap backed by that buffer. `asof_ts=now` then makes `_snapshots_until`
+  include the just-appended tick. Momentum is neutral until ≥2 ticks accrue (acceptable for the V1
+  hold-to-resolution baseline). Sorted-ascending append (momentum math needs it, `:59-101`).
+- **SIGN / ORIENTATION (Codex-7 + r3-M) — the core correctness gate.** Within `RealSignalSource` the 4
+  tennis facets + momentum are **p1-oriented** (positive favors p1), EXCEPT `rest_recency` which is
+  **p2-oriented** (`tanh((d2-d1)/14)`, positive when p2 more rested, `:221`). `DecisionEngine` maps
+  positive fused → market YES token (`decision.py:25,378,401`). resolver.p1 comes from the slug
+  (`tennis_match_resolver.py:63-71,110`); **NO guarantee p1 == the Gamma YES token.** Design (single
+  consistent frame, then ONE uniform flip):
+  1. Determine `p1_is_yes` by matching the YES `clobTokenId`'s OUTCOME LABEL to the slug's p1 surname
+     (token labels from discovery, NOT slug order — Codex-r2-M2b).
+  2. Feed the ledger the **p1-side** mid: `yes_mid if p1_is_yes else 1 - yes_mid` → the WHOLE 5-vector is
+     p1-oriented and matches backtest sign-for-sign (the golden-vector parity invariant).
+  3. At the boundary, emit YES-frame signals: if `not p1_is_yes`, negate ALL 5 scores
+     (`Signal.model_copy(update={"score": -s})`); the uniform flip is a p1→YES frame swap that preserves
+     each slot's internal convention (incl. rest). Report `TickInputs.price = yes_mid` (the loop bets the
+     market YES token at this price). **Tests cover BOTH orientations.**
+- **IDENTIFIER CONTRACT (Codex-r4-1).** Three ids: Gamma `conditionId` (market), `clobTokenIds`
+  (YES/NO token), settlement key. `market_id` == settlement key == Gamma `id` everywhere
+  (`polymarket_settlement.py:resolve_market /markets/{id}`, `place_order(market_id)`). Discovery carries
+  `(conditionId, yes_token_id, no_token_id, yes_outcome_label, no_outcome_label, slug, end_date, market_id)`;
+  the tick prices the YES TOKEN but the BetRecord/settlement key off `market_id` — a test asserts the priced
+  token's market resolves to the SAME `conditionId`/`market_id` the settlement uses.
+- **DISCOVERY.** Reuse the `/events?tag_slug=tennis&active=true&closed=false` pattern (proven in
+  `sprint7_dryrun.discover_tennis_markets:164-223` via an injectable fetcher), but a DEDICATED method
+  carrying the token/outcome labels (`discover_tennis_markets`'s `TennisMarket` strips `clobTokenIds`/
+  outcomes; `list_tennis_markets` uses the WRONG `/markets` endpoint and must NOT be mutated). Live CLOB
+  mid + liquidity: no REST live-mid client exists yet → an injectable `LivePriceSource` Protocol
+  (`price_and_liquidity(token_id) -> (mid, liquidity_usd)`); the loop logic is hermetically tested with a
+  fake, the real HTTP impl is thin + wired by V1.3.
+- **GOLDEN-VECTOR PARITY.** Fixtures: `tests/agent/backtest/fixtures/tennis_real_capture.json` (real market
+  506130 Shelton-vs-Tiafoe, 75 real CLOB ticks) + `cached_sweep.SignalRow`/`precompute_rows`/`row_to_signals`
+  (`cached_sweep.py:132-253`). Parity test: a fixture match's p1-oriented LIVE signal vector ==
+  the backtest `signals_for` vector sign-for-sign (catches any per-slot inversion the market-level
+  orientation check misses).
+
 ### V1.3 Explicit LIVE mode switch (Codex-1, HIGH — isolation, not a bare flag)
 **Files:** Modify `agent/server/main.py` (`_build_default_app` ~:2396-2420 + the production loop
 factory ~:2160-2169); `.env.example`; test `tests/agent/server/test_live_mode_isolation.py`.

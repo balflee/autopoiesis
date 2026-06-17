@@ -21,6 +21,45 @@ verified code anchors below (line numbers drift — anchor by symbol).
 
 ---
 
+## ⏯️ IMPLEMENTATION PROGRESS — resume handoff (2026-06-17)
+
+**Plan converged via plan-loop (6 Codex rounds → HIGH=0 MED=0). V1 is ~half built.**
+The plan-loop **Phase-3 Codex diff-review runs over the FULL V1 diff** — base commit
+**`5f6942d`** (the plan commit) → `git diff 5f6942d HEAD` once V1 is COMPLETE. Do NOT run it
+on the partial diff.
+
+**DONE (committed, tested, zero regression — 121 runtime + 104 data/poller pass):**
+| step | commit | delivered |
+|---|---|---|
+| V1.1 SettlementClient | `36986dd` | `agent/runtime/polymarket_settlement_client.py` — prod gamma-api client (real parser) |
+| V1.6 Graduation gate | `609c4df` | `agent/backtest/graduation_gate.py` — net-ROI `gain` + market-efficiency placebo → NO_GO on zero-edge/cost-eaten |
+| V1.4a cost schema + PnL | `7833c4d` | `BetRecord` cost stamps (Optional, omit-when-None) + cost-NET `_compute_pnl` (legacy byte-identical) + `assert_cost_fields_present` |
+| V1.4 executor threading | `c5ce794` | cost stamps through `place_order` (Protocol + impl) |
+| V1.4b reason schema | `23364ab` | `SettledBetRecord.reason` + exclude_none (settled rows byte-identical) |
+
+**REMAINING — resume in this order (the heavy/risky tail):**
+1. **V1.4b death-path terminal-close BEHAVIOR** (the schema piece is done; the loop behavior is NOT) — in
+   `sandbox_phase2_loop._die`/`_tick`, fold ALL open bets at death through the poller's `_resolve_and_settle`
+   SIDE-EFFECTS (breath/bankroll/weight), void unresolved (with `reason="terminal_query_failed"` on query
+   failure), clear `_open_bet_ids`, then snapshot+die. **Highest regression risk — run the FULL survival suite.**
+2. **V1.2 live TickInputSource** (the rabbit hole) — new `agent/runtime/live_tick_input_source.py`; reuse
+   `RealSignalSource.signals_for` with `asof_ts=now`; dedicated live discovery carrying token labels;
+   identifier contract (conditionId/clobTokenIds/settlement); side-orientation + golden-vector parity.
+3. **V1.3 explicit LIVE mode switch** in `main.py` `_build_default_app` (~:2396) — `SANDBOX_LIVE=1` ⇒ live
+   (wires V1.1 + V1.2), NEVER replay/synth; unset = existing default. + isolation test.
+4. **V1.7 P2 + real-trades source** — new `data/sources/polymarket_trades.py` (Data API `/trades`, provenance
+   `actual_trade`, fail-closed) + `scripts/probe_p2_favorite_longshot.py` (uses V1.6's gate).
+5. **V1.5 surface `/mock`** (env) — small.
+6. **Phase-3 Codex diff-review** over `git diff 5f6942d HEAD` → fix → re-review → UNRESOLVED=0.
+
+**GOTCHAS (learned this session):** repo runs async via `asyncio.run(...)` in SYNC tests — NO `pytest.mark.asyncio`.
+Schema additions follow the storm-stamp Optional+omit-when-None pattern (`bet_record_jsonl_dict` / `exclude_none`)
+to keep old JSONL rows byte-identical. Run `tests/agent/data/ tests/agent/runtime/` after any schema/loop change.
+`MarketInfo`/`SandboxExecutor` are in `agent/data/polymarket_sandbox_executor.py`; `BetRecord`/`SettledBetRecord`
+in `agent/data/sandbox_state.py` (NOT `agent/runtime/`). Commit `balflee`; leave `scripts/run_v3_ai.py` untouched.
+
+---
+
 ## Resolved design fork — Trading × survival accounting (§5 #10; the V2 BLOCKER)
 
 The survival economy (breath/death/reincarnation) is settlement-triggered; trading adds open

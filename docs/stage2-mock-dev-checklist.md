@@ -4,6 +4,16 @@
 > Source: 6-agent readiness workflow over the mock runtime / live data / engines /
 > dashboard + the backlog signal mining. This is a **planning reference**, not the
 > implementation plan — each item still needs a detailed spec/plan when picked up.
+>
+> **⚠️ Correction (2026-06-16, after the PR #3 slot-key rename merged):** §3, the A15
+> row, and steps ③/④ were rewritten. The original draft assumed the 5 engine modules
+> carry live wallet/LLM/Reddit signals "once wired" and that A15 rides the existing
+> `smart_money` slot. **That premise was refuted and the rename merged** — the engine
+> modules are dead code (never instantiated), the 5 slots carry Sackmann/CLOB
+> EVERYWHERE incl. prod (`RealSignalSource`), and there is no `smart_money` slot
+> anymore (it is `surface_advantage`, carrying Sackmann surface edge). Live edge
+> signals now ride a SEPARATE additive Edge layer. See `docs/optimization_backlog.md`
+> F1 for the ground truth.
 
 ## 0. Goal & honest framing
 
@@ -16,6 +26,27 @@ and see whether it can master an edge of **gain ≥ 0.2** → graduate to live.
 B′ cross_market NO-GO). So the bar is now *"info the market has not priced in,
 live-only."* **A NO-GO is a likely and acceptable outcome** — Stage 2 is the
 experiment to find out, run honestly.
+
+> **UPDATE (2026-06-17) — research + Codex review reframe this from a "build" into a
+> bounded FALSIFICATION experiment.** A 23-agent, web-grounded, adversarially-verified
+> search over 11 candidate alpha signals (your 4 — micro-climate, medical/physio,
+> Hawk-Eye/biomechanics, umpire/equipment — plus live point-by-point, PM crowd-fade,
+> cross-market timing, news/withdrawal velocity, schedule/fatigue, weather-disruption,
+> retirement-propensity) returned **11/11 NO_GO** (§2). The only thing passing the
+> *obtainability* gate is **PM-internal microstructure** (order book / trades / holders —
+> free, no auth, genuinely untested). A code-grounded Codex review hardened the design
+> (§3/§4 deferrals + mandatory guards); its verdict was **GO-WITH-CHANGES** on a *small*
+> falsification Stage-2, else **NO-GO → ship the Stage-1 能学 demo as the deliverable**.
+>
+> **Separate two questions — do not conflate them:**
+> - **(a) START the mock-bet loop** — agent paper-trades live PM tennis on the 5
+>   Sackmann/CLOB baseline signals. **Doable fast** = 2 stubs + a flag + ONE minimal
+>   honesty guard (§4 Block 1). Needs NO edge signal. It will most likely *lose to
+>   fees* (no edge) — that is the honest baseline, and it is fine; the loop running is
+>   the milestone.
+> - **(b) FIND a real edge** — likely NO-GO. Run it as a bounded falsification
+>   experiment: ONE isolated PM-internal probe at a time, pre-registered metric +
+>   placebo + holdout + hard NO-GO rule + fee/spread-net scoring (§4 Block 2).
 
 ## 1. Readiness matrix
 
@@ -32,107 +63,195 @@ experiment to find out, run honestly.
 | **`TickInputSource` production adapter** | 🔴 stubbed | **CRITICAL**: `_IdleTickInputSource` → NO_BET every tick |
 | **`SettlementClient` adapter** | 🔴 stubbed | **CRITICAL but cheap**: `_NoopSettlementClient`; parser exists |
 | Live OPEN-market discovery (closed=false) | 🟡 partial | batch path filters `closed=true`; need continuous open polling |
-| `tennis_technical` async Engine wrapper (T-B-015) | 🟡 partial | primitives ready, no async wrapper; workaround = neutral-0 slot |
-| A15 smart-money wallet whitelist | 🔴 stubbed | 10 dummy wallets; real Track-E scan is the **edge-data dependency** |
+| `tennis_technical` live compute (T-B-015) | 🟡 partial | `RealSignalSource.elo_signal` already computes this slot; the separate async-Engine wrapper is likely redundant post-rename — the live TickInputSource should reuse RealSignalSource (decide in step ②) |
+| A15 smart-money wallet whitelist | 🔴 stubbed → **DEFERRED** | NBA dummy stubs; wiring now leaks survivorship bias — needs a tennis as-of Track-E queue first (§2, Block 3) |
 | No-look-ahead / paper-safety guards | 🟡 partial | PIT gate exists; missing far-future audit test + decision-time-fill assert |
-| Graduation gate (`gain ≥ 0.2`) | 🔴 missing | no coded metric; units undefined; needs net-of-cost + stat guard |
+| Graduation gate (`gain ≥ 0.2`) | 🔴 missing | units now DEFINED (§5 #1: net ROI/EV, cost-haircut, placebo NO-GO guard) — still uncoded; required for *claiming edge*, not for *starting the loop* |
 | Async streaming (`T-B-007`) | ⬜ missing | **NOT needed for v1 polling**; only if edge window is sub-second |
 | Agent→dashboard real-time WS | ⬜ missing | low priority; file-poll already delivers telemetry |
 | Env config + L5 gate flag | 🔴 missing | `NEXT_PUBLIC_L5_COMPLETE`, `SANDBOX_STATE_DIR`, etc. |
 
-**Verdict**: a live paper loop is **2 critical stubs + a flag** away. Shortest path:
-a polling spine on the REST layer (skip async `T-B-007`), one live signal (A15)
-end-to-end, paper trades to JSONL, dashboard via file-poll.
+**Verdict**: a live paper loop is **2 critical stubs + a flag + 1 honesty guard**
+away (§4 Block 1). Shortest path: a polling spine on the REST layer (skip async
+`T-B-007`), the **5 Sackmann/CLOB baseline signals** (NO edge signal needed to
+start — A15/D1 are deferred, see §2), paper trades to JSONL, dashboard via file-poll.
+The "graduation gate" row stays 🔴 — it is required for *claiming an edge*, not for
+*starting the loop*.
 
-## 2. Live-signal candidates (ranked)
+## 2. Live-signal candidates — research verdict: 11/11 NO_GO (2026-06-17)
 
-| id | signal | data source | verdict |
+A 23-agent, web-grounded, adversarially-verified search killed every external-data
+candidate on TWO gates: *obtainable by us* AND *not already priced*. **Do NOT reopen
+these** (each fails for the stated, durable reason):
+
+| candidate | why killed |
+|---|---|
+| Hawk-Eye / radar / biomechanics raw | proprietary (Sony / Tennis Data Innovations), live feed sold only to books via Sportradar — unobtainable AND already priced. |
+| Micro-climate & aerodynamics | obtainable slice (lat-lon weather + altitude) is fully priced; the unpriced slice (court-level micro-climate) has no accessible feed. |
+| Medical & physiological intel | only structured feed (Sportradar MTO) is enterprise-paywalled AND a simultaneously-broadcast public event = zero latency edge; no mandatory injury report. |
+| Umpire & equipment bias | umpire feed paywalled + not pre-published; its line-call mechanism was **abolished by ELC Live across ATP + slams in 2025**; CPI/ball static + redundant with the surface baseline. |
+| Weather → schedule disruption | raw forecast free, but the edge variable (in-play resumption state) is unobtainable; PM explicitly reprices on weather/suspensions; only a handful of qualifying events/yr. |
+| News / withdrawal / social velocity | **PM last-fair-price settlement on pre-match withdrawals (ITF flat $0.50) nullifies it by VENUE RULE** regardless of speed; in-play window beats any news API. |
+| Retirement / walkover propensity | static leg priced + weak post-fee (set-consensus class); live distress signal unobtainable + look-ahead (RET is an end-of-match label). |
+| Schedule / travel / fatigue | crude proxy already in the `rest_recency` baseline + every sharp line; live layer has no free historical order-of-play archive (not backtestable) + no timing gap. |
+| Live point-by-point microstructure | indie feeds 5–15s downstream of the 1–2s sharp reprice; a non-co-located indie is structurally last-in-line in the most latency-arbitraged niche. |
+| **D1** cross-market sharp-line timing | bot-farmed (~$40M/yr extracted, sub-100ms co-located, 14/20 top PM wallets are bots); sharp feed **dead** (Pinnacle public API closed 2025-07-23) or paywalled (Betfair Live £499). Only lives as the existing A15/D1 timing thesis, NOT a fresh external-data probe. |
+| **A15** on-chain wallet flow | obtainable BUT the whitelist is **NBA stubs with illustrative addresses** (`smart_money_wallets.json`) — wiring it now leaks survivorship bias. **DEFERRED** until a tennis-specific *as-of* wallet queue exists (Codex). |
+
+**The only obtainable, genuinely-untested residual is PM-INTERNAL market structure**
+(order book / trade tape / holder distribution — all free, no auth, from the Gamma /
+CLOB / Data APIs we already use). Three cheap probes (~$0) — *expect each to die by
+spread/fees; each retires a distinct untested hypothesis*:
+
+| # | probe | the new question it asks | first step |
 |---|---|---|---|
-| **A15** | smart_money — informed on-chain wallet flow | `PolygonChainClient` (read-only `eth_getLogs`) + Track-E whitelist | **WIRE FIRST** — only market-unpriced candidate; infra mostly exists; cheapest honest probe |
-| **D1** | sharp_line — sharp-vs-soft order-flow *timing* | new `data/sources/odds_api.py` (Odds API / Betfair) + de-vig (`sharp_line.py` ready) vs live CLOB | **2nd probe** — tight 30s–5m window; may force streaming; defer until A15 proves the loop |
-| A16 | cross_market — set/match consensus consistency | `cross_market_signal.py` (built) | **learned component**, not standalone; INCONCLUSIVE pre-fee |
-| A18 | setprob — consensus → first-set prob | A18 probe (built) | **deprioritize** — +0.0035 Brier, NO-GO post-fee |
-| A11 | forward storm classifier | — | **not an edge** — survival/risk-mgmt; revisit as Stage-1 sizing |
+| **P2** | PM favorite-longshot calibration (thin tennis subset) | a documented PM bias (longshots overpriced ~−26%, favorites ~−3.6%) — does it hold on OUR thin ATP/WTA-250 subset NET of fee? **Backtest-only, no executor, low look-ahead (entry price only)** → the cheapest first falsification | pull historical PM tennis entry-price vs resolution (Gamma/Data API); bin by price decile; net-ROI per decile after spread+fees; reject unless the favorite bin clears the fee dead-zone; emit the calibration curve (reusable even if NO-GO) |
+| **P1** | PM order-flow reversion, decoupled from any sharp anchor | does an order-flow shock on a thin PM tennis book mean-revert WITHOUT an external fair value? **Codex Q4b: define as *short-term PM price regression after a flow shock*, NOT "mispricing" — else circular; a value edge requires an execution-PnL test net of cost** | stream CLOB WS + snapshot `/book` + Data API `/holders` on 20–30 live ATP/WTA-250 markets, strict as-of timestamps; log order-flow imbalance / holder skew vs forward 5/15/60-min PM price; EV net of the ACTUAL thin-book spread; filter 0.99/0.01 stale quotes (py-clob #180) |
+| **P3** | thin-book stale-quote SPREAD CAPTURE (market-MAKING, not prediction) | rest limit orders inside the absurd 0.99/0.01 spread — sidesteps the "is the price wrong" question that failed all 11. **Codex CRITICAL: needs a maker executor that does NOT exist — DEFERRED until built (§3 Lane B)** | (when built) scan Gamma for wide-spread markets; paper-sim symmetric resting orders; measure captured spread − adverse-selection toxicity |
 
-## 3. Architecture — how the agent uses live signals (PROPOSED, pending sign-off)
+**Order:** P2 first (backtest-only, ~$0, no new infra) → P1 (needs the live loop) →
+P3 (needs a new maker executor — deferred). Bottom line: no *information* edge
+survived; if anything graduates it will be a **market-structure / timing** finding.
 
-**Keep the 5 engines unchanged.** In LIVE they already carry 3 live signals
-(`smart_money`=wallets, `sentiment_llm`=Gemini, `crowd_volume`=Reddit — the
-backtest only substituted proxies because live wasn't wired). So:
+## 3. Architecture — how the agent uses live signals (CORRECTED 2026-06-16 post-rename + Codex-hardened 2026-06-17)
 
-- **A15 (first probe) rides the EXISTING `smart_money` slot** — no new engine.
-- **A separate additive "Edge layer" handles signals BEYOND the 5 slots** (D1,
-  cross-market, future arbitrary signals):
-  - `p_model = clip(p_model_base + κ_edge · Σ wᵢ·signalᵢ·confᵢ, 0, 1)` — additive;
-    `κ_edge=0` / all `wᵢ=0` reverts exactly to v3 (the honest null, à la κ_xm).
-  - **Plug-in**: each signal implements one `EdgeSignal.fetch(market, asof_ts) →
-    {value∈[-1,1], confidence, available_at, rationale}`; register one line.
-  - **Learner = the 能学 mechanism on real signals**: per-signal predictiveness
-    EMA (edge/ROI track record, NOT raw accuracy — target is *mispricing*), sparse
-    weights, exploration floor keeps measuring candidates.
-  - **"Too many / too messy" handling**: (1) sparsity/track-record gating → junk
-    auto-zeros, so adding signals is free; (2) candidate→active two-tier with an
-    active-set cap (top-K by proven edge); (3) decorrelate/dedup; (4) gate signal
-    *ingestion* by fetch cost (latency/$/look-ahead), not the model.
-- **Isolation-first** (A0 strong-optimizer-wins): run the first probe as a single
-  isolated signal for a clean causal read before fusing — readiness independently
-  flagged this. Favors a **separate edge estimator** over dumping into the shared
-  fusion EMA.
+**The 5 fusion slots are the Sackmann/CLOB BASELINE, not live-edge inlets.** Post-
+rename (PR #3) the slots are named for what they carry — `tennis_technical`=elo,
+`market_momentum`=CLOB momentum, `surface_advantage`/`head_to_head`/`rest_recency`=
+Sackmann surface/h2h/rest — and `real_signal_source.py::RealSignalSource` feeds them
+EVERYWHERE (backtest, demo, **and prod** via `_make_prod_signal_source`). The old
+engine modules (`smart_money.py`=wallets, `sentiment_llm.py`=Gemini, `crowd_volume.py`=
+Reddit) are **dead code, never instantiated** — they were NEVER on the live path, so a
+live signal **cannot just "ride an existing slot"** (overwriting `surface_advantage`
+with wallet flow would destroy its Sackmann baseline). In a LIVE mock the same 5
+baseline signals are computed live (`asof_ts=now`) → `p_model_base`.
+
+**Live edge signals ride a SEPARATE Edge layer ON TOP of the 5-slot baseline, in TWO
+LANES** (Codex review hardened this), NOT "wire a live signal into a Sackmann slot":
+
+**Lane A — DIRECTIONAL (fusible into `p_model`):**
+- `p_model = clip(p_model_base + κ_edge · Σ wᵢ·signalᵢ·confᵢ, 0, 1)` — additive;
+  `κ_edge=0` / all `wᵢ=0` reverts exactly to v3 (the honest null, à la κ_xm / B′).
+  ⚠️ The scalar being *safe* is NOT evidence of edge — κ_xm had the same shape and was NO-GO.
+- **Plug-in**: each signal implements one `EdgeSignal.fetch(market, asof_ts) →
+  {value∈[-1,1], confidence, available_at, rationale}`. **Pre-register the full schema**
+  (`available_at`, as-of order-book snapshot id, decision price, fill price, post-fill
+  move) so look-ahead is auditable.
+- **First directional candidates = PM-internal P2 then P1 (§2), NOT A15.** **A15 is
+  DEFERRED** (Codex: the wallet whitelist is NBA stubs — wiring it now leaks survivorship
+  bias; the kept `SmartMoneyEngine` becomes the A15 EdgeSignal ONLY after a tennis-specific
+  *as-of* wallet queue exists).
+- **Learner = the 能学 mechanism on real signals, but HARDENED** (Codex HIGH — the raw
+  per-engine `sign(pnl)·bet_dir·score` credit, `weight_updater.py:371-399`, will overfit
+  sparse, coincidentally co-firing signals): per-signal **isolation + holdout + placebo**
+  before any signal earns weight; sparsity gating (junk auto-zeros); candidate→active
+  two-tier (top-K by *proven* edge); a **per-signal exploration BUDGET CAP + statistical-
+  uselessness stop** so probing junk does not bleed the $100 bankroll; gate *ingestion*
+  by fetch cost, not the model.
+
+**Lane B — MARKET-MAKING (P3 spread capture; NOT fused into `p_model`):**
+- A different *action* (provide liquidity) with a different *metric* (captured spread −
+  adverse-selection toxicity) — outside the 能学 directional-weight survival loop.
+- **Codex CRITICAL — it does not exist yet.** The loop today passes one decision price to
+  `place_order(price,size,side)`; there is **no order-book state, no maker/limit orders,
+  no cancels, no queue position, no partial-fill / toxicity tracking**
+  (`sandbox_phase2_loop.py:510-548`, `polymarket_sandbox_executor.py:166-269`). Lane B is a
+  **separate executor + inventory/risk ledger — a future subsystem, DEFERRED**, not a flag.
+
+**Isolation-first** (A0 strong-optimizer-wins): run ONE isolated probe at a time for a
+clean causal read before any fusing.
 
 ## 4. Ordered dev checklist (dependency-aware)
 
-1. **SettlementClient** — wrap `polymarket_settlement.py` (inject http client),
-   swap over `_NoopSettlementClient` (`main.py:2102`). *small* — restores the whole
-   PnL→BREATH→weight feedback chain. **(do first)**
-2. **TickInputSource (REST polling)** — live OPEN tennis-market discovery
-   (gamma `closed=false`) + live CLOB price + liquidity cap; return a full 5-key
-   signals dict (unwired engines emit neutral-0); swap over `_IdleTickInputSource`
-   (`main.py:2418`). *medium* — uses the live-today REST clients, skips async T-B-007.
-   *(depends: 1)*
-3. **Flip real learning** — `GENESIS_REAL_LEARNING=1`, confirm real `WeightUpdater`
-   on the poller; keep `sentiment_llm` frozen for v1 to reduce variables. *small* *(depends: 2)*
-4. **Wire A15 end-to-end** — `smart_money` via `PolygonChainClient` into the fanout,
-   initially with the stub whitelist, to prove a real tick→paper-bet→settle→weight
-   cycle. *medium* *(depends: 2)*
-5. **No-look-ahead + paper-safety pass** — assert `asof_ts=now` PIT on every signal;
-   fill price recorded at decision time pre-move; settlement only from gamma
-   resolution; far-future-timestamp audit test. *medium* *(depends: 4)* **mandatory before trusting any number.**
-6. **Real A15 Track-E whitelist** (≥30 settled, ≥60% win, >$5k PnL) — the actual
-   edge-data dependency; flag survivorship/NBA→tennis transfer risk in the run log.
-   *large* *(depends: 4)*
-7. **Run the live paper loop** (multi-day) → JSONL; verify open→settled, BREATH
-   deltas, weight updates; capture the first A15 edge readout. *medium* *(depends: 6)*
-   **first go/no-go on whether any unpriced-info edge exists.**
-8. **Graduation gate** — implement net-of-cost `gain ≥ 0.2` over a held-out window
-   with fee/spread/thin-liquidity haircut + cluster-CI / honest-account guard that
-   can return NO-GO. *medium* *(depends: 7)*
-9. **Surface /mock** — `NEXT_PUBLIC_L5_COMPLETE` + `SANDBOX_STATE_DIR`, point
-   `/api/sandbox` at the loop state dir; file-poll, no WS server. *small* *(depends: 7)*
-10. **2nd probe — D1 sharp_line** — `data/sources/odds_api.py` + de-vig vs live CLOB
-    as a second edge signal. *medium* *(depends: 7)*
-11. **tennis_technical wrapper (T-B-015)** — move from 4 live engines to full 5. *medium* *(depends: 4)*
-12. **E2E integration test** — market→paper-bet→settle→weight across ticks. *medium* *(depends: 7)*
-13. *(optional)* real-time WS/SSE push. *(depends: 9)*
-14. *(deferred)* `T-B-007` async streaming — **only if** polling proves too slow for
-    the edge window (a null could be latency-limited, not edge-absent). *large* *(depends: 10)*
+### Block 1 — Minimal viable START: the loop on baseline (NO edge signal needed)
+*Goal: agent paper-trades live PM tennis on the 5 Sackmann/CLOB baseline signals →
+"mock bet started." It will likely lose to fees (no edge) — that is the honest
+baseline, and the loop running IS the milestone.*
+
+1. **SettlementClient** — wrap `polymarket_settlement.py` (inject http client), swap
+   `_NoopSettlementClient` (`main.py:2102`). *small* — restores PnL→BREATH→weight. **(do first)**
+2. **TickInputSource (REST polling)** — live OPEN tennis-market discovery (gamma
+   `closed=false`) + live CLOB price + liquidity cap; return the 5-key BASELINE signals
+   from `RealSignalSource` with `asof_ts=now`; swap `_IdleTickInputSource` (`main.py:2418`).
+   *medium* — reuses live-today REST clients; skips async T-B-007; makes the old
+   per-engine wrapper (T-B-015) redundant. *(depends: 1)*
+3. **Flag + env** — `GENESIS_REAL_LEARNING=1`, `SANDBOX_STATE_DIR`, etc.; confirm real
+   `WeightUpdater` on the poller; keep the β₁ slot (`head_to_head`) frozen for v1. *small* *(depends: 2)*
+4. **Minimal honesty guard (MANDATORY even for v1)** — decision-time fill price (NOT
+   post-move); `asof_ts=now` PIT on every signal; settlement only from gamma resolution;
+   far-future-timestamp audit test; **AND a fee/spread/thin-liquidity haircut on every
+   paper PnL** (Codex HIGH — the A18 +pre-fee/−post-fee trap). *small/medium* *(depends: 2)*
+   — **without this the loop runs but every number is a lie.**
+5. **Surface /mock** — `NEXT_PUBLIC_L5_COMPLETE` + `SANDBOX_STATE_DIR`; point `/api/sandbox`
+   at the loop state dir; file-poll, no WS server. *small* *(depends: 3)*
+   → **At this point the mock bet is RUNNING.** Everything below is the *find-edge* experiment.
+
+### Block 2 — Falsification probes (FIND edge — bounded, one at a time)
+6. **DEFINE `gain` (Codex CRITICAL — BEFORE any edge claim)** — net ROI/EV per $ staked,
+   after fees + half-spread/crossing + failed fills + liquidity caps; Brier a *diagnostic
+   only*, monetary edge primary; with a **cluster-bootstrap / placebo NO-GO-capable stat
+   guard**. Without this the design can manufacture a false graduation. *medium*
+7. **Probe P2 — PM favorite-longshot calibration** (§2) — **backtest-only, no executor,
+   no live loop**; historical PM tennis entry-price vs resolution, net-ROI per price
+   decile, NO-GO unless the favorite bin clears the fee dead-zone. **Cheapest first
+   falsification (~$0).** *small* *(depends: 6)*
+8. **Learner-isolation harness (Codex HIGH)** — per-candidate isolation + holdout + placebo
+   + exploration budget cap + statistical-uselessness stop + cluster/market-family guard
+   (no single event/player/bot-wallet may dominate apparent edge). *medium* *(depends: 6)*
+   — **required before trusting the 能学 learner on real sparse signals.**
+9. **Verify cross-life weight persistence + decouple lifecycle (Codex relay)** — confirm
+   the 能学 EMA carries learning ACROSS reincarnations (Stage-1 did); if a sparse real
+   signal needs 50–100+ returns but a life is ~20 bets ($100/$5), decouple Stage-2's
+   lifecycle/survival params from the Stage-1 survival game, or accept the convergence
+   NO-GO. *small (analysis) + medium (decouple)* *(depends: 6)*
+10. **Probe P1 — PM order-flow reversion** (§2) — on the live loop; measure short-term PM
+    price regression after a flow shock, then an **execution-PnL test net of cost** (Q4b:
+    else circular). *medium* *(depends: 4, 8)*
+11. **Run the live paper loop** (multi-day) → JSONL; verify open→settled, BREATH deltas,
+    weight updates; the first honest go/no-go on whether any PM-internal edge survives net
+    of cost. *medium* *(depends: 10)*
+12. **E2E integration test** — market→paper-bet→settle→weight across ticks. *medium* *(depends: 4)*
+
+### Block 3 — DEFERRED (do NOT start with these)
+- **A15 on-chain wallet flow** — needs a tennis-specific *as-of* wallet queue (Track-E
+  ≥30 settled, ≥60% win, >$5k PnL); NBA stubs are dangerous. Revisit only after Block 2.
+- **D1 / cross-market timing** — NO_GO as a fresh probe (bot-farmed, sharp feed dead/paywalled).
+- **Lane B / P3 spread capture** — no maker executor exists (§3); a separate subsystem.
+- **T-B-007 async streaming** — only if polling proves too slow for an edge window P1 finds.
+- **Real-time WS/SSE push** — low priority; file-poll already delivers telemetry.
 
 ## 5. Open decisions (resolve before/early in planning)
 
-1. **`gain ≥ 0.2` units** — Brier improvement? ROI? EV/bet? breath-flip-positive?
-   `divinity-mechanism-spec §4` references it but code has no definition.
+1. **`gain ≥ 0.2` units** — ~~Brier? ROI? EV/bet?~~ **Codex answer (adopt):** net
+   ROI/EV per $ staked, computed after fees + half-spread/crossing + failed fills +
+   liquidity caps; Brier as a *secondary diagnostic only*, monetary edge primary; with a
+   cluster-bootstrap / placebo guard that can return NO-GO. ⚠️ the spec's `gain≥0.2`
+   comes from *synthetic* deployment economics — it is NOT a real PM edge measurement.
 2. **Track-E wallet scan** — runnable now? Does it produce a *tennis*-relevant
    whitelist or only the NBA-trained set the fixture comment mentions?
-3. **Polling cadence vs edge half-life** — is the wallet→price (A15) / sharp→PM (D1)
-   lag long enough for a 2–30s poll, or sub-second (→ T-B-007)? Determines whether a
-   null means "no edge" or "too slow."
-4. **Isolation vs fusion** — run A15 alone (cleanest causal read; recommended) or all
-   candidates fused (risks A0 strong-optimizer-wins).
+3. **Polling cadence vs edge half-life** — is the P1 order-flow→PM-price reversion
+   window long enough for a 2–30s poll, or sub-second (→ T-B-007)? Determines whether a
+   null means "no edge" or "too slow." (A15/D1 deferred, so this is now a P1 question.)
+4. **Isolation vs fusion** — **ADOPTED: isolation-first** (one probe at a time, P2 then
+   P1); fusing many candidates risks A0 strong-optimizer-wins. Both the research and
+   Codex flagged this independently.
 5. **Fee/spread/liquidity model** — the haircut that turned A18 +pre-fee → −post-fee;
    needed to net-score mock wins on thin PM tennis markets.
 6. **On-chain L5→Phase-2 gate** — must the `advancePhase` tx fire before the loop
    boots (competition narrative), or is the sandbox `_NoopPhaseReader` acceptable?
-7. **Edge-engine architecture (§3)** — sign off on the separate additive Edge layer
-   + sparse/candidate-active gating, or keep everything in the 5-engine fusion.
+7. **Edge-engine architecture (§3)** — sign off on the 2-lane Edge layer. **The rename +
+   Codex review settle most of this**: Lane A = additive `κ_edge` term on `p_model` +
+   hardened 能学 learner; Lane B (market-making) = a separate deferred subsystem. The 5
+   slots are a Sackmann/CLOB baseline and can't absorb a live edge signal, so "dump
+   everything into the 5-slot fusion" is foreclosed. Open sub-choice: how much of the
+   learner-isolation harness (decision #8 below) is v1 vs later.
+8. **能学 EMA across reincarnations + Stage-2 lifecycle (Codex)** — does the learned EMA
+   persist across lives (Stage-1 implies yes) or reset on death? If sparse-signal
+   convergence (50–100+ returns) exceeds a life (~20 bets), do we decouple Stage-2's
+   lifecycle/survival params from the Stage-1 survival game, or accept the NO-GO?
+9. **Lane B scope** — build the maker executor + inventory/risk ledger for P3 spread
+   capture as a separate Stage-2 module, or declare it out of scope and Stage-2 stays
+   directional-only?
 
 ## 6. Honest caveats (carry into every readout)
 
@@ -143,3 +262,8 @@ backtest only substituted proxies because live wasn't wired). So:
 - **Latency confound** — null on polling ≠ no edge; may be too slow.
 - **A15 survivorship/selection bias** — whitelist retro-fit on past winners; NBA→tennis transfer unproven.
 - **Goalpost risk** — fix `gain≥0.2` + its cost-net/stat guard up front, or risk manufacturing a graduation.
+- **(Codex) Learner overfits sparse signals** — the per-engine `sign(pnl)·score` credit rewards coincidentally co-firing signals; isolation/holdout/placebo are not optional.
+- **(Codex) Lane B is a subsystem, not a flag** — spread capture needs a maker executor + inventory/risk ledger that does NOT exist today.
+- **(Codex) Convergence vs lifetime** — ~20 bets/life vs 50–100+ for a weak real signal; verify cross-life EMA persistence + decouple lifecycle, or it is a structural NO-GO.
+- **(Codex) "Internal price-move" ≠ "outcome edge"** — a PM-internal signal predicting the next PM *price* move is not enough; it must predict the final outcome *net of cost*, proven by an execution-PnL test (else circular).
+- **(Codex) Honest fallback** — if the guards above aren't accepted, the correct deliverable is the **Stage-1 能学 demo + a "no proven real edge yet" writeup**, not a forced graduation.

@@ -48,6 +48,25 @@ experiment to find out, run honestly.
 >   experiment: ONE isolated PM-internal probe at a time, pre-registered metric +
 >   placebo + holdout + hard NO-GO rule + fee/spread-net scoring (§4 Block 2).
 
+> **DIRECTION (2026-06-17) — Stage-2 transitions the agent from PREDICTION + SURVIVAL
+> to PREDICTION + TRADING + SURVIVAL.** Backtest was hold-to-resolution on first-set
+> markets = pure outcome prediction (the efficiency wall). Mock bet adds a **TRADING**
+> dimension: Polymarket lets you **SELL a position before the market resolves**, so the
+> agent can take **full-match + in-play** positions (NOT limited to first set) and EXIT
+> dynamically (滚球 / dynamic close) — buy, then sell into a favorable price move instead
+> of holding to settlement.
+> - ⚠️ This is **NOT arbitrage** (the move can reverse; in-play EV = market fair value —
+>   the winning leg of the example is matched by a symmetric losing leg), and **trading
+>   capability ≠ edge**.
+> - But it (a) is the execution **PREREQUISITE for the only surviving theses** — P1
+>   order-flow reversion and P3 spread capture both require *exiting before resolution*;
+>   (b) shifts the game from "predict the final outcome" to "trade short-term price moves"
+>   = the PM-internal microstructure surface; (c) improves the **survival** profile (cut
+>   losers / bank winners before a reversal kills the breath).
+> - Catch: it relocates to the most **bot-contested** arena (sub-100ms, $40M/yr) and pays
+>   the **spread TWICE per round-trip** on thin books. Build it because the survivors need
+>   it — do not mistake "I can exit" for "I have edge."
+
 ## 1. Readiness matrix
 
 | component | status | gap |
@@ -65,6 +84,7 @@ experiment to find out, run honestly.
 | Live OPEN-market discovery (closed=false) | 🟡 partial | batch path filters `closed=true`; need continuous open polling |
 | `tennis_technical` live compute (T-B-015) | 🟡 partial | `RealSignalSource.elo_signal` already computes this slot; the separate async-Engine wrapper is likely redundant post-rename — the live TickInputSource should reuse RealSignalSource (decide in step ②) |
 | A15 smart-money wallet whitelist | 🔴 stubbed → **DEFERRED** | NBA dummy stubs; wiring now leaks survivorship bias — needs a tennis as-of Track-E queue first (§2, Block 3) |
+| **Trading layer — SELL/EXIT + position manager + mark-to-market** | 🔴 missing | **VERIFIED absent**: `ActionKind` = BET/NO_BET only (`state.py:48-49`); zero sell/exit/close/mark-to-market code → today the agent is **hold-to-resolution only**. Required for in-play / P1 / P3. **Taker exit — simpler than the Lane-B maker subsystem.** |
 | No-look-ahead / paper-safety guards | 🟡 partial | PIT gate exists; missing far-future audit test + decision-time-fill assert |
 | Graduation gate (`gain ≥ 0.2`) | 🔴 missing | units now DEFINED (§5 #1: net ROI/EV, cost-haircut, placebo NO-GO guard) — still uncoded; required for *claiming edge*, not for *starting the loop* |
 | Async streaming (`T-B-007`) | ⬜ missing | **NOT needed for v1 polling**; only if edge window is sub-second |
@@ -158,6 +178,15 @@ LANES** (Codex review hardened this), NOT "wire a live signal into a Sackmann sl
   (`sandbox_phase2_loop.py:510-548`, `polymarket_sandbox_executor.py:166-269`). Lane B is a
   **separate executor + inventory/risk ledger — a future subsystem, DEFERRED**, not a flag.
 
+**Trading layer (orthogonal to the Edge layer — prediction vs execution):** the Edge
+layer above produces a *directional view* (`p_model`); the **trading layer** decides
+*entry, exit, and sizing* on that view. Stage-2 adds **dynamic EXIT** (`SELL`) so a
+position can be closed before resolution (§0 DIRECTION). This is a **TAKER** action (hit
+the bid to unwind) — distinct from, and simpler than, Lane B's *maker* market-making. It
+needs a `SELL`/`EXIT` `ActionKind`, a position-state tracker, and mark-to-market PnL. The
+agent's three pillars become **prediction (`p_model`) + trading (entry/exit/size) +
+survival (breath/permadeath)**.
+
 **Isolation-first** (A0 strong-optimizer-wins): run ONE isolated probe at a time for a
 clean causal read before any fusing.
 
@@ -184,7 +213,23 @@ baseline, and the loop running IS the milestone.*
    — **without this the loop runs but every number is a lie.**
 5. **Surface /mock** — `NEXT_PUBLIC_L5_COMPLETE` + `SANDBOX_STATE_DIR`; point `/api/sandbox`
    at the loop state dir; file-poll, no WS server. *small* *(depends: 3)*
-   → **At this point the mock bet is RUNNING.** Everything below is the *find-edge* experiment.
+   → **At this point the mock bet is RUNNING** (hold-to-resolution baseline). Everything
+   below is the *trading* layer + the *find-edge* experiment.
+
+### Block 1.5 — Trading layer (PREDICTION + TRADING + survival; enables in-play)
+*Goal: the agent can EXIT a position before resolution (滚球 / dynamic close) — the
+execution capability the surviving probes require. NOT needed for the Block-1 loop.*
+
+- **T1. `SELL`/`EXIT` action + position manager** — add a `SELL` `ActionKind`; track open
+  positions (token, entry price, size) + their live mark from the CLOB mid; let the agent
+  decide to unwind (TAKER — hit the bid). *medium* *(depends: 4)*
+- **T2. Mark-to-market PnL + round-trip cost** — realize PnL on exit at the fill price
+  (not resolution); charge the spread on BOTH legs (paid twice per round-trip); feed the
+  realized PnL into the BREATH / weight loop. *medium* *(depends: T1)* — **the spread-tax
+  doubling is the honest killer of most in-play round-trips.**
+- **T3. In-play tick source** — extend TickInputSource to also poll OPEN markets the agent
+  already HOLDS (live mark + signals), not just new-entry candidates; allow full-match +
+  in-play markets, not first-set only. *small* *(depends: 2, T1)*
 
 ### Block 2 — Falsification probes (FIND edge — bounded, one at a time)
 6. **DEFINE `gain` (Codex CRITICAL — BEFORE any edge claim)** — net ROI/EV per $ staked,
@@ -206,7 +251,7 @@ baseline, and the loop running IS the milestone.*
    NO-GO. *small (analysis) + medium (decouple)* *(depends: 6)*
 10. **Probe P1 — PM order-flow reversion** (§2) — on the live loop; measure short-term PM
     price regression after a flow shock, then an **execution-PnL test net of cost** (Q4b:
-    else circular). *medium* *(depends: 4, 8)*
+    else circular). *medium* *(depends: 4, 8, T1–T3 — trading the reversion REQUIRES exit)*
 11. **Run the live paper loop** (multi-day) → JSONL; verify open→settled, BREATH deltas,
     weight updates; the first honest go/no-go on whether any PM-internal edge survives net
     of cost. *medium* *(depends: 10)*
@@ -267,3 +312,6 @@ baseline, and the loop running IS the milestone.*
 - **(Codex) Convergence vs lifetime** — ~20 bets/life vs 50–100+ for a weak real signal; verify cross-life EMA persistence + decouple lifecycle, or it is a structural NO-GO.
 - **(Codex) "Internal price-move" ≠ "outcome edge"** — a PM-internal signal predicting the next PM *price* move is not enough; it must predict the final outcome *net of cost*, proven by an execution-PnL test (else circular).
 - **(Codex) Honest fallback** — if the guards above aren't accepted, the correct deliverable is the **Stage-1 能学 demo + a "no proven real edge yet" writeup**, not a forced graduation.
+- **Trading ≠ edge** — being able to EXIT (滚球) is optionality, not alpha; in-play EV = the market's fair value (a martingale). The example's winning leg (sell the spike for +60%) has a symmetric losing leg (the run reverses, you cut at −60%). It enables the surviving theses; it does not create them.
+- **Spread tax DOUBLES on round-trips** — a buy-then-sell pays the thin-book spread twice; this is the honest killer of most in-play trades and must be in the cost model from day one.
+- **In-play is the MOST bot-contested arena** — the sub-100ms co-located cohort that extracted ~$40M/yr lives here; a polling indie is structurally late.

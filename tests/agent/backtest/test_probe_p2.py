@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-# Warm data.etl before data.sources (cold-start import cycle; see polymarket_trades).
-import data.etl.pit_correct  # noqa: F401
 from data.sources.polymarket_trades import PROVENANCE_ACTUAL_TRADE, TradePrice
 from scripts.probe_p2_favorite_longshot import ResolvedMarket, run_p2_probe
 
@@ -46,6 +44,30 @@ def test_fail_closed_skips_markets_without_real_trade() -> None:
     res = run_p2_probe(markets, trades_client=_FakeTradesClient(prices), n_deciles=1)
     assert res.n_scored == 1          # only the real-trade market was scored
     assert res.n_skipped == 2         # the missing + the non-actual_trade one
+
+
+class _RecordingTradesClient:
+    """Records the (market_id, asof_ts) it was queried with."""
+
+    def __init__(self, prices: dict[str, TradePrice | None]) -> None:
+        self._prices = prices
+        self.asof_calls: list[tuple[str, object]] = []
+
+    def entry_price(self, market_id: str, *, asof_ts=None) -> TradePrice | None:
+        self.asof_calls.append((market_id, asof_ts))
+        return self._prices.get(market_id)
+
+
+def test_per_market_asof_is_parsed_and_passed_to_entry_price() -> None:
+    # MED-1: a per-market PIT cutoff is parsed to a tz-aware datetime and forwarded
+    # to entry_price, so the entry is pinned at/before the decision time.
+    client = _RecordingTradesClient({"m": _tp("m", 0.70)})
+    run_p2_probe(
+        [ResolvedMarket("m", favorite_won=True, asof_ts="2025-06-01T12:00:00+00:00")],
+        trades_client=client,
+        n_deciles=1,
+    )
+    assert client.asof_calls == [("m", datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC))]
 
 
 def test_favorite_price_is_max_of_both_sides() -> None:

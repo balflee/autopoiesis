@@ -2094,6 +2094,13 @@ def _build_production_loop_factory(
             decision_log=_NoopDecisionLog(),
             engine_signals=None,
         )
+        # V1.3 LIVE mode flips the settlement-realism flags (Codex Phase-3 HIGH):
+        #   * side_correct_pricing → a NO bet recorded at the YES mid settles at the
+        #     NO leg's effective odds (else a NO winner is priced at YES odds);
+        #   * require_cost_fields → a RESOLVED bet missing cost stamps RAISES
+        #     (fail-closed) instead of being booked cost-blind.
+        # Both stay OFF for replay/idle (byte-unchanged).
+        _sandbox_live = os.environ.get("SANDBOX_LIVE") == "1"
         loop = SandboxPhase2Loop(
             base=base,
             state_dir=state_dir,
@@ -2142,6 +2149,9 @@ def _build_production_loop_factory(
             # below) — the advisor is NOT called from _fire_reflection.
             reflection_engine=_make_prod_reflection_engine(state_dir=state_dir),
             populate_reflection_window=_l6_reflection_optimize_enabled(),
+            # V1.3 LIVE settlement-realism flags (see _sandbox_live above).
+            side_correct_pricing=_sandbox_live,
+            require_cost_fields=_sandbox_live,
             # T-B-031 queue wiring (Plan 2 / L1): thread the SHARED
             # RuntimeAgentRunner so operator-approved weight deltas
             # enqueued by the FastAPI approve route actually reach this

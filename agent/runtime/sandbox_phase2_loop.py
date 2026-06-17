@@ -882,6 +882,11 @@ class SandboxPhase2Loop:
         # ``False`` (default) = locked legacy formulas, byte-unchanged; only
         # the survival export turns it on.
         side_correct_pricing: bool = False,
+        # V1.4/V1.4b fail-closed cost guard (Codex Phase-3 HIGH) forwarded to the
+        # poller — a RESOLVED bet missing any execution-cost stamp RAISES at
+        # settlement. ``False`` (default) = legacy/replay tolerates None; the LIVE
+        # mode (V1.3) sets it True.
+        require_cost_fields: bool = False,
         # Value-betting mode (realism v3): when True the decide() call
         # receives ``price=inputs.price`` so the engine runs the
         # market-prior EV mode. ``False`` (default) = legacy signal
@@ -1037,6 +1042,7 @@ class SandboxPhase2Loop:
             sandbox_phase=self.weight_updater_phase.value,
             max_bet_pnl_usd=max_bet_pnl_usd,
             side_correct_pricing=side_correct_pricing,
+            require_cost_fields=require_cost_fields,
         )
 
         # Mutable in-memory state — populated by `_reconstruct_from_disk`.

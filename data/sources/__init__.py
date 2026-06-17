@@ -22,6 +22,13 @@ injected :class:`requests.Session` path each client exposes.
 
 from __future__ import annotations
 
+# Warm ``data.etl`` BEFORE ``data.sources._http`` to resolve the cold-start import
+# cycle (``_http`` imports ``data.etl.pit_correct``; ``data.etl.__init__`` imports
+# ``build_training_set`` → ``data.sources.nba`` → ``_http``). Importing data.etl first
+# caches pit_correct so ``_http`` initializes cleanly no matter which data.sources
+# submodule is the cold entry point (Codex Phase-3 LOW — removes the per-caller
+# warm-up that polymarket_trades + the P2 probe previously needed).
+import data.etl.pit_correct  # noqa: F401
 from data.sources._http import HttpClient, require_asof_ts
 from data.sources.nba import NBAClient, NBAGame
 from data.sources.polygon import ChainEvent, PolygonChainClient

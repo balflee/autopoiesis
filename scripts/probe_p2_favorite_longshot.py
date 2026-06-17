@@ -27,15 +27,11 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# Warm data.etl BEFORE importing data.sources so the repo's cold-start import cycle
-# (data.sources._http ↔ data.etl via nba) resolves — importing data.etl first caches
-# pit_correct, so _http initializes cleanly. Required for a standalone `python
-# scripts/probe_p2_favorite_longshot.py` run (graduation_gate is light + warms nothing).
-import data.etl.pit_correct  # noqa: F401
 from agent.backtest.graduation_gate import (
     DEFAULT_THRESHOLD,
     GraduationResult,
@@ -59,10 +55,14 @@ class ResolvedMarket:
     """One resolved tennis market: its id + whether the FAVORITE side won.
 
     The favorite entry PRICE is read live from the real-trades source; only the
-    resolved outcome (which side won) is supplied here."""
+    resolved outcome (which side won) is supplied here. ``asof_ts`` (ISO-8601, UTC) is
+    an OPTIONAL per-market PIT cutoff — the decision/open time; when set, the entry is
+    the earliest real trade AT/BEFORE it (Codex Phase-3 MED: pin the entry to a
+    pre-decision timestamp rather than the earliest trade ever returned)."""
 
     market_id: str
     favorite_won: bool
+    asof_ts: str | None = None
 
 
 @dataclass(frozen=True)
@@ -111,7 +111,10 @@ def run_p2_probe(
     scored: list[tuple[float, bool, float]] = []  # (favorite_price, won, cost_usd)
     n_skipped = 0
     for m in markets:
-        entry = trades_client.entry_price(m.market_id, asof_ts=asof_ts)  # type: ignore[arg-type]
+        # Per-market PIT cutoff takes precedence over the run-wide default (Codex
+        # Phase-3 MED) — a future trade can never be the entry.
+        cutoff = datetime.fromisoformat(m.asof_ts) if m.asof_ts else asof_ts
+        entry = trades_client.entry_price(m.market_id, asof_ts=cutoff)  # type: ignore[arg-type]
         # FAIL-CLOSED: no real trade, or a non-canonical provenance, → skip + log.
         if entry is None or entry.provenance != PROVENANCE_ACTUAL_TRADE:
             n_skipped += 1
@@ -167,12 +170,20 @@ def run_p2_probe(
 
 
 def _load_markets(path: Path) -> list[ResolvedMarket]:
-    """Load resolved markets from a JSON list of ``{market_id, favorite_won}``."""
+    """Load resolved markets from a JSON list of ``{market_id, favorite_won,
+    asof_ts?}`` (``asof_ts`` optional ISO-8601 PIT cutoff per market)."""
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return [
-        ResolvedMarket(market_id=str(r["market_id"]), favorite_won=bool(r["favorite_won"]))
-        for r in raw
-    ]
+    out: list[ResolvedMarket] = []
+    for r in raw:
+        asof = r.get("asof_ts")
+        out.append(
+            ResolvedMarket(
+                market_id=str(r["market_id"]),
+                favorite_won=bool(r["favorite_won"]),
+                asof_ts=str(asof) if asof else None,
+            )
+        )
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:

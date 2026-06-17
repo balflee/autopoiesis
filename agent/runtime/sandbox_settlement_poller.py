@@ -108,6 +108,7 @@ from agent.data.sandbox_state import (
     BetRecord,
     SandboxStateWriter,
     SettledBetRecord,
+    assert_cost_fields_present,
     execution_cost_usd,
     iter_jsonl,
 )
@@ -387,9 +388,17 @@ class SandboxSettlementPoller:
 
     # Optional side-correct pricing (realism rule #3) forwarded to
     # ``_compute_pnl`` — winners pay the taken leg's effective cost (NO pays
-    # ``1 - price``). ``False`` (default) is the LIVE-runtime contract:
-    # locked legacy formulas, byte-unchanged. See _compute_pnl.
+    # ``1 - price``). ``False`` (default) is the legacy contract: locked legacy
+    # formulas, byte-unchanged. The LIVE mode (V1.3) sets it True so a NO bet
+    # recorded at the YES mid is settled at the NO leg's effective odds.
     side_correct_pricing: bool = False
+
+    # V1.4/V1.4b fail-closed cost guard (Codex Phase-3 HIGH). ``False`` (default)
+    # = the legacy/replay path tolerates missing cost stamps (zero-cost, byte-
+    # unchanged). The LIVE/probe path sets it True so a RESOLVED bet missing any
+    # execution-cost stamp RAISES at settlement (``assert_cost_fields_present``)
+    # rather than being silently booked cost-blind.
+    require_cost_fields: bool = False
 
     # --------------------------------------------------------------------- #
     # Public entry point.
@@ -540,6 +549,11 @@ class SandboxSettlementPoller:
                 min_edge_at_bet=bet.min_edge_at_bet,
                 gamma_at_bet=bet.gamma_at_bet,
                 eff_min_edge_at_bet=bet.eff_min_edge_at_bet,
+                # Cost stamps survive the void flip too (Codex Phase-3 MED).
+                fill_price=bet.fill_price,
+                fee_bps=bet.fee_bps,
+                spread_paid_usd=bet.spread_paid_usd,
+                liquidity_cap_usd=bet.liquidity_cap_usd,
             )
         )
 
@@ -661,6 +675,14 @@ class SandboxSettlementPoller:
             return _PENDING
         assert isinstance(result, SettlementResult)
 
+        # Fail-closed cost guard (Codex Phase-3 HIGH): on the LIVE/probe path a
+        # RESOLVED bet MUST carry every execution-cost stamp — else its cost-NET
+        # PnL would be silently booked cost-blind. Raises here (a programming
+        # error: a LIVE bet without cost stamps), BEFORE _compute_pnl's lenient
+        # zero-cost fallback. The legacy/replay path leaves the flag False.
+        if self.require_cost_fields:
+            assert_cost_fields_present(bet)
+
         # Compute pnl_usd per the three locked formulas (+ the optional
         # survival-backtest profit cap; None on the live path). This single
         # value feeds BOTH the SettledBetRecord and the chain breath update,
@@ -718,6 +740,13 @@ class SandboxSettlementPoller:
                 min_edge_at_bet=bet.min_edge_at_bet,
                 gamma_at_bet=bet.gamma_at_bet,
                 eff_min_edge_at_bet=bet.eff_min_edge_at_bet,
+                # V1.4 cost stamps survive the flip too (Codex Phase-3 MED) so the
+                # latest open-bet row keeps the execution-cost provenance for
+                # reconciliation. None on legacy/replay rows ⇒ omitted, byte-identical.
+                fill_price=bet.fill_price,
+                fee_bps=bet.fee_bps,
+                spread_paid_usd=bet.spread_paid_usd,
+                liquidity_cap_usd=bet.liquidity_cap_usd,
             )
         )
 

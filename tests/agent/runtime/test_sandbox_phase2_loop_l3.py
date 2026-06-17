@@ -304,6 +304,7 @@ def _build_loop(
     env: dict[str, str] | None = None,
     max_bet_pnl_usd: float | None = None,
     side_correct_pricing: bool = False,
+    require_cost_fields: bool = False,
     value_betting: bool = False,
     effective_entry_price_floor: float | None = None,
     decision_engine: Any | None = None,
@@ -376,6 +377,7 @@ def _build_loop(
         env=env,
         max_bet_pnl_usd=max_bet_pnl_usd,
         side_correct_pricing=side_correct_pricing,
+        require_cost_fields=require_cost_fields,
         value_betting=value_betting,
         effective_entry_price_floor=effective_entry_price_floor,
         storm_enabled=storm_enabled,
@@ -416,6 +418,21 @@ def test_side_correct_pricing_threads_to_poller_and_defaults_false(
         tmp_path=tmp_path / "b", side_correct_pricing=True
     )
     assert loop_corrected._poller.side_correct_pricing is True
+
+
+def test_require_cost_fields_threads_to_poller_and_defaults_false(
+    tmp_path: Path,
+) -> None:
+    """Loop ctor ``require_cost_fields`` lands on the poller; default stays False
+    (legacy/replay tolerates missing cost stamps). LIVE mode (V1.3) sets it True so
+    a resolved cost-blind bet RAISES at settlement (Codex Phase-3 HIGH)."""
+    loop_default, _, _, _ = _build_loop(tmp_path=tmp_path / "a")
+    assert loop_default._poller.require_cost_fields is False
+
+    loop_guarded, _, _, _ = _build_loop(
+        tmp_path=tmp_path / "b", require_cost_fields=True
+    )
+    assert loop_guarded._poller.require_cost_fields is True
 
 
 class _RecordingDecisionEngine:

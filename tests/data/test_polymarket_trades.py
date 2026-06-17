@@ -10,11 +10,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-# Warm ``data.etl.pit_correct`` BEFORE ``data.sources`` to sidestep the repo's
-# cold-start import cycle (``data.sources._http`` ↔ ``data.etl`` via nba). Importing
-# data.etl first caches pit_correct, so _http resolves cleanly. (Same ordering the
-# data.etl tests rely on; only matters when this test runs in isolation.)
-import data.etl.pit_correct  # noqa: F401
 from data.sources.polymarket_trades import (
     PROVENANCE_ACTUAL_TRADE,
     PolymarketTradesClient,

@@ -221,6 +221,10 @@ def _seed_bet(
     expected_settle_ts: str = "2026-05-26T18:00:00+00:00",
     status: str = "open",
     signal_scores: dict[str, float] | None = None,
+    fill_price: float | None = None,
+    fee_bps: float | None = None,
+    spread_paid_usd: float | None = None,
+    liquidity_cap_usd: float | None = None,
 ) -> BetRecord:
     bet = BetRecord(
         bet_id=bet_id,
@@ -232,6 +236,10 @@ def _seed_bet(
         expected_settle_ts=expected_settle_ts,
         status=cast(Any, status),
         signal_scores=signal_scores or {},
+        fill_price=fill_price,
+        fee_bps=fee_bps,
+        spread_paid_usd=spread_paid_usd,
+        liquidity_cap_usd=liquidity_cap_usd,
     )
     writer.append_open_bet(bet)
     return bet
@@ -266,6 +274,7 @@ def _build_poller(
     clock_now: datetime | None = None,
     max_bet_pnl_usd: float | None = None,
     side_correct_pricing: bool = False,
+    require_cost_fields: bool = False,
 ) -> tuple[SandboxSettlementPoller, FakeWeightUpdater, FakeChainAdapter, FakeStateHook, FakeSleeper]:
     wu = weight_updater or FakeWeightUpdater()
     ca = chain_adapter or FakeChainAdapter()
@@ -281,6 +290,7 @@ def _build_poller(
         sleeper=sl,
         max_bet_pnl_usd=max_bet_pnl_usd,
         side_correct_pricing=side_correct_pricing,
+        require_cost_fields=require_cost_fields,
     )
     return poller, wu, ca, sh, sl
 
@@ -542,6 +552,77 @@ def test_poller_side_correct_threads_to_settled_record_and_breath(
     expected = 5.0 * (1.0 / 0.90 - 1.0)
     assert settled[0]["pnl_usd"] == pytest.approx(expected)
     assert ca.calls == [pytest.approx(expected)]
+
+
+# --------------------------------------------------------------------------- #
+# Codex Phase-3 — fail-closed cost guard (HIGH) + cost-stamp flip copy (MED).
+# --------------------------------------------------------------------------- #
+
+
+def test_require_cost_fields_raises_on_resolved_cost_blind_bet(
+    writer: SandboxStateWriter, now: datetime,
+) -> None:
+    """LIVE/probe path (``require_cost_fields=True``): a RESOLVED bet missing its
+    execution-cost stamps RAISES at settlement (fail-closed) — never booked
+    cost-blind. The legacy/replay path (flag False) tolerates it."""
+    _seed_bet(writer, market_id="m-001", expected_settle_ts="2026-05-26T18:00:00+00:00")
+    script: dict[str, list[Any]] = {"m-001": [_resolved_result(market_id="m-001")]}
+    poller, _, _, _, _ = _build_poller(
+        writer,
+        settlement_client=FakeSettlementClient(script),
+        clock_now=now,
+        require_cost_fields=True,
+    )
+    with pytest.raises(ValueError, match="missing execution-cost stamps"):
+        _run(poller.tick())
+    # nothing was booked (fail-closed before _compute_pnl / settled write).
+    assert iter_jsonl(writer.settled_bets_path) == []
+
+
+def test_require_cost_fields_settles_when_stamps_present(
+    writer: SandboxStateWriter, now: datetime,
+) -> None:
+    """With every cost stamp present, the LIVE guard passes and the bet settles."""
+    _seed_bet(
+        writer, market_id="m-001", price=0.5, size_usd=10.0,
+        expected_settle_ts="2026-05-26T18:00:00+00:00",
+        fill_price=0.5, fee_bps=0.0, spread_paid_usd=0.0, liquidity_cap_usd=20.0,
+    )
+    script: dict[str, list[Any]] = {"m-001": [_resolved_result(market_id="m-001")]}
+    poller, _, _, _, _ = _build_poller(
+        writer,
+        settlement_client=FakeSettlementClient(script),
+        clock_now=now,
+        require_cost_fields=True,
+    )
+    _run(poller.tick())
+    settled = iter_jsonl(writer.settled_bets_path)
+    assert len(settled) == 1 and settled[0]["pnl_usd"] == pytest.approx(10.0)
+
+
+def test_settled_flip_marker_carries_cost_stamps(
+    writer: SandboxStateWriter, now: datetime,
+) -> None:
+    """Codex Phase-3 MED: the status-flip open-bet marker preserves the V1.4 cost
+    stamps so the latest open-bet row keeps execution-cost provenance."""
+    _seed_bet(
+        writer, market_id="m-001", price=0.5, size_usd=10.0,
+        expected_settle_ts="2026-05-26T18:00:00+00:00",
+        fill_price=0.52, fee_bps=200.0, spread_paid_usd=0.1, liquidity_cap_usd=20.0,
+    )
+    script: dict[str, list[Any]] = {"m-001": [_resolved_result(market_id="m-001")]}
+    poller, _, _, _, _ = _build_poller(
+        writer, settlement_client=FakeSettlementClient(script), clock_now=now,
+    )
+    _run(poller.tick())
+    # The latest open-bet row (the status="settled" flip marker) keeps the stamps.
+    rows = [r for r in iter_jsonl(writer.open_bets_path) if r["status"] == "settled"]
+    assert len(rows) == 1
+    flip = rows[0]
+    assert flip["fill_price"] == pytest.approx(0.52)
+    assert flip["fee_bps"] == pytest.approx(200.0)
+    assert flip["spread_paid_usd"] == pytest.approx(0.1)
+    assert flip["liquidity_cap_usd"] == pytest.approx(20.0)
 
 
 # --------------------------------------------------------------------------- #

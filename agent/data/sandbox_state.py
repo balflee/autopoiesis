@@ -164,6 +164,16 @@ class BetRecord(BaseModel):
     min_edge_at_bet: float | None = None
     gamma_at_bet: float | None = None
     eff_min_edge_at_bet: float | None = None
+    # V1.4 execution-cost stamps (plan-loop 2026-06-17): the ACTUAL fill price +
+    # the cost components charged at order time, for cost-NET settlement PnL.
+    # Optional/None so legacy + replay rows still load (extra="forbid"); omitted
+    # from JSONL when None so flag-off rows stay byte-identical to the pre-V1.4
+    # shape. The LIVE / probe settlement path REQUIRES them
+    # (:func:`assert_cost_fields_present`); the replay/legacy path tolerates None.
+    fill_price: float | None = None
+    fee_bps: float | None = None
+    spread_paid_usd: float | None = None
+    liquidity_cap_usd: float | None = None
 
 
 # A9 (r13 M-2): the SINGLE source for BetRecord's on-disk JSONL shape.
@@ -180,14 +190,49 @@ _STORM_STAMP_KEYS: Final[tuple[str, ...]] = (
     "eff_min_edge_at_bet",
 )
 
+# V1.4 — same omit-when-None discipline as the storm stamps, so a pre-V1.4
+# (cost-less) row stays byte-identical on disk.
+_COST_STAMP_KEYS: Final[tuple[str, ...]] = (
+    "fill_price",
+    "fee_bps",
+    "spread_paid_usd",
+    "liquidity_cap_usd",
+)
+
 
 def bet_record_jsonl_dict(bet: BetRecord) -> dict[str, object]:
     """The on-disk JSONL row for one :class:`BetRecord`."""
     row = bet.model_dump()
-    for key in _STORM_STAMP_KEYS:
+    for key in (*_STORM_STAMP_KEYS, *_COST_STAMP_KEYS):
         if row.get(key) is None:
             row.pop(key, None)
     return row
+
+
+def execution_cost_usd(bet: BetRecord) -> float:
+    """Total execution cost charged on ``bet`` in USD = fee + spread.
+
+    ``fee_bps`` is basis points of the ``size_usd`` notional; ``spread_paid_usd``
+    is already a dollar amount. Returns ``0.0`` when the cost stamps are absent
+    (legacy / replay rows) — so cost-NET PnL is byte-identical to the legacy
+    formula for those, and only LIVE/probe rows (which set the stamps) take a
+    haircut.
+    """
+    fee = (bet.fee_bps / 10_000.0) * bet.size_usd if bet.fee_bps is not None else 0.0
+    spread = bet.spread_paid_usd if bet.spread_paid_usd is not None else 0.0
+    return fee + spread
+
+
+def assert_cost_fields_present(bet: BetRecord) -> None:
+    """Fail-closed guard for the LIVE / probe settlement path (V1.4): raise if any
+    execution-cost stamp is missing, so a cost-blind row can never be booked as a
+    "cost-net" result. The replay/legacy path does NOT call this (it tolerates None)."""
+    missing = [k for k in _COST_STAMP_KEYS if getattr(bet, k) is None]
+    if missing:
+        raise ValueError(
+            f"BetRecord {bet.bet_id} is missing execution-cost stamps {missing} — "
+            "the LIVE/probe settlement path requires them (fail-closed)."
+        )
 
 
 class SettledBetRecord(BaseModel):

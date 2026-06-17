@@ -108,6 +108,7 @@ from agent.data.sandbox_state import (
     BetRecord,
     SandboxStateWriter,
     SettledBetRecord,
+    execution_cost_usd,
     iter_jsonl,
 )
 
@@ -819,17 +820,24 @@ def _compute_pnl(
     (81x overpaid at yes-mid 0.10). The LIVE runtime never sets this (the
     poller field defaults ``False``).
     """
+    # V1.4 cost-NET: subtract the actual execution cost (fee + spread) from EVERY
+    # outcome — it was paid at entry regardless. ``execution_cost_usd`` is 0.0 when
+    # the cost stamps are absent (legacy / replay), so those rows stay byte-identical
+    # to the pre-V1.4 formulas. The winner/entry price uses the ACTUAL ``fill_price``
+    # when stamped (else ``bet.price``, byte-identical).
+    cost = execution_cost_usd(bet)
+    entry = bet.fill_price if bet.fill_price is not None else bet.price
     if outcome.outcome == "void":
-        return 0.0
+        return -cost
     side_is_yes = bet.side == "YES"
     outcome_is_yes = outcome.outcome == "yes"
     is_winner = side_is_yes == outcome_is_yes
     if not is_winner:
-        return -bet.size_usd
-    # Winner — symmetric formula. bet.price is in [0, 1] from Pydantic.
+        return -bet.size_usd - cost
+    # Winner — symmetric formula. entry is in [0, 1].
     # Defensive: a bet entered at price 0 is degenerate; the executor's
     # Pydantic guard allows it but we still don't want a ZeroDivisionError.
-    eff = bet.price if (side_is_yes or not side_correct_pricing) else 1.0 - bet.price
+    eff = entry if (side_is_yes or not side_correct_pricing) else 1.0 - entry
     if eff <= 0.0:
         # If we entered at effective price 0 and won, payout is unbounded —
         # clip to size_usd * winning_price as the sensible "we got full
@@ -840,8 +848,8 @@ def _compute_pnl(
     else:
         pnl = bet.size_usd * (outcome.winning_price / eff - 1.0)
     if max_pnl_usd is not None and pnl > max_pnl_usd:
-        return max_pnl_usd
-    return pnl
+        return max_pnl_usd - cost
+    return pnl - cost
 
 
 def _iso_utc(ts: datetime) -> str:

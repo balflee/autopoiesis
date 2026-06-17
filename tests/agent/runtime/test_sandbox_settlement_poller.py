@@ -600,6 +600,33 @@ def test_require_cost_fields_settles_when_stamps_present(
     assert len(settled) == 1 and settled[0]["pnl_usd"] == pytest.approx(10.0)
 
 
+def test_require_cost_fields_void_charges_cost_with_stamps(
+    writer: SandboxStateWriter, now: datetime,
+) -> None:
+    """A LIVE VOID is NOT exempt from the cost guard: _compute_pnl charges -cost on
+    void (entry fee/spread paid regardless), so a void WITH cost stamps settles to
+    -cost (not 0) — proving the guard correctly requires stamps even for void."""
+    _seed_bet(
+        writer, market_id="m-001", price=0.5, size_usd=10.0,
+        expected_settle_ts="2026-05-26T18:00:00+00:00",
+        fill_price=0.5, fee_bps=200.0, spread_paid_usd=0.15, liquidity_cap_usd=20.0,
+    )
+    script: dict[str, list[Any]] = {
+        "m-001": [_resolved_result(market_id="m-001", outcome="void")]
+    }
+    poller, _, _, _, _ = _build_poller(
+        writer,
+        settlement_client=FakeSettlementClient(script),
+        clock_now=now,
+        require_cost_fields=True,  # LIVE: guard ON, but the void is well-stamped
+    )
+    _run(poller.tick())
+    settled = iter_jsonl(writer.settled_bets_path)
+    assert len(settled) == 1
+    # cost = 200bps*$10 + $0.15 = $0.20 + $0.15 = $0.35 → void pnl = -0.35.
+    assert settled[0]["pnl_usd"] == pytest.approx(-0.35)
+
+
 def test_settled_flip_marker_carries_cost_stamps(
     writer: SandboxStateWriter, now: datetime,
 ) -> None:

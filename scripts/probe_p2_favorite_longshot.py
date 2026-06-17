@@ -27,7 +27,7 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -112,8 +112,15 @@ def run_p2_probe(
     n_skipped = 0
     for m in markets:
         # Per-market PIT cutoff takes precedence over the run-wide default (Codex
-        # Phase-3 MED) — a future trade can never be the entry.
-        cutoff = datetime.fromisoformat(m.asof_ts) if m.asof_ts else asof_ts
+        # Phase-3 MED) — a future trade can never be the entry. A naive ISO string
+        # is coerced to UTC (the trades client requires tz-aware; Codex r2 MED-1:
+        # else a naive per-market asof crashes the probe).
+        cutoff: object
+        if m.asof_ts:
+            parsed = datetime.fromisoformat(m.asof_ts)
+            cutoff = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        else:
+            cutoff = asof_ts
         entry = trades_client.entry_price(m.market_id, asof_ts=cutoff)  # type: ignore[arg-type]
         # FAIL-CLOSED: no real trade, or a non-canonical provenance, → skip + log.
         if entry is None or entry.provenance != PROVENANCE_ACTUAL_TRADE:

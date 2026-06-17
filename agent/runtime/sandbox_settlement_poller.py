@@ -680,6 +680,15 @@ class SandboxSettlementPoller:
         # PnL would be silently booked cost-blind. Raises here (a programming
         # error: a LIVE bet without cost stamps), BEFORE _compute_pnl's lenient
         # zero-cost fallback. The legacy/replay path leaves the flag False.
+        #
+        # Applies to EVERY resolved outcome, INCLUDING "void": _compute_pnl charges
+        # the execution cost on every outcome ("void" → -cost; the entry fee/spread
+        # is paid regardless of resolution, :990-998). A cost-blind void would
+        # therefore silently book 0 instead of -cost, so void is NOT exempt. The
+        # invariant is "a LIVE bet is always cost-stamped at placement"
+        # (LiveTickInputSource guarantees it), so this can only fire on a genuine
+        # bug — never on a well-formed LIVE void. (Codex r2: kept ON for void by
+        # design — pushed back with this reasoning.)
         if self.require_cost_fields:
             assert_cost_fields_present(bet)
 

@@ -70,6 +70,18 @@ def test_per_market_asof_is_parsed_and_passed_to_entry_price() -> None:
     assert client.asof_calls == [("m", datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC))]
 
 
+def test_naive_per_market_asof_is_coerced_to_utc_not_crash() -> None:
+    # Codex r2 MED-1: a NAIVE ISO asof must not crash (the trades client requires
+    # tz-aware) — it is coerced to UTC before being forwarded.
+    client = _RecordingTradesClient({"m": _tp("m", 0.70)})
+    run_p2_probe(
+        [ResolvedMarket("m", favorite_won=True, asof_ts="2025-06-01T12:00:00")],  # naive
+        trades_client=client,
+        n_deciles=1,
+    )
+    assert client.asof_calls == [("m", datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC))]
+
+
 def test_favorite_price_is_max_of_both_sides() -> None:
     # entry trade at 0.30 → the FAVORITE side's implied prob is 0.70.
     prices = {"m": _tp("m", 0.30)}

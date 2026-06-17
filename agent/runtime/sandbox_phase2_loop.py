@@ -2176,7 +2176,24 @@ class SandboxPhase2Loop:
         hypothetical restart of a tombstoned agent reads ``PHASE_4_TERMINAL``
         immediately), and emits an ``agent_died`` state hook with the
         full receipt + the metadata bundle (operator visibility).
+
+        V1.4b terminal-close (Codex-4): BEFORE the tombstone bankroll is read,
+        fold EVERY still-open bet into a terminal ledger record via the poller's
+        :meth:`~agent.runtime.sandbox_settlement_poller.SandboxSettlementPoller.terminal_close`.
+        Resolved bets settle through the full ``_resolve_and_settle`` side
+        effects (chain breath + weight update); their realized PnL is folded
+        into the in-memory bankroll here (the poller owns the chain breath
+        delta, the loop owns the bankroll scalar — the SAME split as the
+        per-tick settlement fold). Unresolved bets are voided (pnl=0). This
+        guarantees no open bet dangles into the next incarnation as ghost PnL
+        and that the tombstone records a clean terminal bankroll.
         """
+        if self._open_bet_ids:
+            close_result = await self._poller.terminal_close(now=self._clock.now())
+            for outcome in close_result.settlements:
+                self._bankroll_usd += outcome.pnl_usd
+            self._open_bet_ids.clear()
+
         final_weights_hash = _sha256_hex_prefixed(self._weights.model_dump_json())
         last_words = (
             self._last_words_override

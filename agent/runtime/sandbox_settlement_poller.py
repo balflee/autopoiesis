@@ -440,6 +440,109 @@ class SandboxSettlementPoller:
             settlements=tuple(settlements),
         )
 
+    async def terminal_close(self, *, now: datetime) -> PollTickResult:
+        """Fold EVERY still-open bet into a terminal ledger record at death.
+
+        Unlike :meth:`tick` (which settles only DUE bets — ``expected_settle_ts
+        < now``), terminal-close is the death-path fold-ALL (V1.4b / Codex-4):
+        every open bet gets a terminal record regardless of
+        ``expected_settle_ts``, so none dangles into reincarnation as ghost PnL
+        (chained with the V1.3 LIVE-mode isolation).
+
+        Per-bet disposition:
+
+        * **RESOLVED** → the FULL :meth:`_resolve_and_settle` side-effect path
+          (settled row + open-flip + weight update + chain breath delta,
+          Codex-r2-H4) — NOT just a file marker, so terminal bankroll / breath /
+          weights all see the realized PnL. The settled outcome is returned in
+          :attr:`PollTickResult.settlements` so the caller can fold the realized
+          PnL into the terminal bankroll.
+        * **PENDING** (gamma responded, not yet resolved) →
+          ``SettledBetRecord(outcome="void", pnl_usd=0)`` + the open-flip marker;
+          NO economic side effect.
+        * **QUERY FAILURE** (gamma retries exhausted) →
+          ``SettledBetRecord(outcome="void", pnl_usd=0,
+          reason="terminal_query_failed")`` (Codex-r4-2 / r5-1) — still a ledger
+          record; never dangled, never cleared without one.
+
+        Returns a :class:`PollTickResult` whose ``settlements`` are the RESOLVED
+        bets (voids are not settlements); ``pending_count`` / ``failed_count``
+        count the two void classes.
+        """
+        open_bets = self._select_open_bets()
+
+        settlements: list[SettlementOutcome] = []
+        pending = 0
+        failed = 0
+        for bet in open_bets:
+            outcome = await self._resolve_and_settle(bet, now=now)
+            if outcome is _PENDING:
+                self._void_terminal(bet, now=now, reason=None)
+                pending += 1
+            elif outcome is _FAILED:
+                self._void_terminal(bet, now=now, reason="terminal_query_failed")
+                failed += 1
+            else:
+                assert isinstance(outcome, SettlementOutcome)
+                settlements.append(outcome)
+
+        return PollTickResult(
+            queried_count=len(open_bets),
+            settled_count=len(settlements),
+            pending_count=pending,
+            failed_count=failed,
+            settlements=tuple(settlements),
+        )
+
+    def _void_terminal(
+        self,
+        bet: BetRecord,
+        *,
+        now: datetime,
+        reason: str | None,
+    ) -> None:
+        """Write a terminal VOID ledger record for an unresolved open bet.
+
+        Two append-only writes mirroring :meth:`_resolve_and_settle` steps 1+2
+        but with NO economic side effect (``pnl_usd=0``, no weight / chain
+        call): a ``SettledBetRecord(outcome="void", ...)`` and the
+        ``status="settled"`` open-bets flip marker (storm stamps copied
+        verbatim, matching the resolve path). ``reason`` is
+        ``"terminal_query_failed"`` for an exhausted gamma query (Codex-r4-2);
+        ``None`` for a still-pending market (omitted from the JSONL via
+        ``exclude_none``).
+        """
+        settled_ts = _iso_utc(now)
+        self.state_writer.append_settled_bet(
+            SettledBetRecord(
+                bet_id=bet.bet_id,
+                market_id=bet.market_id,
+                settled_ts=settled_ts,
+                outcome="void",
+                winning_price=0.0,
+                pnl_usd=0.0,
+                reason=reason,
+            )
+        )
+        self.state_writer.append_open_bet(
+            BetRecord(
+                bet_id=bet.bet_id,
+                ts=settled_ts,
+                market_id=bet.market_id,
+                side=bet.side,
+                price=bet.price,
+                size_usd=bet.size_usd,
+                expected_settle_ts=bet.expected_settle_ts,
+                status="settled",
+                signal_scores=dict(bet.signal_scores),
+                storm_at_bet=bet.storm_at_bet,
+                edge_at_bet=bet.edge_at_bet,
+                min_edge_at_bet=bet.min_edge_at_bet,
+                gamma_at_bet=bet.gamma_at_bet,
+                eff_min_edge_at_bet=bet.eff_min_edge_at_bet,
+            )
+        )
+
     # --------------------------------------------------------------------- #
     # Selection — pure read + fold over open_bets.jsonl.
     # --------------------------------------------------------------------- #
@@ -457,13 +560,9 @@ class SandboxSettlementPoller:
         production case lands in sprint_10 (the dashboard's tail
         consumer needs the same primitive).
         """
-        # Single fold: keep the LATEST row per bet_id. Status, expected_ts,
+        # Pass 1 — keep the LATEST row per bet_id. Status, expected_ts,
         # and all other fields are read off that row in pass 2.
-        latest_row: dict[str, dict[str, object]] = {}
-        for row in iter_jsonl(self.state_writer.open_bets_path):
-            bet_id = row.get("bet_id")
-            if isinstance(bet_id, str):
-                latest_row[bet_id] = row
+        latest_row = self._fold_latest_rows()
 
         due: list[BetRecord] = []
         for bet_id, bet_row in latest_row.items():
@@ -496,6 +595,45 @@ class SandboxSettlementPoller:
                 continue
 
         return due
+
+    def _fold_latest_rows(self) -> dict[str, dict[str, object]]:
+        """Single fold over ``open_bets.jsonl`` → the LATEST row per ``bet_id``.
+
+        Shared pass-1 for both :meth:`_select_due_bets` (which then filters to
+        DUE bets) and :meth:`_select_open_bets` (the V1.4b terminal-close
+        fold-ALL path). Readers take the last observed row per ``bet_id`` so
+        the status / expected_ts / all other fields come off that row.
+        """
+        latest_row: dict[str, dict[str, object]] = {}
+        for row in iter_jsonl(self.state_writer.open_bets_path):
+            bet_id = row.get("bet_id")
+            if isinstance(bet_id, str):
+                latest_row[bet_id] = row
+        return latest_row
+
+    def _select_open_bets(self) -> list[BetRecord]:
+        """Read ``open_bets.jsonl`` → ALL bets whose latest status is ``"open"``.
+
+        Like :meth:`_select_due_bets` but with NO ``expected_settle_ts`` due
+        filter (V1.4b / Codex-4): the death-path terminal-close needs EVERY
+        open bet, including resolved-but-not-yet-due ones the per-tick poll
+        deliberately skips, so none dangles into the next incarnation.
+        """
+        latest_row = self._fold_latest_rows()
+        open_bets: list[BetRecord] = []
+        for bet_id, bet_row in latest_row.items():
+            if bet_row.get("status") != "open":
+                continue
+            try:
+                open_bets.append(BetRecord.model_validate(bet_row))
+            except Exception as exc:
+                logger.warning(
+                    "sandbox_settlement_poller: bet_id=%s failed BetRecord "
+                    "validation: %s — skipping (terminal-close)",
+                    bet_id, exc,
+                )
+                continue
+        return open_bets
 
     # --------------------------------------------------------------------- #
     # Per-bet resolution.

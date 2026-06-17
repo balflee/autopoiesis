@@ -62,6 +62,7 @@ from agent.data.polymarket_sandbox_executor import MarketInfo, SandboxExecutor
 from agent.data.polymarket_settlement import SettlementResult
 from agent.data.sandbox_state import (
     AgentStateSnapshot,
+    BetRecord,
     SandboxStateWriter,
     iter_jsonl,
 )
@@ -75,13 +76,11 @@ from agent.runtime.sandbox_phase2_loop import (
     SandboxLoopChainAdapter,
     SandboxPhase2Loop,
     TickInputs,
-    TickInputSource,
     WeightUpdaterPhase,
     _default_last_words_template,
     _sha256_hex_prefixed,
 )
 from tests.agent.runtime.fixtures.mock_gamma_api import MockGammaAPI
-
 
 # --------------------------------------------------------------------------- #
 # Test doubles — minimal fakes covering the forced-terminal scenario.
@@ -204,6 +203,42 @@ class _NoopDecisionLog:
         return "0x_unused"
 
 
+class _SilentWeightUpdater:
+    """Settlement-time weight updater that records nothing (default)."""
+
+    async def update(  # pragma: no cover - trivial
+        self,
+        *,
+        phase: str,
+        signals: dict[str, float],
+        outcome: SettlementResult,
+    ) -> None:
+        return None
+
+
+@dataclass
+class _RecordingWeightUpdater:
+    """Settlement-time weight updater that records every ``update`` call.
+
+    Used by the V1.4b terminal-close tests to prove a RESOLVED bet folded at
+    death fires the FULL settlement side effects (Codex-r2-H4 — weight update,
+    not just a file marker).
+    """
+
+    calls: list[dict[str, Any]] = field(default_factory=list)
+
+    async def update(
+        self,
+        *,
+        phase: str,
+        signals: dict[str, float],
+        outcome: SettlementResult,
+    ) -> None:
+        self.calls.append(
+            {"phase": phase, "signals": dict(signals), "outcome": outcome}
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Builder
 # --------------------------------------------------------------------------- #
@@ -218,6 +253,8 @@ def _build_loop(
     agent_id: str = "genesis_v1_test",
     last_words: str | None = None,
     memory_bank_cid: str = DEFAULT_MEMORY_BANK_CID_PLACEHOLDER,
+    settlement_client: Any | None = None,
+    weight_updater: Any | None = None,
 ) -> tuple[SandboxPhase2Loop, SandboxStateWriter]:
     state_dir = tmp_path / "sandbox"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -238,19 +275,14 @@ def _build_loop(
         decision_log=_NoopDecisionLog(),
         engine_signals=None,
     )
-    gamma = MockGammaAPI()
-    # Mirror the T-B-020 settlement-poller-protocol FakeWeightUpdater
-    # since we need a settlement client + a (non-firing) weight updater.
-
-    class _SilentWeightUpdater:
-        async def update(
-            self,
-            *,
-            phase: str,
-            signals: dict[str, float],
-            outcome: SettlementResult,
-        ) -> None:
-            return None
+    # A settlement client + a weight updater. Tests that need to script
+    # resolutions (V1.4b terminal-close) inject a pre-configured MockGammaAPI
+    # + a recording weight updater; the default keeps the legacy hermetic
+    # (pending-everything) gamma + a silent updater.
+    gamma = settlement_client if settlement_client is not None else MockGammaAPI()
+    settlement_weight_updater = (
+        weight_updater if weight_updater is not None else _SilentWeightUpdater()
+    )
 
     loop = SandboxPhase2Loop(
         base=base,
@@ -258,7 +290,7 @@ def _build_loop(
         weight_updater_phase=WeightUpdaterPhase.PHASE_2_EXTENDED,
         executor=executor,
         settlement_client=gamma,
-        weight_updater=_SilentWeightUpdater(),
+        weight_updater=settlement_weight_updater,
         chain_adapter=cast(SandboxLoopChainAdapter, chain_adapter),
         tick_inputs=_NullTickInputs(),
         state_hook=state_hook,
@@ -428,7 +460,7 @@ def test_no_env_var_means_no_forced_kill(tmp_path: Path) -> None:
     """
     chain = _RecordingChainAdapter(current_breath=80.0)
     hook = _RecordingStateHook()
-    loop, writer = _build_loop(
+    loop, _ = _build_loop(
         tmp_path=tmp_path,
         env={},  # empty — no SANDBOX_FORCE_TERMINAL key
         chain_adapter=chain,
@@ -530,3 +562,340 @@ def test_force_terminal_with_existing_open_bet_still_kills(tmp_path: Path) -> No
     assert len(chain.kill_calls) == 1
     assert summary.died is True
     assert chain.current_breath == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# V1.4b — death-path TERMINAL-CLOSE behavior (Codex-4 / r2-H4 / r4-2 / r5-1).
+#
+# At death the loop must fold EVERY still-open bet into a terminal ledger
+# record — regardless of ``expected_settle_ts`` (the normal poll skips not-due
+# bets) — so none dangle into the next incarnation as ghost PnL:
+#   * RESOLVED        → full ``_resolve_and_settle`` side-effects (settled row +
+#                       open-flip + weight update + chain breath) + realized PnL
+#                       folded into the terminal bankroll the tombstone records.
+#   * PENDING         → ``void(pnl=0)``, no economic effect, no void ``reason``.
+#   * QUERY-FAILURE   → ``void(pnl=0, reason="terminal_query_failed")``.
+# --------------------------------------------------------------------------- #
+
+
+def _seed_pre_death_open_bets(
+    writer: SandboxStateWriter,
+    loop: SandboxPhase2Loop,
+    *,
+    bets: list[BetRecord],
+) -> None:
+    """Seed a snapshot + ``open_bets.jsonl`` rows so reconstruction folds the
+    open bets into ``loop._open_bet_ids`` before the death tick runs.
+
+    Mirrors ``test_force_terminal_with_existing_open_bet_still_kills`` but for
+    N bets; ``_open_bet_ids`` is rebuilt from the open-bets fold (Step 2 of
+    ``_reconstruct_from_disk``), the snapshot just pins bankroll/last_tick.
+    """
+    writer.snapshot_path.write_text(
+        AgentStateSnapshot(
+            snapshot_ts="2026-05-26T19:00:00+00:00",
+            phase="PHASE_2_APPRENTICE",
+            breath=80.0,
+            bankroll_usd=80.0,
+            phase_age_days=0.0,
+            open_bet_ids=sorted(b.bet_id for b in bets),
+            last_tick=3,
+            weights=loop.weights,
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    for bet in bets:
+        writer.append_open_bet(bet)
+
+
+def _settled_by_id(writer: SandboxStateWriter) -> dict[str, dict[str, Any]]:
+    """``settled_bets.jsonl`` folded to ``{bet_id: last settled row}``."""
+    out: dict[str, dict[str, Any]] = {}
+    for row in iter_jsonl(writer.settled_bets_path):
+        bet_id = row.get("bet_id")
+        if isinstance(bet_id, str):
+            out[bet_id] = row
+    return out
+
+
+def _still_open_ids(writer: SandboxStateWriter) -> set[str]:
+    """The on-disk "still open" view (latest status per bet_id == ``open``)."""
+    latest: dict[str, str] = {}
+    for row in iter_jsonl(writer.open_bets_path):
+        bet_id = row.get("bet_id")
+        status = row.get("status")
+        if isinstance(bet_id, str) and isinstance(status, str):
+            latest[bet_id] = status
+    return {bet_id for bet_id, status in latest.items() if status == "open"}
+
+
+def _open_bet(
+    *,
+    bet_id: str,
+    market_id: str,
+    side: str = "YES",
+    price: float = 0.5,
+    size_usd: float = 10.0,
+    expected_settle_ts: str,
+) -> BetRecord:
+    return BetRecord(
+        bet_id=bet_id,
+        ts="2026-05-26T18:00:00+00:00",
+        market_id=market_id,
+        side=side,  # type: ignore[arg-type]
+        price=price,
+        size_usd=size_usd,
+        expected_settle_ts=expected_settle_ts,
+        status="open",
+    )
+
+
+# Clock in ``_build_loop`` starts at 2026-05-26 20:00:00Z; a future
+# ``expected_settle_ts`` is NOT yet due so the step-1 settlement poll SKIPS it
+# — only terminal-close can fold it (proves the fold-ALL guarantee).
+_NOT_YET_DUE_TS = "2026-05-26T22:00:00+00:00"
+
+
+def test_death_terminal_close_settles_resolved_not_due_open_bet(
+    tmp_path: Path,
+) -> None:
+    """A RESOLVED but NOT-YET-DUE open bet is settled at death (not dangled).
+
+    The step-1 settlement poll skips it (``expected_settle_ts >= now``); only
+    terminal-close folds it. It must resolve through the FULL
+    ``_resolve_and_settle`` side effects (real PnL settled row + weight update +
+    chain breath delta) AND fold the realized PnL into the terminal bankroll.
+    """
+    chain = _RecordingChainAdapter(current_breath=80.0)
+    hook = _RecordingStateHook()
+    weights = _RecordingWeightUpdater()
+    gamma = MockGammaAPI()
+    gamma.register_market(market_id="m-resolved", outcome="yes", winning_price=1.0)
+    gamma.resolve_now("m-resolved")
+
+    loop, writer = _build_loop(
+        tmp_path=tmp_path,
+        env={SANDBOX_FORCE_TERMINAL_ENV_VAR: "1"},
+        chain_adapter=chain,
+        state_hook=hook,
+        settlement_client=gamma,
+        weight_updater=weights,
+    )
+    _seed_pre_death_open_bets(
+        writer,
+        loop,
+        bets=[
+            _open_bet(
+                bet_id="bet-resolved",
+                market_id="m-resolved",
+                side="YES",
+                price=0.5,
+                size_usd=10.0,
+                expected_settle_ts=_NOT_YET_DUE_TS,
+            )
+        ],
+    )
+
+    summary = asyncio.run(loop.run(max_ticks=1))
+
+    assert summary.died is True
+    # The not-due bet was NEVER queried by the step-1 poll — terminal-close is
+    # the SOLE settler (proves it folds bets the normal poller skips).
+    assert gamma.calls == ["m-resolved"]
+
+    # Full settlement: a real (non-void) settled row with the locked PnL.
+    settled = _settled_by_id(writer)
+    assert "bet-resolved" in settled
+    rec = settled["bet-resolved"]
+    assert rec["outcome"] == "yes"
+    assert rec["pnl_usd"] == pytest.approx(10.0)  # 10 * (1.0 / 0.5 - 1)
+    assert "reason" not in rec  # a real resolution carries no void reason
+
+    # Side effects fired: the settlement-time weight updater was called once
+    # with this bet's realized PnL (Codex-r2-H4 — not just a file marker).
+    assert [c["signals"]["pnl_usd"] for c in weights.calls] == [pytest.approx(10.0)]
+    # ...and the chain breath delta landed (after force-terminal drove it to 0).
+    assert chain.pnl_updates == [pytest.approx(-80.0), pytest.approx(10.0)]
+
+    # Realized PnL folded into the terminal bankroll the tombstone records.
+    assert len(chain.kill_calls) == 1
+    assert chain.kill_calls[0]["bankroll_usd"] == pytest.approx(90.0)
+    assert loop.bankroll_usd == pytest.approx(90.0)
+
+    # No dangling open bet; the in-memory open set is cleared.
+    assert _still_open_ids(writer) == set()
+    assert loop.open_bet_ids == frozenset()
+
+
+def test_death_terminal_close_voids_pending_open_bet(tmp_path: Path) -> None:
+    """A still-PENDING open bet is voided at death with NO economic effect.
+
+    Gamma responds but the market is not yet resolved → ``void(pnl=0)``, no void
+    ``reason`` (that label is reserved for query FAILURES), no weight update, no
+    settlement breath delta beyond the force-terminal drive.
+    """
+    chain = _RecordingChainAdapter(current_breath=80.0)
+    hook = _RecordingStateHook()
+    weights = _RecordingWeightUpdater()
+    gamma = MockGammaAPI()
+    gamma.register_market(market_id="m-pending")  # registered but NOT resolved
+
+    loop, writer = _build_loop(
+        tmp_path=tmp_path,
+        env={SANDBOX_FORCE_TERMINAL_ENV_VAR: "1"},
+        chain_adapter=chain,
+        state_hook=hook,
+        settlement_client=gamma,
+        weight_updater=weights,
+    )
+    _seed_pre_death_open_bets(
+        writer,
+        loop,
+        bets=[
+            _open_bet(
+                bet_id="bet-pending",
+                market_id="m-pending",
+                expected_settle_ts=_NOT_YET_DUE_TS,
+            )
+        ],
+    )
+
+    summary = asyncio.run(loop.run(max_ticks=1))
+
+    assert summary.died is True
+    settled = _settled_by_id(writer)
+    assert "bet-pending" in settled
+    rec = settled["bet-pending"]
+    assert rec["outcome"] == "void"
+    assert rec["pnl_usd"] == pytest.approx(0.0)
+    assert "reason" not in rec  # PENDING void carries no reason
+
+    # No economic side effect: no weight update, only the force-terminal breath
+    # drive (no settlement delta), terminal bankroll unchanged.
+    assert weights.calls == []
+    assert chain.pnl_updates == [pytest.approx(-80.0)]
+    assert chain.kill_calls[0]["bankroll_usd"] == pytest.approx(80.0)
+
+    assert _still_open_ids(writer) == set()
+    assert loop.open_bet_ids == frozenset()
+
+
+def test_death_terminal_close_voids_query_failure_with_reason(
+    tmp_path: Path,
+) -> None:
+    """A settlement-QUERY-FAILURE open bet is voided with the terminal reason.
+
+    The gamma query exhausts retries (unregistered market → the fake raises) →
+    ``void(pnl=0, reason="terminal_query_failed")`` (Codex-r4-2 / r5-1) — still a
+    terminal ledger record, never dangled, never cleared without one.
+    """
+    chain = _RecordingChainAdapter(current_breath=80.0)
+    hook = _RecordingStateHook()
+    weights = _RecordingWeightUpdater()
+    gamma = MockGammaAPI()  # m-fail is NOT registered → resolve_market raises
+
+    loop, writer = _build_loop(
+        tmp_path=tmp_path,
+        env={SANDBOX_FORCE_TERMINAL_ENV_VAR: "1"},
+        chain_adapter=chain,
+        state_hook=hook,
+        settlement_client=gamma,
+        weight_updater=weights,
+    )
+    _seed_pre_death_open_bets(
+        writer,
+        loop,
+        bets=[
+            _open_bet(
+                bet_id="bet-fail",
+                market_id="m-fail",
+                expected_settle_ts=_NOT_YET_DUE_TS,
+            )
+        ],
+    )
+
+    summary = asyncio.run(loop.run(max_ticks=1))
+
+    assert summary.died is True
+    settled = _settled_by_id(writer)
+    assert "bet-fail" in settled
+    rec = settled["bet-fail"]
+    assert rec["outcome"] == "void"
+    assert rec["pnl_usd"] == pytest.approx(0.0)
+    assert rec["reason"] == "terminal_query_failed"
+
+    # A settlement_query_failed state hook fired during the exhausted retries.
+    assert "settlement_query_failed" in hook.kinds()
+    assert weights.calls == []
+    assert _still_open_ids(writer) == set()
+    assert loop.open_bet_ids == frozenset()
+
+
+def test_death_terminal_close_folds_all_mixed_open_bets(tmp_path: Path) -> None:
+    """The fold-ALL guarantee: a mix of resolved/pending/failure → none dangle.
+
+    Every open bet gets EXACTLY one terminal ledger record regardless of class,
+    and the on-disk "still open" view is empty after death.
+    """
+    chain = _RecordingChainAdapter(current_breath=80.0)
+    hook = _RecordingStateHook()
+    weights = _RecordingWeightUpdater()
+    gamma = MockGammaAPI()
+    gamma.register_market(market_id="m-win", outcome="yes", winning_price=1.0)
+    gamma.resolve_now("m-win")
+    gamma.register_market(market_id="m-pend")  # pending
+    # m-miss intentionally unregistered → query failure.
+
+    loop, writer = _build_loop(
+        tmp_path=tmp_path,
+        env={SANDBOX_FORCE_TERMINAL_ENV_VAR: "1"},
+        chain_adapter=chain,
+        state_hook=hook,
+        settlement_client=gamma,
+        weight_updater=weights,
+    )
+    _seed_pre_death_open_bets(
+        writer,
+        loop,
+        bets=[
+            _open_bet(
+                bet_id="b-win",
+                market_id="m-win",
+                side="YES",
+                price=0.5,
+                size_usd=10.0,
+                expected_settle_ts=_NOT_YET_DUE_TS,
+            ),
+            _open_bet(
+                bet_id="b-pend",
+                market_id="m-pend",
+                expected_settle_ts=_NOT_YET_DUE_TS,
+            ),
+            _open_bet(
+                bet_id="b-miss",
+                market_id="m-miss",
+                expected_settle_ts=_NOT_YET_DUE_TS,
+            ),
+        ],
+    )
+
+    summary = asyncio.run(loop.run(max_ticks=1))
+
+    assert summary.died is True
+    settled = _settled_by_id(writer)
+    # Every open bet got a terminal ledger record.
+    assert {"b-win", "b-pend", "b-miss"} <= set(settled)
+    assert settled["b-win"]["outcome"] == "yes"
+    assert settled["b-win"]["pnl_usd"] == pytest.approx(10.0)
+    assert settled["b-pend"]["outcome"] == "void"
+    assert "reason" not in settled["b-pend"]
+    assert settled["b-miss"]["outcome"] == "void"
+    assert settled["b-miss"]["reason"] == "terminal_query_failed"
+
+    # Only the resolved bet moved the economy; terminal bankroll = 80 + 10.
+    assert [c["signals"]["pnl_usd"] for c in weights.calls] == [pytest.approx(10.0)]
+    assert chain.kill_calls[0]["bankroll_usd"] == pytest.approx(90.0)
+
+    # Nothing dangles.
+    assert _still_open_ids(writer) == set()
+    assert loop.open_bet_ids == frozenset()

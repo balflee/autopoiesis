@@ -28,7 +28,7 @@ The plan-loop **Phase-3 Codex diff-review runs over the FULL V1 diff** — base 
 **`5f6942d`** (the plan commit) → `git diff 5f6942d HEAD` once V1 is COMPLETE. Do NOT run it
 on the partial diff.
 
-**DONE (committed, tested, zero regression — 121 runtime + 104 data/poller pass):**
+**DONE (committed, tested, zero regression):**
 | step | commit | delivered |
 |---|---|---|
 | V1.1 SettlementClient | `36986dd` | `agent/runtime/polymarket_settlement_client.py` — prod gamma-api client (real parser) |
@@ -36,21 +36,16 @@ on the partial diff.
 | V1.4a cost schema + PnL | `7833c4d` | `BetRecord` cost stamps (Optional, omit-when-None) + cost-NET `_compute_pnl` (legacy byte-identical) + `assert_cost_fields_present` |
 | V1.4 executor threading | `c5ce794` | cost stamps through `place_order` (Protocol + impl) |
 | V1.4b reason schema | `23364ab` | `SettledBetRecord.reason` + exclude_none (settled rows byte-identical) |
+| **V1.4b terminal-close BEHAVIOR** | `3486926` | `_die` folds ALL open bets via poller `terminal_close()` (resolved→full `_resolve_and_settle` side-effects + bankroll fold; pending→void; query-fail→`void(reason=terminal_query_failed)`); clears `_open_bet_ids`. 191 runtime+data + 636 survival/backtest/sim/dashboard pass. |
+| **V1.2 step-1 cost threading + grounding** | `0679444` | `TickInputs` size-independent LIVE cost inputs (`fill_price`/`fee_bps`/`half_spread_frac`) + `_tick` threads them (gated on `fill_price`-is-not-None; derives `spread_paid_usd = half_spread_frac × stake`). + the V1.2 GROUNDING deliverable written into this plan (§V1.2 grounding). |
+| **V1.2 LiveTickInputSource** | `ecdcd44` | `agent/runtime/live_tick_input_source.py`: `GammaLiveDiscovery` (`/events?closed=false`, identifier bundle) + `parse_open_tennis_markets` + `LiveLedgerProvider` (rolling buffer backing `RealSignalSource`) + p1↔YES orientation (both + fail-closed) + identifier contract + `ClobBookPriceSource`. 14 hermetic tests incl. golden-vector parity. |
+| **V1.3 SANDBOX_LIVE mode switch** | `1ec0bda` | `main.py` `_select_loop_sources` (live\|replay\|idle, mutually exclusive) + `_build_live_sources` + `_live_json_fetch`; `LiveTickInputSource.market_resolver`. 4 isolation tests (live never builds replay w/ cassettes; defaults unchanged). |
 
-**REMAINING — resume in this order (the heavy/risky tail):**
-1. **V1.4b death-path terminal-close BEHAVIOR** (the schema piece is done; the loop behavior is NOT) — in
-   `sandbox_phase2_loop._die`/`_tick`, fold ALL open bets at death through the poller's `_resolve_and_settle`
-   SIDE-EFFECTS (breath/bankroll/weight), void unresolved (with `reason="terminal_query_failed"` on query
-   failure), clear `_open_bet_ids`, then snapshot+die. **Highest regression risk — run the FULL survival suite.**
-2. **V1.2 live TickInputSource** (the rabbit hole) — new `agent/runtime/live_tick_input_source.py`; reuse
-   `RealSignalSource.signals_for` with `asof_ts=now`; dedicated live discovery carrying token labels;
-   identifier contract (conditionId/clobTokenIds/settlement); side-orientation + golden-vector parity.
-3. **V1.3 explicit LIVE mode switch** in `main.py` `_build_default_app` (~:2396) — `SANDBOX_LIVE=1` ⇒ live
-   (wires V1.1 + V1.2), NEVER replay/synth; unset = existing default. + isolation test.
-4. **V1.7 P2 + real-trades source** — new `data/sources/polymarket_trades.py` (Data API `/trades`, provenance
+**REMAINING — resume in this order:**
+1. **V1.7 P2 + real-trades source** — new `data/sources/polymarket_trades.py` (Data API `/trades`, provenance
    `actual_trade`, fail-closed) + `scripts/probe_p2_favorite_longshot.py` (uses V1.6's gate).
-5. **V1.5 surface `/mock`** (env) — small.
-6. **Phase-3 Codex diff-review** over `git diff 5f6942d HEAD` → fix → re-review → UNRESOLVED=0.
+2. **V1.5 surface `/mock`** (env) — small.
+3. **Phase-3 Codex diff-review** over `git diff 5f6942d HEAD` → fix → re-review → UNRESOLVED=0.
 
 **GOTCHAS (learned this session):** repo runs async via `asyncio.run(...)` in SYNC tests — NO `pytest.mark.asyncio`.
 Schema additions follow the storm-stamp Optional+omit-when-None pattern (`bet_record_jsonl_dict` / `exclude_none`)

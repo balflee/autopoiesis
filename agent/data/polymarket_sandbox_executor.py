@@ -176,6 +176,10 @@ class Executor(Protocol):
         min_edge_at_bet: float | None = None,
         gamma_at_bet: float | None = None,
         eff_min_edge_at_bet: float | None = None,
+        fill_price: float | None = None,
+        fee_bps: float | None = None,
+        spread_paid_usd: float | None = None,
+        liquidity_cap_usd: float | None = None,
     ) -> SandboxOrderResult: ...
 
 
@@ -256,6 +260,10 @@ class SandboxExecutor:
         min_edge_at_bet: float | None = None,
         gamma_at_bet: float | None = None,
         eff_min_edge_at_bet: float | None = None,
+        fill_price: float | None = None,
+        fee_bps: float | None = None,
+        spread_paid_usd: float | None = None,
+        liquidity_cap_usd: float | None = None,
     ) -> SandboxOrderResult:
         """Record an order in the sandbox JSONL — never broadcast.
 
@@ -324,6 +332,10 @@ class SandboxExecutor:
             min_edge_at_bet=min_edge_at_bet,
             gamma_at_bet=gamma_at_bet,
             eff_min_edge_at_bet=eff_min_edge_at_bet,
+            fill_price=fill_price,
+            fee_bps=fee_bps,
+            spread_paid_usd=spread_paid_usd,
+            liquidity_cap_usd=liquidity_cap_usd,
         )
         self.state_writer.append_open_bet(bet)
 

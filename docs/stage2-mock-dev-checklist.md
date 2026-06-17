@@ -118,7 +118,7 @@ incl. in-play unwind) · SURVIVE+LEARN (breath/permadeath + 能学 EMA across li
 | **`SettlementClient` adapter** | 🔴 stubbed | **CRITICAL but cheap**: `_NoopSettlementClient`; parser exists |
 | Live OPEN-market discovery (closed=false) | 🟡 partial | batch path filters `closed=true`; need continuous open polling |
 | `tennis_technical` live compute (T-B-015) | 🟡 partial | `RealSignalSource.elo_signal` already computes this slot; the separate async-Engine wrapper is likely redundant post-rename — the live TickInputSource should reuse RealSignalSource (decide in step ②) |
-| A15 smart-money wallet whitelist | 🔴 stubbed → **DEFERRED** | NBA dummy stubs; wiring now leaks survivorship bias — needs a tennis as-of Track-E queue first (§2, Block 3) |
+| A15 → **P4** smart/dumb-wallet tracker | 🔴 to build | **data CONFIRMED obtainable** (holders/positions/profit endpoints, §2 P4); build the tennis *as-of*, confidence-weighted tracker; `PolygonChainLive` watch skeleton exists, NBA-stub whitelist is the only dead part |
 | **Trading layer — SELL/EXIT + position manager + mark-to-market** | 🔴 missing | **VERIFIED absent**: `ActionKind` = BET/NO_BET only (`state.py:48-49`); zero sell/exit/close/mark-to-market code → today the agent is **hold-to-resolution only**. Required for in-play / P1 / P3. **Taker exit — simpler than the Lane-B maker subsystem.** |
 | No-look-ahead / paper-safety guards | 🟡 partial | PIT gate exists; missing far-future audit test + decision-time-fill assert |
 | Graduation gate (`gain ≥ 0.2`) | 🔴 missing | units now DEFINED (§5 #1: net ROI/EV, cost-haircut, placebo NO-GO guard) — still uncoded; required for *claiming edge*, not for *starting the loop* |
@@ -151,22 +151,35 @@ these** (each fails for the stated, durable reason):
 | Schedule / travel / fatigue | crude proxy already in the `rest_recency` baseline + every sharp line; live layer has no free historical order-of-play archive (not backtestable) + no timing gap. |
 | Live point-by-point microstructure | indie feeds 5–15s downstream of the 1–2s sharp reprice; a non-co-located indie is structurally last-in-line in the most latency-arbitraged niche. |
 | **D1** cross-market sharp-line timing | bot-farmed (~$40M/yr extracted, sub-100ms co-located, 14/20 top PM wallets are bots); sharp feed **dead** (Pinnacle public API closed 2025-07-23) or paywalled (Betfair Live £499). Only lives as the existing A15/D1 timing thesis, NOT a fresh external-data probe. |
-| **A15** on-chain wallet flow | obtainable BUT the whitelist is **NBA stubs with illustrative addresses** (`smart_money_wallets.json`) — wiring it now leaks survivorship bias. **DEFERRED** until a tennis-specific *as-of* wallet queue exists (Codex). |
+| **A15** on-chain wallet flow | the NAIVE form (NBA-stub whitelist) stays dead (survivorship). BUT **the data to build a tennis-specific tracker is now CONFIRMED obtainable** (2026-06-17 live probe) → re-promoted as **probe P4** below, built the *as-of* way. |
 
 **The only obtainable, genuinely-untested residual is PM-INTERNAL market structure**
-(order book / trade tape / holder distribution — all free, no auth, from the Gamma /
-CLOB / Data APIs we already use). Three cheap probes (~$0) — *expect each to die by
-spread/fees; each retires a distinct untested hypothesis*:
+(order book / trade tape / **holder + wallet track-record** distribution — all free, no
+auth, from the Gamma / CLOB / Data APIs). **Four** cheap probes (~$0) — *expect each to
+die by spread/fees; each retires a distinct untested hypothesis*:
 
 | # | probe | the new question it asks | first step |
 |---|---|---|---|
 | **P2** | PM favorite-longshot calibration (thin tennis subset) | a documented PM bias (longshots overpriced ~−26%, favorites ~−3.6%) — does it hold on OUR thin ATP/WTA-250 subset NET of fee? **Backtest-only, no executor, low look-ahead (entry price only)** → the cheapest first falsification | pull historical PM tennis entry-price vs resolution (Gamma/Data API); bin by price decile; net-ROI per decile after spread+fees; reject unless the favorite bin clears the fee dead-zone; emit the calibration curve (reusable even if NO-GO) |
 | **P1** | PM order-flow reversion, decoupled from any sharp anchor | does an order-flow shock on a thin PM tennis book mean-revert WITHOUT an external fair value? **Codex Q4b: define as *short-term PM price regression after a flow shock*, NOT "mispricing" — else circular; a value edge requires an execution-PnL test net of cost** | stream CLOB WS + snapshot `/book` + Data API `/holders` on 20–30 live ATP/WTA-250 markets, strict as-of timestamps; log order-flow imbalance / holder skew vs forward 5/15/60-min PM price; EV net of the ACTUAL thin-book spread; filter 0.99/0.01 stale quotes (py-clob #180) |
 | **P3** | thin-book stale-quote SPREAD CAPTURE (market-MAKING, not prediction) | rest limit orders inside the absurd 0.99/0.01 spread — sidesteps the "is the price wrong" question that failed all 11. **Codex CRITICAL: needs a maker executor that does NOT exist — DEFERRED until built (§3 Lane B)** | (when built) scan Gamma for wide-spread markets; paper-sim symmetric resting orders; measure captured spread − adverse-selection toxicity |
+| **P4** | PM smart/dumb-wallet tracking — **confidence-weighted per-wallet, as-of** (re-promoted A15) | does the net positioning of a **confidence-weighted, as-of "smart" cohort** (or the inverse — *fade the proven-dumb*) predict the tennis outcome NET of cost? **Empirical (2026-06-17): the top whale on a live tennis market is a −$207k lifetime loser → "follow the whale" is likely BACKWARDS; "smart" must be a sample-size-SHRUNK track-record score, NOT position size.** | per market pull `data-api/holders`; for each wallet compute an **as-of shrinkage-adjusted edge** (large-sample +EV → high weight; small-sample lucky → ≈0) from `lb-api/profit` + `data-api/positions`+`/activity`; signal = Σ (wallet_confidence · side) with a **fade-dumb** variant + an **elite tier** tracked finely; STRICT out-of-sample/placebo (per-wallet granularity = huge overfit surface) |
 
-**Order:** P2 first (backtest-only, ~$0, no new infra) → P1 (needs the live loop) →
-P3 (needs a new maker executor — deferred). Bottom line: no *information* edge
-survived; if anything graduates it will be a **market-structure / timing** finding.
+> **Verified-obtainable endpoints (2026-06-17 live probe, free, no auth):** tennis markets
+> `gamma-api.polymarket.com/events?tag_slug=tennis&closed=false`; per-market holders
+> `data-api.polymarket.com/holders?market=<conditionId>` (wallet · size · side); per-wallet
+> positions+PnL `data-api.polymarket.com/positions?user=<w>`; lifetime profit (the "smart"
+> score) `lb-api.polymarket.com/profit?address=<w>`. **As-of caveat:** `/holders` is a
+> CURRENT snapshot — historical "who held at time T" must be reconstructed from per-wallet
+> trade history (`/activity`), and the profit score must be recomputed as-of T (today's
+> lifetime PnL = look-ahead). `PolygonChainLive.smart_money_positions()` already has the
+> on-chain watch skeleton; the gap was only the NBA-stub whitelist.
+
+**Order:** P2 first (backtest-only, ~$0, no new infra) → P4 (backtest-first: as-of holders
+× as-of profit × outcome; needs trade-history reconstruction) → P1 (needs the live loop) →
+P3 (needs a new maker executor — deferred). Bottom line: no *information* edge survived;
+the residuals are all **PM-internal market-structure** — if anything graduates it is a
+structure/timing finding, not an information edge.
 
 ## 3. Architecture — how the agent uses live signals (CORRECTED 2026-06-16 post-rename + Codex-hardened 2026-06-17)
 
@@ -275,6 +288,11 @@ execution capability the surviving probes require. NOT needed for the Block-1 lo
    no live loop**; historical PM tennis entry-price vs resolution, net-ROI per price
    decile, NO-GO unless the favorite bin clears the fee dead-zone. **Cheapest first
    falsification (~$0).** *small* *(depends: 6)*
+7b. **Probe P4 — PM smart/dumb-wallet tracker** (§2, re-promoted A15) — backtest-first:
+   reconstruct **as-of** holders (from per-wallet `/activity`) × **as-of** wallet profit ×
+   outcome; **confidence-weighted per-wallet** (sample-size shrinkage, elite tier) + a
+   **fade-dumb** variant; net of cost; STRICT out-of-sample/placebo (per-wallet = huge
+   overfit surface). Data confirmed obtainable. *medium* *(depends: 6, 8)*
 8. **Learner-isolation harness (Codex HIGH)** — per-candidate isolation + holdout + placebo
    + exploration budget cap + statistical-uselessness stop + cluster/market-family guard
    (no single event/player/bot-wallet may dominate apparent edge). *medium* *(depends: 6)*
@@ -293,8 +311,10 @@ execution capability the surviving probes require. NOT needed for the Block-1 lo
 12. **E2E integration test** — market→paper-bet→settle→weight across ticks. *medium* *(depends: 4)*
 
 ### Block 3 — DEFERRED (do NOT start with these)
-- **A15 on-chain wallet flow** — needs a tennis-specific *as-of* wallet queue (Track-E
-  ≥30 settled, ≥60% win, >$5k PnL); NBA stubs are dangerous. Revisit only after Block 2.
+- **A15 on-chain wallet flow (naive whitelist form)** — the NBA-stub version stays dead;
+  the obtainable-data version is **re-promoted to P4 in Block 2**. The kept
+  `PolygonChainLive.smart_money_positions()` skeleton becomes P4's producer once the
+  tennis as-of, confidence-weighted tracker is built.
 - **D1 / cross-market timing** — NO_GO as a fresh probe (bot-farmed, sharp feed dead/paywalled).
 - **Lane B / P3 spread capture** — no maker executor exists (§3); a separate subsystem.
 - **T-B-007 async streaming** — only if polling proves too slow for an edge window P1 finds.
@@ -347,6 +367,7 @@ execution capability the surviving probes require. NOT needed for the Block-1 lo
 - **(Codex) Convergence vs lifetime** — ~20 bets/life vs 50–100+ for a weak real signal; verify cross-life EMA persistence + decouple lifecycle, or it is a structural NO-GO.
 - **(Codex) "Internal price-move" ≠ "outcome edge"** — a PM-internal signal predicting the next PM *price* move is not enough; it must predict the final outcome *net of cost*, proven by an execution-PnL test (else circular).
 - **(Codex) Honest fallback** — if the guards above aren't accepted, the correct deliverable is the **Stage-1 能学 demo + a "no proven real edge yet" writeup**, not a forced graduation.
+- **(P4) Smart ≠ whale, and per-wallet ≠ free** — on PM the biggest holders often LOSE (a live tennis whale was −$207k lifetime); "smart" must be a **sample-size-shrunk as-of** track record, and per-wallet granularity is a huge overfitting / luck-mining surface — confidence-weight + strict holdout, NEVER "pick the wallet that predicts best in-sample." Even a *real* elite wallet's signal is likely already in the price (their bet moves the thin book + others copy).
 - **Trading ≠ edge** — being able to EXIT (滚球) is optionality, not alpha; in-play EV = the market's fair value (a martingale). The example's winning leg (sell the spike for +60%) has a symmetric losing leg (the run reverses, you cut at −60%). It enables the surviving theses; it does not create them.
 - **Spread tax DOUBLES on round-trips** — a buy-then-sell pays the thin-book spread twice; this is the honest killer of most in-play trades and must be in the cost model from day one.
 - **In-play is the MOST bot-contested arena** — the sub-100ms co-located cohort that extracted ~$40M/yr lives here; a polling indie is structurally late.

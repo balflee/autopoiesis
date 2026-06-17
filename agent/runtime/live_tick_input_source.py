@@ -48,6 +48,7 @@ from agent.backtest.tennis_match_resolver import (
     _norm_surname,
     parse_slug,
 )
+from agent.data.polymarket_sandbox_executor import MarketInfo
 from agent.engines.base import Signal
 from agent.runtime.sandbox_phase2_loop import TickInputs
 
@@ -301,6 +302,9 @@ class LiveTickInputSource:
     resolver: TennisMatchResolver
     ledger: LiveLedgerProvider
     fee_bps: float = DEFAULT_FEE_BPS
+    # Cache of every market seen across discoveries, so :meth:`market_resolver`
+    # (the Executor's end-date lookup) can answer for any market the tick bet on.
+    _known: dict[str, LiveTennisMarket] = field(default_factory=dict)
 
     def inputs_for(self, *, asof_ts: datetime, tick: int) -> TickInputs | None:
         # Filter to ORIENTABLE markets first (cheap, no network): a resolved-but-
@@ -309,6 +313,7 @@ class LiveTickInputSource:
         # NO mid (the p1 side) + a uniform YES-frame flip.
         usable: list[tuple[LiveTennisMarket, bool]] = []
         for m in self.discovery.discover():
+            self._known[m.market_id] = m  # cache for market_resolver (end-date lookup)
             orient_yes = self._orient(m)
             if orient_yes is not None:
                 usable.append((m, orient_yes))
@@ -346,6 +351,17 @@ class LiveTickInputSource:
             fee_bps=self.fee_bps,
             half_spread_frac=quote.half_spread_frac,
         )
+
+    def market_resolver(self, market_id: str) -> MarketInfo | None:
+        """The Executor's end-date lookup for the LIVE path: return the discovered
+        market's ``end_date_iso`` (so ``place_order`` can derive
+        ``expected_settle_ts``). ``None`` for a market this source never discovered —
+        the executor then refuses the order (``UnknownMarketError``), which is correct
+        fail-closed behaviour for a market we cannot date."""
+        m = self._known.get(market_id)
+        if m is None:
+            return None
+        return MarketInfo(end_date_iso=m.end_date_iso)
 
     def _orient(self, m: LiveTennisMarket) -> bool | None:
         """Resolve the p1↔YES orientation. Returns:

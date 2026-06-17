@@ -2303,6 +2303,106 @@ def _make_prod_signal_source(provider: MarketSnapshotProvider) -> _SignalSource:
     return _DeterministicSignalSource(seed=0)
 
 
+def _live_json_fetch(url: str, *, timeout: float = 10.0) -> object:
+    """Plain stdlib HTTP GET → JSON for the LIVE discovery + CLOB fetchers (V1.3).
+
+    No retries here: discovery degrades to idle on failure, and settlement has its
+    own retry machinery in the poller. Read-only calls to public Polymarket APIs.
+    """
+    import urllib.request
+
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "genesis-agent/sandbox-live"}
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 — public read-only API
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _build_live_sources(
+    *, wall_clock: Clock
+) -> tuple[TickInputSource, SettlementClient, MarketResolver]:
+    """Construct the LIVE Polymarket tennis sources (plan-loop V1.3): real open-market
+    discovery (gamma ``/events?closed=false``) + real gamma settlement + the real
+    Sackmann/CLOB signal source over a live rolling price ledger. Wired ONLY by the
+    explicit ``live`` mode (never co-active with the replay/synthetic path)."""
+    import httpx
+
+    from agent.backtest.real_signal_source import RealSignalSource
+    from agent.backtest.tennis_match_resolver import TennisMatchResolver
+    from agent.runtime.live_tick_input_source import (
+        ClobBookPriceSource,
+        GammaLiveDiscovery,
+        LiveLedgerProvider,
+        LiveTickInputSource,
+    )
+    from agent.runtime.polymarket_settlement_client import PolymarketSettlementClient
+    from data.sources.tennis_sackmann import DEFAULT_CORPUS_DIR, SackmannLoader
+
+    loader = SackmannLoader(snapshot_dir=DEFAULT_CORPUS_DIR)
+    resolver = TennisMatchResolver.from_sackmann_loader(loader, year_range=(2024, 2026))
+    ledger = LiveLedgerProvider()
+    # The SAME resolver + a live rolling ledger back BOTH the signal source (momentum
+    # reads the ledger; the 4 facets resolve the slug) and the orientation guard — so
+    # the live path computes the SAME p1-oriented vector as backtest before the flip.
+    signal_source = RealSignalSource(provider=ledger, resolver=resolver, loader=loader)
+    live = LiveTickInputSource(
+        discovery=GammaLiveDiscovery(fetcher=_live_json_fetch),
+        price_source=ClobBookPriceSource(fetcher=_live_json_fetch),
+        signal_source=signal_source,
+        resolver=resolver,
+        ledger=ledger,
+    )
+    settlement = PolymarketSettlementClient(http=httpx.AsyncClient(timeout=10.0))
+    return live, settlement, live.market_resolver
+
+
+def _select_loop_sources(
+    *,
+    sandbox_live: bool,
+    snapshots: list[Any],
+    wall_clock: Clock,
+    live_builder: Callable[
+        ..., tuple[TickInputSource, SettlementClient, MarketResolver]
+    ] = _build_live_sources,
+) -> tuple[TickInputSource, SettlementClient | None, MarketResolver | None]:
+    """Mutually-exclusive loop-source mode selector (plan-loop V1.3, Codex-1 HIGH):
+    ``live`` | ``replay`` | ``idle``.
+
+    ``SANDBOX_LIVE=1`` ⇒ **LIVE**: wire the real discovery + gamma settlement and NEVER
+    construct the replay/synthetic path — even when cached cassettes exist on disk
+    (isolation: live and replay are never co-active). Unset ⇒ the EXISTING default,
+    unchanged: replay-when-cassettes-present, else idle. ``live_builder`` is injected so
+    the isolation test can assert the SELECTION without building the corpus-backed live
+    source.
+    """
+    if sandbox_live:
+        return live_builder(wall_clock=wall_clock)
+    if snapshots:
+        from agent.backtest.historical_fetcher import MarketSnapshotProvider
+        from agent.backtest.replay_runner import (
+            _market_table_from_snapshots,
+            _ReplaySettlementClient,
+            _ReplayTickInputSource,
+        )
+
+        provider = MarketSnapshotProvider(snapshots)
+        market_table = _market_table_from_snapshots(snapshots)
+        replay_tick: TickInputSource = _ReplayTickInputSource(
+            provider=provider,
+            signal_source=_make_prod_signal_source(provider),
+            selected_market_ids=provider.market_ids,
+        )
+        replay_settlement: SettlementClient = _ReplaySettlementClient(
+            provider=provider, clock=wall_clock,
+        )
+
+        def _cassette_market_resolver(market_id: str) -> MarketInfo | None:
+            return market_table.get(market_id)
+
+        return replay_tick, replay_settlement, _cassette_market_resolver
+    return _IdleTickInputSource(), None, None
+
+
 def _build_default_app() -> FastAPI:
     """Build the FastAPI app uvicorn imports as ``agent.server.main:app``.
 
@@ -2378,46 +2478,30 @@ def _build_default_app() -> FastAPI:
     # of agent.server.main stays light. Empty cache (fresh deploy before
     # prime_volume_cache, or a hermetic test) → idle fallback so the loop
     # still boots.
-    from agent.backtest.historical_fetcher import (
-        MarketSnapshotProvider,
-        load_all_cached_markets,
-    )
-    from agent.backtest.replay_runner import (
-        _market_table_from_snapshots,
-        _ReplaySettlementClient,
-        _ReplayTickInputSource,
-    )
+    from agent.backtest.historical_fetcher import load_all_cached_markets
 
     wall_clock = UtcClock()
     _snapshots = load_all_cached_markets(cache_dir=backtest_cache)
-    tick_input_source: TickInputSource
-    settlement_client: SettlementClient | None
-    market_resolver: MarketResolver | None
-    if _snapshots:
-        _provider = MarketSnapshotProvider(_snapshots)
-        _market_table = _market_table_from_snapshots(_snapshots)
-        tick_input_source = _ReplayTickInputSource(
-            provider=_provider,
-            signal_source=_make_prod_signal_source(_provider),
-            selected_market_ids=_provider.market_ids,
+    # V1.3 mutually-exclusive mode selector (live | replay | idle). SANDBOX_LIVE=1 ⇒
+    # LIVE — never builds the replay/synthetic path, even with cassettes on disk.
+    _sandbox_live = os.environ.get("SANDBOX_LIVE") == "1"
+    tick_input_source, settlement_client, market_resolver = _select_loop_sources(
+        sandbox_live=_sandbox_live,
+        snapshots=_snapshots,
+        wall_clock=wall_clock,
+    )
+    if _sandbox_live:
+        logger.info(
+            "prod loop: SANDBOX_LIVE=1 — LIVE Polymarket tennis paper-trading "
+            "(real discovery + gamma settlement; replay/synthetic path NOT built)"
         )
-        settlement_client = _ReplaySettlementClient(
-            provider=_provider, clock=wall_clock,
-        )
-
-        def _cassette_market_resolver(market_id: str) -> MarketInfo | None:
-            return _market_table.get(market_id)
-
-        market_resolver = _cassette_market_resolver
+    elif _snapshots:
         logger.info(
             "prod loop: pseudo-bet wiring active — %d cached markets "
             "(mock orders + real-outcome settlement)",
             len(_snapshots),
         )
     else:
-        tick_input_source = _IdleTickInputSource()
-        settlement_client = None
-        market_resolver = None
         logger.warning(
             "prod loop: no cached markets under %s — idle fallback "
             "(agent boots but places no bets)",

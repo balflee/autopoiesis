@@ -328,6 +328,21 @@ def test_unresolved_slug_orients_to_yes_frame_no_flip() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_market_resolver_returns_end_date_for_discovered_market() -> None:
+    src, _ = _live_source(
+        markets=[_market(market_id="901", end_date_iso="2025-06-01T20:00:00+00:00")],
+        quote=LivePriceQuote(mid=0.5, half_spread_frac=0.0, liquidity_usd=5.0),
+    )
+    # Before any tick the cache is cold → unknown markets resolve to None
+    # (Executor then refuses the order — correct fail-closed).
+    assert src.market_resolver("901") is None
+    src.inputs_for(asof_ts=_ASOF, tick=0)  # populates the discovery cache
+    info = src.market_resolver("901")
+    assert info is not None
+    assert info.end_date_iso == "2025-06-01T20:00:00+00:00"
+    assert src.market_resolver("does-not-exist") is None
+
+
 def test_identifier_contract_prices_yes_token_and_settles_market_id() -> None:
     src, price = _live_source(
         markets=[_market(market_id="777", yes_token_id="tok-yes-777")],

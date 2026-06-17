@@ -274,19 +274,33 @@ clean causal read before any fusing.
 baseline, and the loop running IS the milestone.*
 
 1. **SettlementClient** — wrap `polymarket_settlement.py` (inject http client), swap
-   `_NoopSettlementClient` (`main.py:2102`). *small* — restores PnL→BREATH→weight. **(do first)**
+   `_NoopSettlementClient` (`main.py:2102`). *small* — restores PnL→BREATH→weight.
+   **(Codex's first build step)** + one integration test: open bet → Gamma resolution →
+   settled row → breath/bankroll/weight update.
 2. **TickInputSource (REST polling)** — live OPEN tennis-market discovery (gamma
    `closed=false`) + live CLOB price + liquidity cap; return the 5-key BASELINE signals
    from `RealSignalSource` with `asof_ts=now`; swap `_IdleTickInputSource` (`main.py:2418`).
    *medium* — reuses live-today REST clients; skips async T-B-007; makes the old
    per-engine wrapper (T-B-015) redundant. *(depends: 1)*
+   ⚠️ **RISKIEST V1 STEP (Codex):** prod currently uses the cached `_ReplayTickInputSource`;
+   `RealSignalSource` expects snapshot/ledger semantics that do NOT map cleanly to
+   `asof_ts=now` (`real_signal_source.py:256-296`, `main.py:2399-2425`) — budget for a real
+   rabbit hole, not a 1-hour swap.
 3. **Flag + env** — `GENESIS_REAL_LEARNING=1`, `SANDBOX_STATE_DIR`, etc.; confirm real
    `WeightUpdater` on the poller; keep the β₁ slot (`head_to_head`) frozen for v1. *small* *(depends: 2)*
-4. **Minimal honesty guard (MANDATORY even for v1)** — decision-time fill price (NOT
-   post-move); `asof_ts=now` PIT on every signal; settlement only from gamma resolution;
-   far-future-timestamp audit test; **AND a fee/spread/thin-liquidity haircut on every
-   paper PnL** (Codex HIGH — the A18 +pre-fee/−post-fee trap). *small/medium* *(depends: 2)*
-   — **without this the loop runs but every number is a lie.**
+4. **Honesty guard + execution-cost SCHEMA (MANDATORY; Codex: NOT just a flag)** —
+   decision-time fill price (NOT post-move); `asof_ts=now` PIT on every signal; settlement
+   only from gamma resolution; far-future-timestamp audit test. The fee/spread/liquidity
+   haircut is a **SCHEMA CHANGE**: `BetRecord` has no fill/fee/spread fields and
+   `_compute_pnl` only does the legacy formula/cap (`sandbox_state.py:113-165`,
+   `sandbox_settlement_poller.py:778-844`) — add an immutable execution-cost snapshot to
+   `BetRecord` BEFORE wiring settlement PnL. *medium* *(depends: 2)* — **the A18
+   +pre-fee/−post-fee trap; without this every number is a lie.**
+4b. **Terminal-unsettled-bet rule (Codex — V1 gap)** — even hold-to-resolution, death can
+   stop the loop with open `open_bet_ids` still in the terminal snapshot
+   (`sandbox_phase2_loop.py` ~:2203). Define + TEST what happens to a still-open bet at
+   death (settle-on-next-poll / void / carry). This is a *settlement-finality* edge — NOT
+   the §5 #10 MtM accounting (that's V2). *small* *(depends: 1)*
 5. **Surface /mock** — `NEXT_PUBLIC_L5_COMPLETE` + `SANDBOX_STATE_DIR`; point `/api/sandbox`
    at the loop state dir; file-poll, no WS server. *small* *(depends: 3)*
    → **At this point the mock bet is RUNNING** (hold-to-resolution baseline). Everything
@@ -323,6 +337,10 @@ execution capability the surviving probes require. NOT needed for the Block-1 V1
    no live loop**; historical PM tennis entry-price vs resolution, net-ROI per price
    decile, NO-GO unless the favorite bin clears the fee dead-zone. **Cheapest first
    falsification (~$0).** *small* *(depends: 6)*
+   ⚠️ **Codex: gate on REAL historical entry prices** — `historical_fetcher.py:454-497`
+   pulls `closed=true` Gamma + **synthesizes a 3-point ledger** (closed markets lack
+   intraday ticks); a synthetic entry price would MANUFACTURE P2's result. Use actual
+   recorded fills/prices, not the synthetic ledger.
 7b. **Probe P4 — PM smart/dumb-wallet tracker** (§2, re-promoted A15) — backtest-first:
    reconstruct **as-of** holders (from per-wallet `/activity`) × **as-of** wallet profit ×
    outcome; **confidence-weighted per-wallet** (sample-size shrinkage, elite tier) + a

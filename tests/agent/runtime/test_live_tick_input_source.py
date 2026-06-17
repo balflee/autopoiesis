@@ -410,3 +410,30 @@ def test_golden_vector_parity_live_equals_backtest_signals() -> None:
         assert ti.signals[slot].score == pytest.approx(expected[slot].score)
     # The tennis facets actually fired (Sinner favoured) — not all-neutral.
     assert ti.signals[TENNIS_TECHNICAL].score > 0.0
+
+
+def test_no_lookahead_future_ledger_entry_excluded_at_asof() -> None:
+    """V1.4 no-look-ahead audit (live path): a price dated AFTER asof_ts is EXCLUDED
+    from the live momentum computation — only ts <= asof_ts contributes. A far-future
+    spike must not leak into a decision taken before it."""
+    ledger = LiveLedgerProvider()
+    real_src = RealSignalSource(
+        provider=ledger, resolver=_tiny_resolver(),
+        loader=SackmannLoader(snapshot_dir=_TINY), year_range=(2025, 2025),
+    )
+    # A gently-rising PAST series (08:00 → 11:00) + a huge FUTURE spike (18:00).
+    ledger.append("m2", slug=_RESOLVABLE_SLUG, ts=datetime(2025, 6, 1, 8, tzinfo=UTC), mid=0.40)
+    ledger.append("m2", slug=_RESOLVABLE_SLUG, ts=datetime(2025, 6, 1, 11, tzinfo=UTC), mid=0.50)
+    ledger.append("m2", slug=_RESOLVABLE_SLUG, ts=datetime(2025, 6, 1, 18, tzinfo=UTC), mid=0.99)
+
+    # Decision at 12:00 must NOT see the 18:00 spike; a later decision at 23:00 does.
+    at_noon = real_src.signals_for(
+        market_id="m2", tick=0, asof_ts=datetime(2025, 6, 1, 12, tzinfo=UTC)
+    )[MARKET_MOMENTUM]
+    after_spike = real_src.signals_for(
+        market_id="m2", tick=0, asof_ts=datetime(2025, 6, 1, 23, tzinfo=UTC)
+    )[MARKET_MOMENTUM]
+    # The future 0.99 spike is excluded at noon → strictly lower momentum than at 23:00.
+    assert after_spike.score > at_noon.score
+    # And the audited stamp never claims availability past the decision time.
+    assert at_noon.available_at <= datetime(2025, 6, 1, 12, tzinfo=UTC).isoformat()

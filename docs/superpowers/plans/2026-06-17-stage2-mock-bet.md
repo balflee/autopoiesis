@@ -42,10 +42,20 @@ on the partial diff.
 | **V1.3 SANDBOX_LIVE mode switch** | `1ec0bda` | `main.py` `_select_loop_sources` (live\|replay\|idle, mutually exclusive) + `_build_live_sources` + `_live_json_fetch`; `LiveTickInputSource.market_resolver`. 4 isolation tests (live never builds replay w/ cassettes; defaults unchanged). |
 
 **REMAINING — resume in this order:**
-1. **V1.7 P2 + real-trades source** — new `data/sources/polymarket_trades.py` (Data API `/trades`, provenance
-   `actual_trade`, fail-closed) + `scripts/probe_p2_favorite_longshot.py` (uses V1.6's gate).
-2. **V1.5 surface `/mock`** (env) — small.
-3. **Phase-3 Codex diff-review** over `git diff 5f6942d HEAD` → fix → re-review → UNRESOLVED=0.
+- (none) — **V1 is COMPLETE.** Remaining-tail commits below.
+
+| step | commit | delivered |
+|---|---|---|
+| V1.7 ACTUAL-trades source | `ba599d5` | `data/sources/polymarket_trades.py` — single canonical `actual_trade` provenance, fail-closed, no synthetic/midpoint fallback |
+| V1.7 P2 probe | `b7bcd99` | `scripts/probe_p2_favorite_longshot.py` — favorite-longshot calibration + V1.6 gate + placebo, fail-closed skip |
+| V1.5 env docs | `fd79ad1` | `.env.example` Stage-2 section (the dashboard wiring already existed; SANDBOX_LIVE/GENESIS_REAL_LEARNING/SANDBOX_STATE_DIR/NEXT_PUBLIC_L5_COMPLETE) |
+| Phase-3 fixes r1 | `c83c16c` | Codex round-1 HIGH=2 MED=2 LOW=1 fixed (fail-closed cost guard, NO-side `side_correct_pricing`, flip cost-stamp copy, P2 PIT, import-cycle root fix) |
+| Phase-3 fixes r2 | `99de91b` | round-2: MED-1 naive-asof→UTC coercion; HIGH-1 pushback (guard ON for void by design — `_compute_pnl` charges -cost on void) + doc + test |
+
+**Phase-3 Codex diff-review (`git diff 5f6942d HEAD`) via `codex:codex-rescue`: r1 HIGH=2 MED=2 LOW=1 → fixed →
+r2 (3 resolved, 2 flagged) → fixed/pushed-back → r3 UNRESOLVED=0.** Full suite green (only the 9 pre-existing
+`test_tennis_technical` live-404 env failures). V1 = the live loop runs (hold-to-resolution, cost-net,
+no-look-ahead, fail-closed) + P2 returns an honest reproducible go/no-go. V2 (trading layer / P4 / P1) deferred.
 
 **GOTCHAS (learned this session):** repo runs async via `asyncio.run(...)` in SYNC tests — NO `pytest.mark.asyncio`.
 Schema additions follow the storm-stamp Optional+omit-when-None pattern (`bet_record_jsonl_dict` / `exclude_none`)

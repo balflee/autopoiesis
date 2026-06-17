@@ -181,11 +181,21 @@ class GammaLiveDiscovery:
     """Dedicated LIVE discovery via gamma ``/events?tag_slug=tennis&closed=false`` — the
     open-market endpoint (Codex-r2-M2a: does NOT mutate the PIT-historical
     ``list_tennis_markets``, which uses the wrong ``/markets`` endpoint). ``fetcher`` is
-    injected (a fake in tests; a real urllib/httpx GET in prod) so this stays hermetic."""
+    injected (a fake in tests; a real urllib/httpx GET in prod) so this stays hermetic.
+
+    ``head_to_head_only`` (default True): the gamma tennis tag returns a MIX — a few
+    head-to-head match markets (``...-NameA-vs-NameB``) plus many dormant tournament-
+    outright futures (``will-X-win-Y``, outcome "Yes"/"No"). Only the head-to-head slugs
+    resolve to two Sackmann players (so the surface/h2h/rest facets fire) and are the
+    actively-traded markets V1 targets; the futures are unresolvable (momentum-only) and
+    mostly have no CLOB book. Restricting discovery to resolver-parseable slugs keeps the
+    round-robin on the markets the agent can actually price + score. Set False to widen
+    to every open tennis market (futures included)."""
 
     fetcher: Callable[[str], object]
-    limit: int = 20
+    limit: int = 100
     tag_slug: str = TENNIS_TAG_SLUG
+    head_to_head_only: bool = True
 
     def discover(self) -> list[LiveTennisMarket]:
         url = (
@@ -197,7 +207,12 @@ class GammaLiveDiscovery:
         except Exception as exc:  # network/parse failure → idle (no eligible market)
             logger.warning("live tennis discovery failed: %s", exc)
             return []
-        return parse_open_tennis_markets(payload)
+        markets = parse_open_tennis_markets(payload)
+        if self.head_to_head_only:
+            # Keep only ``-NameA-vs-NameB`` head-to-head markets (the ones the resolver
+            # can parse → facets fire); drop tournament-outright futures.
+            markets = [m for m in markets if parse_slug(m.slug) is not None]
+        return markets
 
 
 @dataclass

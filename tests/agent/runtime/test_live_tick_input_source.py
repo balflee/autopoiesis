@@ -203,6 +203,29 @@ def test_gamma_live_discovery_degrades_to_empty_on_fetch_error() -> None:
     assert GammaLiveDiscovery(fetcher=fetcher).discover() == []
 
 
+def test_gamma_discovery_head_to_head_only_filters_futures() -> None:
+    # The live tennis tag returns a MIX: a head-to-head match (-vs- slug, player YES
+    # label) + a tournament-outright future (will-X-win, YES="Yes"). Default
+    # head_to_head_only=True keeps only the resolvable match; False keeps both.
+    payload = _gamma_payload(
+        _gamma_market(market_id="match-1", slug=_RESOLVABLE_SLUG, yes_label="Sinner"),
+        _gamma_market(
+            market_id="future-1",
+            slug="will-sinner-win-the-2026-mens-wimbledon",
+            yes_token="tok-fy", no_token="tok-fn",
+            yes_label="Yes", no_label="No",
+        ),
+    )
+    def fetcher(url: str) -> object:
+        return payload
+
+    h2h = GammaLiveDiscovery(fetcher=fetcher)  # default head_to_head_only=True
+    assert [m.market_id for m in h2h.discover()] == ["match-1"]
+
+    allm = GammaLiveDiscovery(fetcher=fetcher, head_to_head_only=False)
+    assert {m.market_id for m in allm.discover()} == {"match-1", "future-1"}
+
+
 # --------------------------------------------------------------------------- #
 # ClobBookPriceSource — best bid/ask → mid + half-spread + top-of-book liquidity
 # --------------------------------------------------------------------------- #

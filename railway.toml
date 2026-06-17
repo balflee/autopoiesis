@@ -130,3 +130,31 @@ default = "/data/backtest/runs"
 [[envVars]]
 name    = "BACKTEST_CACHE_DIR"
 default = "/data/backtest/cache"
+
+# -----------------------------------------------------------------------------
+# Stage-2 LIVE mock-bet flags (plan-loop V1, 2026-06-17). Default "1" so the
+# deploy PAPER-trades LIVE Polymarket tennis out-of-the-box — NO capital at risk
+# (mock orders only; read-only public gamma/CLOB APIs). Set any to "0" in the
+# Railway Variables tab to fall back (e.g. SANDBOX_LIVE=0 → replay/idle).
+# -----------------------------------------------------------------------------
+
+# LIVE mode switch (V1.3): wire live discovery + gamma settlement; never replay/synth.
+[[envVars]]
+name    = "SANDBOX_LIVE"
+default = "1"
+
+# Real Sackmann/CLOB baseline signals (else a deterministic synthetic source).
+[[envVars]]
+name    = "GENESIS_REAL_SIGNALS"
+default = "1"
+
+# Settlement-driven weight learning (能学) on realized PnL.
+[[envVars]]
+name    = "GENESIS_REAL_LEARNING"
+default = "1"
+
+# Set-and-forget: auto-start the sandbox loop on boot AND on a Railway restart,
+# so no manual POST /api/agent/start is needed for a persistent deploy.
+[[envVars]]
+name    = "GENESIS_AGENT_AUTOSTART"
+default = "1"

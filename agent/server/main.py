@@ -38,6 +38,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -924,6 +925,34 @@ def _zero_llm_cost() -> float:
     return 0.0
 
 
+GENESIS_AGENT_AUTOSTART_ENV_VAR: Final[str] = "GENESIS_AGENT_AUTOSTART"
+"""Set to ``"1"`` for a set-and-forget deploy (e.g. Railway): the sandbox loop
+auto-starts on server boot so a container restart re-launches it WITHOUT an
+operator ``POST /api/agent/start``. Default OFF → byte-unchanged manual-start
+flow (the whole test suite + the dashboard's explicit start button)."""
+
+
+@asynccontextmanager
+async def _autostart_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """FastAPI lifespan: optionally auto-start the sandbox loop on boot.
+
+    Gated on :data:`GENESIS_AGENT_AUTOSTART_ENV_VAR` (default OFF). When ON, the
+    SAME path as ``POST /api/agent/start`` runs at startup
+    (``agent_runner.start()``), so a persistent deploy + a Railway
+    ``restartPolicyType=ON_FAILURE`` restart both re-launch the loop with no
+    manual trigger. A start failure is logged but never blocks server boot
+    (the health check + control plane must still come up)."""
+    if os.environ.get(GENESIS_AGENT_AUTOSTART_ENV_VAR) == "1":
+        deps = getattr(app.state, "deps", None)
+        if deps is not None and not deps.agent_runner.is_running:
+            try:
+                run_id = await deps.agent_runner.start()
+                logger.info("auto-start: sandbox loop launched (run_id=%s)", run_id)
+            except Exception as exc:
+                logger.error("auto-start failed (server still boots): %s", exc)
+    yield
+
+
 def create_app(
     *,
     agent_runner: AgentRunner,
@@ -973,6 +1002,9 @@ def create_app(
             "Auth: bearer token via DASHBOARD_API_TOKEN. "
             "PRD §8 + TECHNICAL_PLAN §5.4."
         ),
+        # Optional set-and-forget auto-start (GENESIS_AGENT_AUTOSTART=1); default
+        # OFF keeps the manual POST /api/agent/start flow byte-unchanged.
+        lifespan=_autostart_lifespan,
     )
 
     # CORS — explicit allow-list per TECHNICAL_PLAN §5.1. ``*`` wildcard

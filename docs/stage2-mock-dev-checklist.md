@@ -67,6 +67,41 @@ experiment to find out, run honestly.
 >   the **spread TWICE per round-trip** on thin books. Build it because the survivors need
 >   it — do not mistake "I can exit" for "I have edge."
 
+## 0.5 Architecture overview — predict + trade + survive
+
+One **per-tick decision loop** nested in a **per-life survival/learning meta-loop**
+(✅ = exists, 🔴 = to build):
+
+```
+                       LIVE POLYMARKET   (Gamma REST + CLOB WS / Data API)
+                              │   open tennis markets · price · order book · holders
+                              ▼
+ ┌──────────────── per-tick decision loop  (SandboxPhase2Loop ✅) ────────────────────┐
+ │  TickInputSource 🔴 ─► { 5 baseline signals · price · liquidity cap · position mark } │
+ │       ▼                                                                              │
+ │  ① PREDICT   RealSignalSource ✅ (5 Sackmann/CLOB slots = p_base)                    │
+ │              + Edge layer · Lane A 🔴 → p_model = clip(p_base + κ_edge·Σ wᵢ·sᵢ·cᵢ)   │
+ │       ▼ p_model                                                                      │
+ │  ② TRADE     DecisionEngine ✅ (fuse + Kelly + 4-constraint sizing)                   │
+ │              + position manager 🔴 (entry / exit / size)                             │
+ │       ▼ action:  BET (buy) │ SELL (in-play unwind, taker) │ NO_BET                   │
+ │  Executor place_order  (buy ✅ / sell 🔴)                                            │
+ └───────┼───────────────────────────────────────────────────────────────────────────────┘
+         ▼  persist: open_bets.jsonl ✅ · positions + mark-to-market 🔴
+  settle: SettlementClient 🔴 (resolution)  ‖  exit fill 🔴 (in-play)  → realized PnL (net 2× spread)
+         ▼
+ ┌── ③ SURVIVE + LEARN meta-loop ───────────────────────────────────────────────────┐
+ │  BREATH economy ✅ → permadeath → reincarnation ✅                                  │
+ │  WeightUpdater「能学」EMA ✅(flag) → updates fusion weights across lives (+ harden 🔴)│
+ └──────────────────────────────────────────────────────────────────────────────────┘
+         ▼  Dashboard /mock ✅ (2s file-poll)
+```
+
+**Three pillars:** PREDICT (`p_model` = 5 baseline + Edge layer) · TRADE (entry/exit/size
+incl. in-play unwind) · SURVIVE+LEARN (breath/permadeath + 能学 EMA across lives).
+**Build order:** Block 1 (start, hold-to-resolution baseline) → Block 1.5 (trading layer)
+→ Block 2 (edge probes) → Block 3 (deferred). Per-component status is in §1.
+
 ## 1. Readiness matrix
 
 | component | status | gap |

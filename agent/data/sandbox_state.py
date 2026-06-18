@@ -561,6 +561,16 @@ class SandboxStateWriter:
         """
         return self._root / PROPOSALS_FILENAME
 
+    @property
+    def gods_treasury_path(self) -> Path:
+        """Living Stage P1 — interleaved tribute + tithe JSONL stream."""
+        return self._root / GODS_TREASURY_FILENAME
+
+    @property
+    def deaths_path(self) -> Path:
+        """Living Stage P1 — one DeathRecord per incarnation death."""
+        return self._root / DEATHS_FILENAME
+
     # ------------------------------------------------------------------
     # Append-only writers — one line per accepted record.
     # ------------------------------------------------------------------
@@ -615,6 +625,30 @@ class SandboxStateWriter:
         unresolved proposal.
         """
         self._append_jsonl(self.proposals_path, proposal.model_dump_json())
+
+    def append_tribute(self, tribute: TributeRecord) -> None:
+        """Append one tribute offering to ``gods_treasury.jsonl`` (Living Stage P1).
+
+        ``exclude_none=True`` omits the optional ``dice_roll`` when absent, the
+        same omit-when-None discipline the other optional-field streams use.
+        """
+        self._append_jsonl(
+            self.gods_treasury_path, tribute.model_dump_json(exclude_none=True)
+        )
+
+    def append_tithe(self, tithe: TitheRecord) -> None:
+        """Append one tithe (divine rent) row to ``gods_treasury.jsonl`` (P1)."""
+        self._append_jsonl(self.gods_treasury_path, tithe.model_dump_json())
+
+    def append_death(self, death: DeathRecord) -> None:
+        """Append one death row to ``deaths.jsonl`` — drives the lineage timeline (P1).
+
+        ``exclude_none=True`` omits the optional Tombstone/receipt fields when
+        absent (e.g. a sandbox chain adapter with no real tx hashes).
+        """
+        self._append_jsonl(
+            self.deaths_path, death.model_dump_json(exclude_none=True)
+        )
 
     # ------------------------------------------------------------------
     # Atomic snapshot — temp-file + os.replace.

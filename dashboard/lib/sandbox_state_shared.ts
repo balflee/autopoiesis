@@ -19,7 +19,7 @@
  * client bundles cleanly.
  */
 
-import type { AgentPhase, DecisionFeedEntry } from "@/lib/types";
+import type { AgentPhase, DecisionFeedEntry, EngineSignalMap } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
 /* Wire shapes — mirror agent.data.sandbox_state.* Pydantic models     */
@@ -34,6 +34,8 @@ export interface AgentStateSnapshotData {
   readonly phase_age_days: number;
   readonly open_bet_ids: readonly string[];
   readonly last_tick: number;
+  /** Living Stage P1 — incarnation index (0 until the Phase 2 supervisor). */
+  readonly incarnation_number?: number;
   /** Optional fusion-weights blob (T-B-020 multi-day rehydrate). */
   readonly weights: WeightsSnapshotData | null;
   /** Sticky desperate-mode latch (PRD §6.5). */
@@ -64,6 +66,11 @@ export interface DecisionRecordData {
   readonly no_bet_reason: string | null;
   readonly breath_after: number;
   readonly bankroll_usd_after: number;
+  /** Living Stage P1 — present only on live divine-economy decision ticks. */
+  readonly odds_yes?: number;
+  readonly odds_no?: number;
+  readonly fee_floor_pct?: number;
+  readonly signal_scores?: Record<string, number>;
 }
 
 /** Mirror of :class:`agent.data.sandbox_state.SettledBetRecord`. */
@@ -75,6 +82,43 @@ export interface SettledBetRecordData {
   readonly winning_price: number;
   readonly pnl_usd: number;
   readonly status: "settled";
+}
+
+/** Living Stage P1 — one tribute offering row in gods_treasury.jsonl. */
+export interface TributeRecordData {
+  readonly type: "tribute";
+  readonly tribute_id: string;
+  readonly ts: string;
+  readonly tick: number;
+  readonly amount_usd: number;
+  readonly success: boolean;
+  readonly breath_after: number;
+  readonly bankroll_after: number;
+  readonly dice_roll?: number;
+}
+
+/** Living Stage P1 — one tithe (divine rent) row in gods_treasury.jsonl. */
+export interface TitheRecordData {
+  readonly type: "tithe";
+  readonly tithe_id: string;
+  readonly ts: string;
+  readonly tick: number;
+  readonly paid_usd: number;
+  readonly breath_cost: number;
+  readonly breath_after: number;
+  readonly bankroll_after: number;
+}
+
+/** Living Stage P1 — interleaved treasury stream row (discriminated by `type`). */
+export type GodsTreasuryRecordData = TributeRecordData | TitheRecordData;
+
+/** Living Stage P1 — one past-life summary, folded from deaths.jsonl. */
+export interface IncarnationLineageEntry {
+  readonly incarnation_number: number;
+  readonly last_tick: number;
+  readonly cause: string;
+  readonly final_bankroll_usd: number;
+  readonly ts: string;
 }
 
 /**
@@ -103,6 +147,11 @@ export interface SandboxStateBundle {
   readonly served_ts: string;
   /** True iff the API route served from the in-memory mock. */
   readonly is_mock: boolean;
+  // Living Stage P1 — divine economy (poll-derived).
+  readonly recent_gods_treasury: readonly GodsTreasuryRecordData[];
+  readonly gods_revenue_cumulative_usd: number;
+  readonly incarnation_number: number;
+  readonly incarnation_lineage: readonly IncarnationLineageEntry[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -305,6 +354,12 @@ export function toDecisionFeedEntries(
       ...(result != null ? { result } : {}),
       ...(settledRow ? { pnl_usd: settledRow.pnl_usd } : {}),
       ...(d.no_bet_reason ? { reasoning: d.no_bet_reason } : {}),
+      ...(d.odds_yes != null ? { odds_yes: d.odds_yes } : {}),
+      ...(d.odds_no != null ? { odds_no: d.odds_no } : {}),
+      ...(d.fee_floor_pct != null ? { fee_floor_pct: d.fee_floor_pct } : {}),
+      ...(d.signal_scores && Object.keys(d.signal_scores).length
+        ? { signals: d.signal_scores as EngineSignalMap }
+        : {}),
     };
     return entry;
   });

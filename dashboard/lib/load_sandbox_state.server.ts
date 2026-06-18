@@ -37,6 +37,8 @@ import {
   parseJsonl,
   type AgentStateSnapshotData,
   type DecisionRecordData,
+  type GodsTreasuryRecordData,
+  type IncarnationLineageEntry,
   type LagAlert,
   type SandboxStateBundle,
   type SettledBetRecordData,
@@ -45,6 +47,9 @@ import {
 const DECISIONS_FILENAME = "decisions.jsonl";
 const SETTLED_BETS_FILENAME = "settled_bets.jsonl";
 const SNAPSHOT_FILENAME = "agent_state.json";
+// Living Stage P1 — the divine economy streams.
+const GODS_TREASURY_FILENAME = "gods_treasury.jsonl";
+const DEATHS_FILENAME = "deaths.jsonl";
 
 /** Resolve the sandbox state root — env override > default. */
 export function resolveSandboxRoot(): string {
@@ -130,6 +135,53 @@ export async function loadSandboxBundle(
     settled = [];
   }
 
+  // Living Stage P1 — the divine economy streams (ENOENT → [] like the others).
+  const treasuryPath = path.join(root, GODS_TREASURY_FILENAME);
+  let treasury: GodsTreasuryRecordData[] = [];
+  try {
+    const raw = await fs.readFile(treasuryPath, "utf-8");
+    treasury = lastN(parseJsonl<GodsTreasuryRecordData>(raw), tailN);
+  } catch (err) {
+    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
+      errors.push({
+        kind: "fs_error",
+        detail: `gods_treasury.jsonl read failed: ${err.message}`,
+        severity: "error",
+      });
+    }
+    treasury = [];
+  }
+
+  const deathsPath = path.join(root, DEATHS_FILENAME);
+  let lineage: IncarnationLineageEntry[] = [];
+  try {
+    const raw = await fs.readFile(deathsPath, "utf-8");
+    lineage = parseJsonl<IncarnationLineageEntry>(raw);
+  } catch (err) {
+    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
+      errors.push({
+        kind: "fs_error",
+        detail: `deaths.jsonl read failed: ${err.message}`,
+        severity: "error",
+      });
+    }
+    lineage = [];
+  }
+
+  // Cumulative gods revenue = successful tributes + cash tithes. Breath-paid
+  // tithes are NOT converted to USD (honesty constraint). The fold walks the
+  // FULL stream (not the tailed slice) so the cumulative total is exact.
+  let gods_revenue_cumulative_usd = 0;
+  try {
+    const allRaw = await fs.readFile(treasuryPath, "utf-8");
+    for (const r of parseJsonl<GodsTreasuryRecordData>(allRaw)) {
+      if (r.type === "tribute" && r.success) gods_revenue_cumulative_usd += r.amount_usd;
+      else if (r.type === "tithe") gods_revenue_cumulative_usd += r.paid_usd;
+    }
+  } catch {
+    /* ENOENT → 0 */
+  }
+
   const lag_alerts = [...computeLagAlerts(snapshot, now(), dirExists), ...errors];
 
   return {
@@ -139,5 +191,9 @@ export async function loadSandboxBundle(
     lag_alerts,
     served_ts: new Date(now()).toISOString(),
     is_mock: false,
+    recent_gods_treasury: treasury,
+    gods_revenue_cumulative_usd,
+    incarnation_number: snapshot?.incarnation_number ?? 0,
+    incarnation_lineage: lineage,
   };
 }

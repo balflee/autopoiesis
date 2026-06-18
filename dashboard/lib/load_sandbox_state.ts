@@ -128,6 +128,10 @@ const EMPTY_BUNDLE_CLIENT: SandboxStateBundle = {
   ],
   served_ts: new Date(0).toISOString(),
   is_mock: false,
+  recent_gods_treasury: [],
+  gods_revenue_cumulative_usd: 0,
+  incarnation_number: 0,
+  incarnation_lineage: [],
 };
 
 /** Hook options — primarily a test seam. */

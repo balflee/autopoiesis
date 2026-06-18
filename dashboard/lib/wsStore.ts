@@ -35,6 +35,10 @@ import type {
   WsMessage,
 } from "./types";
 import type { WsConnectionState } from "./ws-client";
+import type {
+  GodsTreasuryRecordData,
+  IncarnationLineageEntry,
+} from "./sandbox_state_shared";
 
 export interface ThoughtEntry {
   readonly ts: string;
@@ -170,8 +174,28 @@ export interface WsState {
   /** Tombstone mint receipt (includes the ipfs_degraded flag). */
   readonly tombstone: TombstoneEntry | null;
 
+  /** Living Stage P1 — latest divine events (poll's tailed list, newest last). */
+  readonly divineEvents: readonly GodsTreasuryRecordData[];
+  /** Cumulative gods revenue (successful tributes + cash tithes), USD. */
+  readonly divineTreasury: number;
+  /** Current incarnation (0 until the Phase 2 supervisor). */
+  readonly incarnationNumber: number;
+  /** Past-life lineage (folded from deaths.jsonl). */
+  readonly reincarnationLineage: readonly IncarnationLineageEntry[];
+
   /** Bridge from WsClient. */
   ingest: (msg: WsMessage) => void;
+  /**
+   * Living Stage P1 — poll-path setter for the divine slices. NOT a WsMessage
+   * kind: the divine data never rides the socket (it is derived from the
+   * /api/sandbox poll bundle), so it stays off the WS-contract surface.
+   */
+  setDivineState: (p: {
+    events: readonly GodsTreasuryRecordData[];
+    treasury_usd: number;
+    incarnation_number: number;
+    lineage: readonly IncarnationLineageEntry[];
+  }) => void;
   setConnection: (s: WsConnectionState) => void;
   /** One-shot overlay handshake — components call this when they've
    *  rendered the overlay so it does not refire on reconnect. */
@@ -194,6 +218,7 @@ const initial: Omit<
   | "markLlmOverlayShown"
   | "dismissPhaseTransition"
   | "reset"
+  | "setDivineState"
 > = {
   vitals: null,
   weights: null,
@@ -218,6 +243,10 @@ const initial: Omit<
   terminalBreathAtEntry: null,
   lastWordsEntry: null,
   tombstone: null,
+  divineEvents: [],
+  divineTreasury: 0,
+  incarnationNumber: 0,
+  reincarnationLineage: [],
 };
 
 /**
@@ -407,6 +436,13 @@ export const useWsStore = create<WsState>((set) => ({
       }
     }),
   setConnection: (s) => set({ connection: s }),
+  setDivineState: (p) =>
+    set({
+      divineEvents: p.events,
+      divineTreasury: p.treasury_usd,
+      incarnationNumber: p.incarnation_number,
+      reincarnationLineage: p.lineage,
+    }),
   markLlmOverlayShown: () => set({ llmActivatedShown: true }),
   dismissPhaseTransition: () => set({ phaseTransition: null }),
   reset: () => set({ ...initial }),
@@ -425,6 +461,16 @@ export const selectWeightsHistory = (
 export const selectCumulativePnl = (
   s: WsState,
 ): readonly CumulativePnlPoint[] => s.cumulativePnlHistory;
+
+/* --- Living Stage P1 — divine economy selectors --- */
+export const selectDivineEvents = (
+  s: WsState,
+): readonly GodsTreasuryRecordData[] => s.divineEvents;
+export const selectDivineTreasury = (s: WsState): number => s.divineTreasury;
+export const selectIncarnationNumber = (s: WsState): number => s.incarnationNumber;
+export const selectReincarnationLineage = (
+  s: WsState,
+): readonly IncarnationLineageEntry[] => s.reincarnationLineage;
 
 /* --- T-D-004 sprint_5 — Death Watch selectors --- */
 

@@ -432,6 +432,10 @@ class AgentStateSnapshot(BaseModel):
     phase_age_days: float = Field(ge=0.0)
     open_bet_ids: list[str] = Field(default_factory=list)
     last_tick: int = Field(ge=-1, default=-1)
+    # Living Stage P1 — which incarnation this snapshot belongs to. Always 0
+    # until the Phase 2 reincarnation supervisor lands (it stamps the running
+    # idx). Default 0 so pre-P1 snapshots (no key) rehydrate as incarnation 0.
+    incarnation_number: int = Field(ge=0, default=0)
     weights: Weights | None = None
     desperate: bool = False
     pending_proposals: list[str] = Field(

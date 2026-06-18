@@ -186,6 +186,7 @@ export function useSandboxState(
 ): UseSandboxStateResult {
   const ws = useAgentWebSocket();
   const ingest = useWsStore((s) => s.ingest);
+  const setDivineState = useWsStore((s) => s.setDivineState);
 
   const [bundle, setBundle] = useState<SandboxStateBundle>(EMPTY_BUNDLE_CLIENT);
   const [hydrated, setHydrated] = useState(false);
@@ -235,12 +236,19 @@ export function useSandboxState(
           entries: feedEntries,
         });
       }
+      // Living Stage P1 — lift the divine slices (poll-only; not a WS frame).
+      setDivineState({
+        events: data.recent_gods_treasury,
+        treasury_usd: data.gods_revenue_cumulative_usd,
+        incarnation_number: data.incarnation_number,
+        lineage: data.incarnation_lineage,
+      });
     } catch {
       // Network errors are silently swallowed — the lag_alerts surface
       // in the bundle (or the existing degraded-feed banner from
       // useAgentWebSocket) is the user-visible signal.
     }
-  }, [ingest]);
+  }, [ingest, setDivineState]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

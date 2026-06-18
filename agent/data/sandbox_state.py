@@ -214,6 +214,17 @@ def bet_record_jsonl_dict(bet: BetRecord) -> dict[str, object]:
     return row
 
 
+# Living Stage P1 — the DecisionRecord fields omitted on disk when unpopulated
+# (None odds / empty signal_scores), so a flag-OFF decision row stays
+# byte-identical to the pre-P1 shape. signal_scores is handled separately in
+# append_decision (omit when the dict is empty, not just None).
+_DECISION_LIVING_KEYS: Final[tuple[str, ...]] = (
+    "odds_yes",
+    "odds_no",
+    "fee_floor_pct",
+)
+
+
 def execution_cost_usd(bet: BetRecord) -> float:
     """Total execution cost charged on ``bet`` in USD = fee + spread.
 
@@ -366,6 +377,18 @@ class DecisionRecord(BaseModel):
     no_bet_reason: str | None                 # populated only when kind == NO_BET
     breath_after: float = Field(ge=0.0)
     bankroll_usd_after: float
+    # Living Stage P1 — absolute YES/NO odds at decision time, the edge floor
+    # the fused edge had to clear, and the per-engine scores. Optional/empty so
+    # non-live + flag-OFF ticks stay valid; OMITTED from JSONL when None/empty
+    # (see :meth:`SandboxStateWriter.append_decision`) so flag-off rows stay
+    # BYTE-identical to the pre-P1 shape. Populated by ``_tick`` ONLY when
+    # ``record_living_stage_fields`` is on. ``signal_scores`` mirrors
+    # ``BetRecord.signal_scores`` and is the live source for the dashboard's
+    # 5-engine rail on the poll path.
+    odds_yes: float | None = Field(default=None, ge=0.0, le=1.0)
+    odds_no: float | None = Field(default=None, ge=0.0, le=1.0)
+    fee_floor_pct: float | None = None
+    signal_scores: dict[str, float] = Field(default_factory=dict)
 
 
 class AgentStateSnapshot(BaseModel):
@@ -607,8 +630,21 @@ class SandboxStateWriter:
         )
 
     def append_decision(self, decision: DecisionRecord) -> None:
-        """Append one decision line to ``decisions.jsonl``."""
-        self._append_jsonl(self.decisions_path, decision.model_dump_json())
+        """Append one decision line to ``decisions.jsonl``.
+
+        Living Stage P1: the living-stage fields (``odds_*``, ``signal_scores``)
+        are EXCLUDED when unpopulated so a flag-off row is byte-identical to the
+        pre-P1 compact Pydantic JSON. ``model_dump_json`` (NOT ``json.dumps``)
+        keeps the compact ``,``/``:`` separators of every existing decision line.
+        """
+        exclude: set[str] = {
+            k for k in _DECISION_LIVING_KEYS if getattr(decision, k) is None
+        }
+        if not decision.signal_scores:
+            exclude.add("signal_scores")
+        self._append_jsonl(
+            self.decisions_path, decision.model_dump_json(exclude=exclude or None)
+        )
 
     def append_reflection(self, reflection: SandboxReflectionRecord) -> None:
         """Append one reflection line to ``reflections.jsonl`` (T-B-024).

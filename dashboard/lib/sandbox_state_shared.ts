@@ -348,6 +348,10 @@ export function toDecisionFeedEntries(
       id: `tick-${d.tick}`,
       ts: d.ts,
       action: d.kind,
+      // Living Stage P1 (Codex diff-review M1): carry market_id so the poll
+      // path's decisionFeed entries identify the market — without this Z3
+      // "The Act" always falls to the idle "scanning" card even mid-bet.
+      ...(d.market_id != null ? { market_id: d.market_id } : {}),
       ...(d.side != null ? { side: d.side } : {}),
       ...(d.kind === "BET" ? { size_usd: d.size_usd } : {}),
       ...(d.edge_pct != null ? { edge_pct: d.edge_pct } : {}),

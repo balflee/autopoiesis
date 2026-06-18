@@ -36,7 +36,9 @@ import asyncio
 import json
 import logging
 import os
+import random
 import time
+import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -70,8 +72,12 @@ from agent.data.sandbox_state import (
     REFLECTIONS_FILENAME,
     SETTLED_BETS_FILENAME,
     SNAPSHOT_FILENAME,
+    DeathRecord,
     SandboxStateWriter,
+    TitheRecord,
+    TributeRecord,
 )
+from agent.runtime.tribute import ReflexTributePolicy
 from agent.engines._strategy_proposal_schema import (
     PROPOSAL_STATUS_APPROVED,
     PROPOSAL_STATUS_PENDING,
@@ -1744,6 +1750,84 @@ class _NoopStateHook:
         return None
 
 
+# Living Stage P1 — deterministic, audit-reproducible gods' dice seed.
+_GODS_DICE_SEED: Final[int] = 0xA7D1CE
+
+
+class _SandboxStateHook:
+    """Living Stage P1 — routes the loop's divine-economy emits to JSONL.
+
+    Unlike :class:`_NoopStateHook`, this PERSISTS the events the dashboard's
+    Living Stage reads: tribute + tithe → ``gods_treasury.jsonl``, agent_died →
+    ``deaths.jsonl``. The loop emits carry no ``ts``/id (operator-domain), so we
+    stamp them here. Unknown kinds are ignored so the hook stays
+    forward-compatible.
+    """
+
+    def __init__(
+        self, *, writer: SandboxStateWriter, incarnation_number: int = 0
+    ) -> None:
+        self._writer = writer
+        self._incarnation_number = incarnation_number
+
+    def emit(self, *, kind: str, **payload: Any) -> None:
+        # The StateHook contract (sandbox_settlement_poller.py) is that emit
+        # MUST NOT raise into the caller — a malformed payload or a disk error
+        # here must never abort _attempt_tribute / _attempt_tithe / _die. Catch
+        # broadly, log a WARN (so a treasury/death write loss is visible, not
+        # silent), and swallow.
+        try:
+            if kind == "tribute":
+                self._writer.append_tribute(
+                    TributeRecord(
+                        tribute_id=uuid.uuid4().hex,
+                        ts=datetime.now(UTC).isoformat(),
+                        tick=payload["tick"],
+                        amount_usd=payload["amount_usd"],
+                        success=payload["success"],
+                        breath_after=payload["breath_after"],
+                        bankroll_after=payload["bankroll_after"],
+                        dice_roll=payload.get("dice_roll"),
+                    )
+                )
+            elif kind == "tithe":
+                self._writer.append_tithe(
+                    TitheRecord(
+                        tithe_id=uuid.uuid4().hex,
+                        ts=datetime.now(UTC).isoformat(),
+                        tick=payload["tick"],
+                        paid_usd=payload["amount_usd"],
+                        breath_cost=payload["breath_cost"],
+                        breath_after=payload["breath_after"],
+                        bankroll_after=payload["bankroll_after"],
+                    )
+                )
+            elif kind == "agent_died":
+                self._writer.append_death(
+                    DeathRecord(
+                        death_id=uuid.uuid4().hex,
+                        ts=datetime.now(UTC).isoformat(),
+                        incarnation_number=self._incarnation_number,
+                        agent_id=payload["agent_id"],
+                        last_tick=payload["last_tick"],
+                        # _die's sole trigger is breath<=0, so breath_zero is the
+                        # true mechanism label; honor an explicit cause if a
+                        # future emit supplies one. forced_terminal = Phase 2.
+                        cause=payload.get("cause", "breath_zero"),
+                        kill_tx_hash=payload.get("kill_tx_hash"),
+                        tombstone_token_id=payload.get("tombstone_token_id"),
+                        tombstone_tx_hash=payload.get("tombstone_tx_hash"),
+                        final_bankroll_usd=payload["bankroll_usd"],
+                        final_weights_hash=payload.get("final_weights_hash"),
+                        memory_bank_cid=payload.get("memory_bank_cid"),
+                        last_words=payload.get("last_words"),
+                    )
+                )
+            # any other kind → ignored (forward-compatible)
+        except Exception:  # noqa: BLE001 — hook contract: never raise into the loop
+            logger.warning("_SandboxStateHook dropped a %s event", kind, exc_info=True)
+
+
 class _NoopPhaseReader:
     """Stub :class:`agent.runtime.phase2_launch._PhaseManagerReader`.
 
@@ -2133,6 +2217,19 @@ def _build_production_loop_factory(
         #     (fail-closed) instead of being booked cost-blind.
         # Both stay OFF for replay/idle (byte-unchanged).
         _sandbox_live = os.environ.get("SANDBOX_LIVE") == "1"
+        # Living Stage P1 — the divine economy (tithe + deathbed tribute) made
+        # live, gated behind SANDBOX_DIVINE_ECONOMY. Default OFF keeps the
+        # death check byte-identical to a bare loop (state_hook drops events,
+        # no tribute policy, no tithe, no living-stage decision fields).
+        _divine_economy = os.environ.get("SANDBOX_DIVINE_ECONOMY") == "1"
+        if _divine_economy:
+            state_hook: Any = _SandboxStateHook(writer=writer)
+            tribute_policy: ReflexTributePolicy | None = ReflexTributePolicy()
+            tribute_rng: random.Random | None = random.Random(_GODS_DICE_SEED)
+        else:
+            state_hook = _NoopStateHook()
+            tribute_policy = None
+            tribute_rng = None
         loop = SandboxPhase2Loop(
             base=base,
             state_dir=state_dir,
@@ -2142,7 +2239,11 @@ def _build_production_loop_factory(
             weight_updater=_NoopWeightUpdater(),
             chain_adapter=chain_adapter,
             tick_inputs=tick_input_source,
-            state_hook=_NoopStateHook(),
+            state_hook=state_hook,
+            tribute_policy=tribute_policy,
+            tribute_rng=tribute_rng,
+            divine_tithe=_divine_economy,
+            record_living_stage_fields=_divine_economy,
             state_writer=writer,
             clock=wall_clock,
             sleeper=_real_sleep,

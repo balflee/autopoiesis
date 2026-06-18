@@ -103,6 +103,11 @@ REFLECTIONS_FILENAME: Final[str] = "reflections.jsonl"
 # advisor will produce 0..N rows per trigger. The dashboard
 # (T-D-010 follow-up) tails this file for the pending-proposals panel.
 PROPOSALS_FILENAME: Final[str] = "proposals.jsonl"
+# Living Stage Phase 1 — the divine economy streams. gods_treasury.jsonl
+# interleaves tribute + tithe rows (discriminated by ``type``); deaths.jsonl
+# carries one DeathRecord per incarnation death (drives the lineage timeline).
+GODS_TREASURY_FILENAME: Final[str] = "gods_treasury.jsonl"
+DEATHS_FILENAME: Final[str] = "deaths.jsonl"
 
 
 # --------------------------------------------------------------------------- #
@@ -260,6 +265,81 @@ class SettledBetRecord(BaseModel):
     # :meth:`SandboxStateWriter.append_settled_bet`) so existing settled rows
     # stay byte-identical.
     reason: str | None = None
+
+
+class TributeRecord(BaseModel):
+    """One deathbed tribute offering, appended to ``gods_treasury.jsonl``.
+
+    Living Stage P1 (A7 divine economy made live). Mirrors the
+    ``state_hook.emit(kind="tribute", ...)`` payload from
+    :meth:`agent.runtime.sandbox_phase2_loop.SandboxPhase2Loop._attempt_tribute`
+    plus a hook-stamped ``ts`` + ``tribute_id`` and the gods' ``dice_roll``.
+    The offering is consumed win or lose (``success`` records the outcome).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tribute"] = "tribute"
+    tribute_id: str
+    ts: str
+    tick: int = Field(ge=0)
+    amount_usd: float = Field(ge=0.0)
+    success: bool
+    breath_after: float = Field(ge=0.0)
+    bankroll_after: float
+    # The gods' seeded dice roll [0, 1] for the offering. Optional/None so a
+    # legacy emit without it still loads; omitted from JSONL when None.
+    dice_roll: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class TitheRecord(BaseModel):
+    """One tithe (the gods' periodic rent), appended to ``gods_treasury.jsonl``.
+
+    Living Stage P1 (A10 divine tithe made live). Mirrors the
+    ``state_hook.emit(kind="tithe", ...)`` payload. Either ``paid_usd`` (cash
+    rent) OR ``breath_cost`` (breath rent when the agent cannot afford cash) is
+    non-zero; the other is 0.0.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tithe"] = "tithe"
+    tithe_id: str
+    ts: str
+    tick: int = Field(ge=0)
+    paid_usd: float = Field(ge=0.0)
+    breath_cost: float = Field(ge=0.0)
+    breath_after: float = Field(ge=0.0)
+    bankroll_after: float
+
+
+class DeathRecord(BaseModel):
+    """One incarnation death, appended to ``deaths.jsonl``.
+
+    Living Stage P1. Mirrors the ``state_hook.emit(kind="agent_died", ...)``
+    payload (Tombstone metadata bundle) plus a hook-stamped ``ts`` /
+    ``death_id`` / ``incarnation_number`` / ``cause``. Drives the dashboard's
+    reincarnation lineage timeline. ``incarnation_number`` is always 0 in
+    Phase 1 (the Phase 2 supervisor stamps the running idx); ``cause`` is
+    ``breath_zero`` (the loop's sole death trigger) — ``forced_terminal`` is
+    reserved for Phase 2.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    death_id: str
+    ts: str
+    incarnation_number: int = Field(ge=0, default=0)
+    agent_id: str
+    last_tick: int
+    cause: Literal["breath_zero", "forced_terminal"] = "breath_zero"
+    kill_tx_hash: str | None = None
+    tombstone_token_id: str | None = None
+    tombstone_tx_hash: str | None = None
+    final_bankroll_usd: float
+    final_weights_hash: str | None = None
+    memory_bank_cid: str | None = None
+    last_words: str | None = None
 
 
 class DecisionRecord(BaseModel):

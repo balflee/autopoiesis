@@ -283,15 +283,21 @@ export class ApiError extends Error {
 /* ------------------------------------------------------------------ */
 
 /**
- * Resolve the bearer token. Pure read — never writes. Returns `null` so the
- * caller can decide what to do (we send the request anyway so the dashboard
- * shows the backend's 401 instead of refusing to call). The hard rule from
- * the brief forbids hardcoding tokens; this function is the *only* place
- * we look for one.
+ * Resolve the bearer token for the local-dev DIRECT-backend path only.
+ *
+ * In production the browser talks to the same-origin `/api/proxy`, which
+ * injects `DASHBOARD_API_TOKEN` server-side (and strips any client-supplied
+ * Authorization) — so this returning `null` is correct and harmless. The
+ * ONLY client-side token source is `localStorage` (set by hand when running
+ * against a localhost FastAPI via `NEXT_PUBLIC_DASHBOARD_API_URL_OVERRIDE`).
+ *
+ * We deliberately do NOT read `NEXT_PUBLIC_DASHBOARD_API_TOKEN`: a
+ * `NEXT_PUBLIC_*` var is inlined into every browser bundle at build time,
+ * which would leak the bearer token to every visitor — the exact footgun
+ * T-D-011's proxy model closed. Returns `null` rather than throwing so the
+ * caller sends the request anyway and surfaces the backend's 401.
  */
 export function resolveApiToken(): string | null {
-  const fromEnv = process.env.NEXT_PUBLIC_DASHBOARD_API_TOKEN;
-  if (typeof fromEnv === "string" && fromEnv.length > 0) return fromEnv;
   if (typeof window === "undefined") return null;
   try {
     const fromStorage = window.localStorage.getItem(TOKEN_LOCALSTORAGE_KEY);

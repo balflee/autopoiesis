@@ -373,9 +373,13 @@ export function subscribeSse(
   };
 }
 
+// Local-dev DIRECT-backend token source ONLY. In production the SSE stream
+// is reached via the same-origin /api/proxy (token injected server-side),
+// so this returns null there and that's correct. We do NOT read
+// NEXT_PUBLIC_DASHBOARD_API_TOKEN — a NEXT_PUBLIC_* var is build-time-inlined
+// into the browser bundle and would leak the token (the footgun T-D-011's
+// proxy model closed). localStorage only (the dev-override path).
 function defaultTokenProvider(): string | null {
-  const fromEnv = process.env.NEXT_PUBLIC_DASHBOARD_API_TOKEN;
-  if (typeof fromEnv === "string" && fromEnv.length > 0) return fromEnv;
   if (typeof window === "undefined") return null;
   try {
     return window.localStorage.getItem("genesis_api_token");

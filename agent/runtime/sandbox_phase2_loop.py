@@ -920,6 +920,16 @@ class SandboxPhase2Loop:
         tithe_every: int = 20,
         tithe_amount_usd: float = 20.0,
         tithe_breath_cost: float = 5.0,
+        # Living Stage P1 — when True, _tick stamps odds + signal_scores onto
+        # the DecisionRecord. Default False ⇒ those fields stay None/{} and are
+        # omitted on disk, keeping decisions.jsonl byte-identical (the prod
+        # factory sets this = the SANDBOX_DIVINE_ECONOMY flag).
+        record_living_stage_fields: bool = False,
+        # Phase 2 — which incarnation this loop instance is (stamped into every
+        # snapshot so the dashboard + manifest track the lineage). Default 0 =
+        # single-life path (byte-identical: AgentStateSnapshot.incarnation_number
+        # already defaults to 0).
+        incarnation_number: int = 0,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -967,6 +977,8 @@ class SandboxPhase2Loop:
         self._tithe_every: int = tithe_every
         self._tithe_amount_usd: float = tithe_amount_usd
         self._tithe_breath_cost: float = tithe_breath_cost
+        self._record_living_stage_fields: bool = record_living_stage_fields
+        self._incarnation_number: int = incarnation_number
         # Counts MARKETS seen (decision ticks with a real market), not raw
         # ticks — settle-only stops do not advance the rent clock. Fires on
         # each multiple of ``tithe_every``.
@@ -1860,6 +1872,23 @@ class SandboxPhase2Loop:
             bet_id_for_record = order_result.order_id
             self._open_bet_ids.add(order_result.order_id)
 
+        # Living Stage P1 — odds + per-engine scores for the dashboard, stamped
+        # ONLY behind the flag so decisions.jsonl is byte-identical when off.
+        # ``inputs.price`` is the YES implied probability (NO = 1 - price, per
+        # the effective-price gate above). ``signal_scores`` was built in Step 4
+        # (a dict when ``inputs`` is not None, else None). ``fee_floor_pct`` has
+        # no clean local at this site (the edge floor lives in the engine's
+        # gate diagnostics, only on a storm-enabled BET), so it stays None and
+        # the Mind rail renders the floor only when present.
+        if self._record_living_stage_fields and inputs is not None:
+            odds_yes_for_record: float | None = float(inputs.price)
+            odds_no_for_record: float | None = 1.0 - float(inputs.price)
+            signal_scores_for_record: dict[str, float] = dict(signal_scores or {})
+        else:
+            odds_yes_for_record = None
+            odds_no_for_record = None
+            signal_scores_for_record = {}
+
         # Step 6 — write DecisionRecord.
         record = DecisionRecord(
             tick=tick,
@@ -1872,6 +1901,10 @@ class SandboxPhase2Loop:
             no_bet_reason=action.no_bet_reason,
             breath_after=self._breath,
             bankroll_usd_after=self._bankroll_usd,
+            odds_yes=odds_yes_for_record,
+            odds_no=odds_no_for_record,
+            fee_floor_pct=None,
+            signal_scores=signal_scores_for_record,
         )
         self._writer.append_decision(record)
 
@@ -1906,6 +1939,7 @@ class SandboxPhase2Loop:
             weights=self._weights,
             desperate=self._desperate,
             pending_proposals=list(self._pending_proposals),
+            incarnation_number=self._incarnation_number,
         )
         self._writer.write_snapshot(snapshot)
 
@@ -2004,6 +2038,7 @@ class SandboxPhase2Loop:
                         weights=self._weights,
                         desperate=self._desperate,
                         pending_proposals=list(self._pending_proposals),
+                        incarnation_number=self._incarnation_number,
                     )
                     self._writer.write_snapshot(post_l3_snapshot)
 
@@ -2106,7 +2141,10 @@ class SandboxPhase2Loop:
         offering = float(amount)
         self._bankroll_usd -= offering
         p = tribute_success_probability(offering)
-        success = self._tribute_rng.random() < p
+        # Hoist the gods' dice draw to a named local so it can be surfaced on
+        # the tribute event (Living Stage P1 dashboard "dice .NN → survived").
+        roll = self._tribute_rng.random()
+        success = roll < p
         if success:
             cur = await self._chain_adapter.read_breath()
             await self._chain_adapter.update_breath_from_pnl(
@@ -2128,6 +2166,7 @@ class SandboxPhase2Loop:
                 weights=self._weights,
                 desperate=self._desperate,
                 pending_proposals=list(self._pending_proposals),
+                incarnation_number=self._incarnation_number,
             )
             self._writer.write_snapshot(post_tribute_snapshot)
         self._state_hook.emit(
@@ -2137,6 +2176,7 @@ class SandboxPhase2Loop:
             success=success,
             breath_after=self._breath,
             bankroll_after=self._bankroll_usd,
+            dice_roll=roll,
         )
         logger.info(
             "tribute: tick=%d offered $%.2f (p=%.2f) -> %s; bankroll=%.2f",
@@ -2277,6 +2317,7 @@ class SandboxPhase2Loop:
                 weights=self._weights,
                 desperate=self._desperate,
                 pending_proposals=list(self._pending_proposals),
+                incarnation_number=self._incarnation_number,
             )
             self._writer.write_snapshot(snapshot)
         except Exception as exc:

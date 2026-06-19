@@ -96,6 +96,10 @@ export interface DecisionPayload {
   readonly bet_id?: string;
   /** v0.3.0 — per-engine score map keyed by the 5 lowercase engine names. */
   readonly signals?: EngineSignalMap;
+  /** Living Stage P1 — absolute YES/NO odds + the edge floor (live ticks only). */
+  readonly odds_yes?: number;
+  readonly odds_no?: number;
+  readonly fee_floor_pct?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,6 +125,10 @@ export interface DecisionFeedEntry {
   readonly bet_id?: string;
   /** v0.3.0 — per-engine score map keyed by the 5 lowercase engine names. */
   readonly signals?: EngineSignalMap;
+  /** Living Stage P1 — absolute YES/NO odds + the edge floor (live ticks only). */
+  readonly odds_yes?: number;
+  readonly odds_no?: number;
+  readonly fee_floor_pct?: number;
 }
 
 export interface PhaseTransitionPayload {

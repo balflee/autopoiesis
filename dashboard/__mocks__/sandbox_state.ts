@@ -161,6 +161,10 @@ export function nextMockTick(): SandboxStateBundle {
     served_ts: new Date().toISOString(),
     /** True if the bundle came from this in-memory mock. */
     is_mock: true,
+    recent_gods_treasury: [],
+    gods_revenue_cumulative_usd: 0,
+    incarnation_number: 0,
+    incarnation_lineage: [],
   };
 }
 
@@ -178,4 +182,8 @@ export const EMPTY_BUNDLE: SandboxStateBundle = {
   lag_alerts: [STALE_BOOT_ALERT],
   served_ts: new Date(0).toISOString(),
   is_mock: false,
+  recent_gods_treasury: [],
+  gods_revenue_cumulative_usd: 0,
+  incarnation_number: 0,
+  incarnation_lineage: [],
 };

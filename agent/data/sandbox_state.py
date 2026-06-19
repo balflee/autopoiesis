@@ -103,6 +103,11 @@ REFLECTIONS_FILENAME: Final[str] = "reflections.jsonl"
 # advisor will produce 0..N rows per trigger. The dashboard
 # (T-D-010 follow-up) tails this file for the pending-proposals panel.
 PROPOSALS_FILENAME: Final[str] = "proposals.jsonl"
+# Living Stage Phase 1 — the divine economy streams. gods_treasury.jsonl
+# interleaves tribute + tithe rows (discriminated by ``type``); deaths.jsonl
+# carries one DeathRecord per incarnation death (drives the lineage timeline).
+GODS_TREASURY_FILENAME: Final[str] = "gods_treasury.jsonl"
+DEATHS_FILENAME: Final[str] = "deaths.jsonl"
 
 
 # --------------------------------------------------------------------------- #
@@ -209,6 +214,17 @@ def bet_record_jsonl_dict(bet: BetRecord) -> dict[str, object]:
     return row
 
 
+# Living Stage P1 — the DecisionRecord fields omitted on disk when unpopulated
+# (None odds / empty signal_scores), so a flag-OFF decision row stays
+# byte-identical to the pre-P1 shape. signal_scores is handled separately in
+# append_decision (omit when the dict is empty, not just None).
+_DECISION_LIVING_KEYS: Final[tuple[str, ...]] = (
+    "odds_yes",
+    "odds_no",
+    "fee_floor_pct",
+)
+
+
 def execution_cost_usd(bet: BetRecord) -> float:
     """Total execution cost charged on ``bet`` in USD = fee + spread.
 
@@ -262,6 +278,81 @@ class SettledBetRecord(BaseModel):
     reason: str | None = None
 
 
+class TributeRecord(BaseModel):
+    """One deathbed tribute offering, appended to ``gods_treasury.jsonl``.
+
+    Living Stage P1 (A7 divine economy made live). Mirrors the
+    ``state_hook.emit(kind="tribute", ...)`` payload from
+    :meth:`agent.runtime.sandbox_phase2_loop.SandboxPhase2Loop._attempt_tribute`
+    plus a hook-stamped ``ts`` + ``tribute_id`` and the gods' ``dice_roll``.
+    The offering is consumed win or lose (``success`` records the outcome).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tribute"] = "tribute"
+    tribute_id: str
+    ts: str
+    tick: int = Field(ge=0)
+    amount_usd: float = Field(ge=0.0)
+    success: bool
+    breath_after: float = Field(ge=0.0)
+    bankroll_after: float
+    # The gods' seeded dice roll [0, 1] for the offering. Optional/None so a
+    # legacy emit without it still loads; omitted from JSONL when None.
+    dice_roll: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class TitheRecord(BaseModel):
+    """One tithe (the gods' periodic rent), appended to ``gods_treasury.jsonl``.
+
+    Living Stage P1 (A10 divine tithe made live). Mirrors the
+    ``state_hook.emit(kind="tithe", ...)`` payload. Either ``paid_usd`` (cash
+    rent) OR ``breath_cost`` (breath rent when the agent cannot afford cash) is
+    non-zero; the other is 0.0.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tithe"] = "tithe"
+    tithe_id: str
+    ts: str
+    tick: int = Field(ge=0)
+    paid_usd: float = Field(ge=0.0)
+    breath_cost: float = Field(ge=0.0)
+    breath_after: float = Field(ge=0.0)
+    bankroll_after: float
+
+
+class DeathRecord(BaseModel):
+    """One incarnation death, appended to ``deaths.jsonl``.
+
+    Living Stage P1. Mirrors the ``state_hook.emit(kind="agent_died", ...)``
+    payload (Tombstone metadata bundle) plus a hook-stamped ``ts`` /
+    ``death_id`` / ``incarnation_number`` / ``cause``. Drives the dashboard's
+    reincarnation lineage timeline. ``incarnation_number`` is always 0 in
+    Phase 1 (the Phase 2 supervisor stamps the running idx); ``cause`` is
+    ``breath_zero`` (the loop's sole death trigger) — ``forced_terminal`` is
+    reserved for Phase 2.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    death_id: str
+    ts: str
+    incarnation_number: int = Field(ge=0, default=0)
+    agent_id: str
+    last_tick: int
+    cause: Literal["breath_zero", "forced_terminal"] = "breath_zero"
+    kill_tx_hash: str | None = None
+    tombstone_token_id: str | None = None
+    tombstone_tx_hash: str | None = None
+    final_bankroll_usd: float
+    final_weights_hash: str | None = None
+    memory_bank_cid: str | None = None
+    last_words: str | None = None
+
+
 class DecisionRecord(BaseModel):
     """One agent decision tick, appended to ``decisions.jsonl``.
 
@@ -286,6 +377,18 @@ class DecisionRecord(BaseModel):
     no_bet_reason: str | None                 # populated only when kind == NO_BET
     breath_after: float = Field(ge=0.0)
     bankroll_usd_after: float
+    # Living Stage P1 — absolute YES/NO odds at decision time, the edge floor
+    # the fused edge had to clear, and the per-engine scores. Optional/empty so
+    # non-live + flag-OFF ticks stay valid; OMITTED from JSONL when None/empty
+    # (see :meth:`SandboxStateWriter.append_decision`) so flag-off rows stay
+    # BYTE-identical to the pre-P1 shape. Populated by ``_tick`` ONLY when
+    # ``record_living_stage_fields`` is on. ``signal_scores`` mirrors
+    # ``BetRecord.signal_scores`` and is the live source for the dashboard's
+    # 5-engine rail on the poll path.
+    odds_yes: float | None = Field(default=None, ge=0.0, le=1.0)
+    odds_no: float | None = Field(default=None, ge=0.0, le=1.0)
+    fee_floor_pct: float | None = None
+    signal_scores: dict[str, float] = Field(default_factory=dict)
 
 
 class AgentStateSnapshot(BaseModel):
@@ -352,6 +455,10 @@ class AgentStateSnapshot(BaseModel):
     phase_age_days: float = Field(ge=0.0)
     open_bet_ids: list[str] = Field(default_factory=list)
     last_tick: int = Field(ge=-1, default=-1)
+    # Living Stage P1 — which incarnation this snapshot belongs to. Always 0
+    # until the Phase 2 reincarnation supervisor lands (it stamps the running
+    # idx). Default 0 so pre-P1 snapshots (no key) rehydrate as incarnation 0.
+    incarnation_number: int = Field(ge=0, default=0)
     weights: Weights | None = None
     desperate: bool = False
     pending_proposals: list[str] = Field(
@@ -481,6 +588,16 @@ class SandboxStateWriter:
         """
         return self._root / PROPOSALS_FILENAME
 
+    @property
+    def gods_treasury_path(self) -> Path:
+        """Living Stage P1 — interleaved tribute + tithe JSONL stream."""
+        return self._root / GODS_TREASURY_FILENAME
+
+    @property
+    def deaths_path(self) -> Path:
+        """Living Stage P1 — one DeathRecord per incarnation death."""
+        return self._root / DEATHS_FILENAME
+
     # ------------------------------------------------------------------
     # Append-only writers — one line per accepted record.
     # ------------------------------------------------------------------
@@ -513,8 +630,21 @@ class SandboxStateWriter:
         )
 
     def append_decision(self, decision: DecisionRecord) -> None:
-        """Append one decision line to ``decisions.jsonl``."""
-        self._append_jsonl(self.decisions_path, decision.model_dump_json())
+        """Append one decision line to ``decisions.jsonl``.
+
+        Living Stage P1: the living-stage fields (``odds_*``, ``signal_scores``)
+        are EXCLUDED when unpopulated so a flag-off row is byte-identical to the
+        pre-P1 compact Pydantic JSON. ``model_dump_json`` (NOT ``json.dumps``)
+        keeps the compact ``,``/``:`` separators of every existing decision line.
+        """
+        exclude: set[str] = {
+            k for k in _DECISION_LIVING_KEYS if getattr(decision, k) is None
+        }
+        if not decision.signal_scores:
+            exclude.add("signal_scores")
+        self._append_jsonl(
+            self.decisions_path, decision.model_dump_json(exclude=exclude or None)
+        )
 
     def append_reflection(self, reflection: SandboxReflectionRecord) -> None:
         """Append one reflection line to ``reflections.jsonl`` (T-B-024).
@@ -535,6 +665,30 @@ class SandboxStateWriter:
         unresolved proposal.
         """
         self._append_jsonl(self.proposals_path, proposal.model_dump_json())
+
+    def append_tribute(self, tribute: TributeRecord) -> None:
+        """Append one tribute offering to ``gods_treasury.jsonl`` (Living Stage P1).
+
+        ``exclude_none=True`` omits the optional ``dice_roll`` when absent, the
+        same omit-when-None discipline the other optional-field streams use.
+        """
+        self._append_jsonl(
+            self.gods_treasury_path, tribute.model_dump_json(exclude_none=True)
+        )
+
+    def append_tithe(self, tithe: TitheRecord) -> None:
+        """Append one tithe (divine rent) row to ``gods_treasury.jsonl`` (P1)."""
+        self._append_jsonl(self.gods_treasury_path, tithe.model_dump_json())
+
+    def append_death(self, death: DeathRecord) -> None:
+        """Append one death row to ``deaths.jsonl`` — drives the lineage timeline (P1).
+
+        ``exclude_none=True`` omits the optional Tombstone/receipt fields when
+        absent (e.g. a sandbox chain adapter with no real tx hashes).
+        """
+        self._append_jsonl(
+            self.deaths_path, death.model_dump_json(exclude_none=True)
+        )
 
     # ------------------------------------------------------------------
     # Atomic snapshot — temp-file + os.replace.

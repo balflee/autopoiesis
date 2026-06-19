@@ -36,7 +36,9 @@ import asyncio
 import json
 import logging
 import os
+import random
 import time
+import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -70,8 +72,12 @@ from agent.data.sandbox_state import (
     REFLECTIONS_FILENAME,
     SETTLED_BETS_FILENAME,
     SNAPSHOT_FILENAME,
+    DeathRecord,
     SandboxStateWriter,
+    TitheRecord,
+    TributeRecord,
 )
+from agent.runtime.tribute import ReflexTributePolicy
 from agent.engines._strategy_proposal_schema import (
     PROPOSAL_STATUS_APPROVED,
     PROPOSAL_STATUS_PENDING,
@@ -1744,6 +1750,84 @@ class _NoopStateHook:
         return None
 
 
+# Living Stage P1 — deterministic, audit-reproducible gods' dice seed.
+_GODS_DICE_SEED: Final[int] = 0xA7D1CE
+
+
+class _SandboxStateHook:
+    """Living Stage P1 — routes the loop's divine-economy emits to JSONL.
+
+    Unlike :class:`_NoopStateHook`, this PERSISTS the events the dashboard's
+    Living Stage reads: tribute + tithe → ``gods_treasury.jsonl``, agent_died →
+    ``deaths.jsonl``. The loop emits carry no ``ts``/id (operator-domain), so we
+    stamp them here. Unknown kinds are ignored so the hook stays
+    forward-compatible.
+    """
+
+    def __init__(
+        self, *, writer: SandboxStateWriter, incarnation_number: int = 0
+    ) -> None:
+        self._writer = writer
+        self._incarnation_number = incarnation_number
+
+    def emit(self, *, kind: str, **payload: Any) -> None:
+        # The StateHook contract (sandbox_settlement_poller.py) is that emit
+        # MUST NOT raise into the caller — a malformed payload or a disk error
+        # here must never abort _attempt_tribute / _attempt_tithe / _die. Catch
+        # broadly, log a WARN (so a treasury/death write loss is visible, not
+        # silent), and swallow.
+        try:
+            if kind == "tribute":
+                self._writer.append_tribute(
+                    TributeRecord(
+                        tribute_id=uuid.uuid4().hex,
+                        ts=datetime.now(UTC).isoformat(),
+                        tick=payload["tick"],
+                        amount_usd=payload["amount_usd"],
+                        success=payload["success"],
+                        breath_after=payload["breath_after"],
+                        bankroll_after=payload["bankroll_after"],
+                        dice_roll=payload.get("dice_roll"),
+                    )
+                )
+            elif kind == "tithe":
+                self._writer.append_tithe(
+                    TitheRecord(
+                        tithe_id=uuid.uuid4().hex,
+                        ts=datetime.now(UTC).isoformat(),
+                        tick=payload["tick"],
+                        paid_usd=payload["amount_usd"],
+                        breath_cost=payload["breath_cost"],
+                        breath_after=payload["breath_after"],
+                        bankroll_after=payload["bankroll_after"],
+                    )
+                )
+            elif kind == "agent_died":
+                self._writer.append_death(
+                    DeathRecord(
+                        death_id=uuid.uuid4().hex,
+                        ts=datetime.now(UTC).isoformat(),
+                        incarnation_number=self._incarnation_number,
+                        agent_id=payload["agent_id"],
+                        last_tick=payload["last_tick"],
+                        # _die's sole trigger is breath<=0, so breath_zero is the
+                        # true mechanism label; honor an explicit cause if a
+                        # future emit supplies one. forced_terminal = Phase 2.
+                        cause=payload.get("cause", "breath_zero"),
+                        kill_tx_hash=payload.get("kill_tx_hash"),
+                        tombstone_token_id=payload.get("tombstone_token_id"),
+                        tombstone_tx_hash=payload.get("tombstone_tx_hash"),
+                        final_bankroll_usd=payload["bankroll_usd"],
+                        final_weights_hash=payload.get("final_weights_hash"),
+                        memory_bank_cid=payload.get("memory_bank_cid"),
+                        last_words=payload.get("last_words"),
+                    )
+                )
+            # any other kind → ignored (forward-compatible)
+        except Exception:  # noqa: BLE001 — hook contract: never raise into the loop
+            logger.warning("_SandboxStateHook dropped a %s event", kind, exc_info=True)
+
+
 class _NoopPhaseReader:
     """Stub :class:`agent.runtime.phase2_launch._PhaseManagerReader`.
 
@@ -1996,6 +2080,114 @@ def _make_prod_reflection_engine(*, state_dir: Path) -> ReflectionEngine | None:
     )
 
 
+def _build_one_incarnation_loop(
+    *,
+    incarnation_idx: int,
+    state_dir: Path,
+    chain_adapter: SandboxLoopChainAdapter,
+    initial_weights: Weights | None,
+    shared_weight_updater: Any | None = None,
+    shared_advisor: StrategyAdvisor,
+    tick_input_source: TickInputSource,
+    settlement_client: SettlementClient | None,
+    market_resolver: MarketResolver | None,
+    wall_clock: Clock,
+    decision_cadence: timedelta,
+    runtime_agent: RuntimeAgentRunner | None,
+) -> SandboxPhase2Loop:
+    """Living Stage Phase 2 — build ONE live incarnation loop.
+
+    The supervisor calls this per life with a FRESH chain_adapter + the per-life
+    idx; the 0-arg factory wraps it for incarnation 0. Construction is
+    byte-identical to the pre-Phase-2 ``_factory`` except for the incarnation
+    idx + the shared advisor/updater injection. ``shared_weight_updater=None``
+    (the 0-arg wrapper) ⇒ the learning block builds a fresh updater exactly as
+    today; the supervisor passes ONE shared instance so its EMA carries across
+    lives. ``initial_weights=None`` ⇒ consume any staged PROMOTE config (the
+    incarnation-0 path); a supervisor-carried weights value bypasses staging.
+    """
+    promoted_weights = (
+        _consume_staged_config(state_dir) if initial_weights is None else initial_weights
+    )
+    writer = SandboxStateWriter(root=state_dir)
+    _append_loop_boot_row(
+        decisions_path=writer.decisions_path,
+        loop_name=LOOP_BOOT_MARKER_LOOP_NAME,
+    )
+    executor = SandboxExecutor(
+        state_writer=writer,
+        market_resolver=market_resolver or _null_market_resolver,
+        clock=wall_clock,
+    )
+    base = Phase2LaunchOrchestrator(
+        memory_bank=MemoryBank(root=state_dir / "_mb"),
+        phase_reader=_NoopPhaseReader(),
+        decision_log=_NoopDecisionLog(),
+        engine_signals=None,
+    )
+    _sandbox_live = os.environ.get("SANDBOX_LIVE") == "1"
+    _divine_economy = os.environ.get("SANDBOX_DIVINE_ECONOMY") == "1"
+    if _divine_economy:
+        state_hook: Any = _SandboxStateHook(
+            writer=writer, incarnation_number=incarnation_idx
+        )
+        tribute_policy: ReflexTributePolicy | None = ReflexTributePolicy()
+        tribute_rng: random.Random | None = random.Random(_GODS_DICE_SEED)
+    else:
+        state_hook = _NoopStateHook()
+        tribute_policy = None
+        tribute_rng = None
+    loop = SandboxPhase2Loop(
+        base=base,
+        state_dir=state_dir,
+        weight_updater_phase=WeightUpdaterPhase.PHASE_2_EXTENDED,
+        executor=executor,
+        settlement_client=settlement_client or _NoopSettlementClient(),
+        weight_updater=_NoopWeightUpdater(),
+        chain_adapter=chain_adapter,
+        tick_inputs=tick_input_source,
+        state_hook=state_hook,
+        tribute_policy=tribute_policy,
+        tribute_rng=tribute_rng,
+        divine_tithe=_divine_economy,
+        record_living_stage_fields=_divine_economy,
+        incarnation_number=incarnation_idx,
+        state_writer=writer,
+        clock=wall_clock,
+        sleeper=_real_sleep,
+        decision_cadence=decision_cadence,
+        initial_phase=Phase.PHASE_2_APPRENTICE,
+        initial_weights=promoted_weights,
+        initial_breath=_SANDBOX_COLD_START_BREATH_USD,
+        initial_bankroll_usd=_SANDBOX_COLD_START_BREATH_USD,
+        strategy_advisor=shared_advisor,
+        reflection_engine=_make_prod_reflection_engine(state_dir=state_dir),
+        populate_reflection_window=_l6_reflection_optimize_enabled(),
+        side_correct_pricing=_sandbox_live,
+        require_cost_fields=_sandbox_live,
+        runtime_agent=runtime_agent,
+    )
+    if os.environ.get("GENESIS_REAL_LEARNING") == "1":
+        from agent.backtest.settlement_learner import (
+            _SettlementLearningWeightUpdater,
+        )
+        from agent.engines.weight_updater import WeightUpdater as _RealWeightUpdater
+
+        # Round-1 HIGH-1: the updater is constructed ONLY here (lazy). None ⇒ a
+        # fresh instance (exactly today's path → byte-identical OFF); the
+        # supervisor injects ONE shared instance so its EMA carries across lives.
+        inner = (
+            shared_weight_updater
+            if shared_weight_updater is not None
+            else _RealWeightUpdater()
+        )
+        loop._poller.weight_updater = _SettlementLearningWeightUpdater(
+            inner=inner,
+            weights_holder=loop,
+        )
+    return loop
+
+
 def _build_production_loop_factory(
     *,
     state_dir: Path,
@@ -2084,132 +2276,27 @@ def _build_production_loop_factory(
     )
 
     def _factory() -> SandboxPhase2Loop:
-        # PROMOTE pipeline (workshop backtest → /api/agent/configure → live):
-        # consume any staged agent_config.json BEFORE constructing the writer
-        # so the fresh-life reset clears the prior snapshot/streams and the
-        # loop cold-starts with the promoted weights. Returns None when no
-        # fresh config is staged → default-weight behaviour (unchanged).
-        promoted_weights = _consume_staged_config(state_dir)
-        # Shared single-writer per process — both executor + loop write
-        # through THIS instance (single-writer invariant locked by
-        # SandboxStateWriter docstring). Constructing the writer first
-        # mkdirs ``state_dir`` so the T-B-043 boot-marker append below
-        # cannot hit a missing-directory race.
-        writer = SandboxStateWriter(root=state_dir)
-        # T-B-043 (sprint_13 boot smoke) — structural ``loop_boot`` marker
-        # the SSE-side SUBMISSION smoke proves the REAL
-        # :class:`SandboxPhase2Loop` is on the wire (i.e. the seam swap
-        # from sprint_9 ``_PlaceholderLoop`` landed). The row shape
-        # mirrors the placeholder marker MINUS ``placeholder: True`` —
-        # both writers go through :func:`_append_loop_boot_row` so the
-        # two shapes cannot drift. Reconstruction tolerates the row
-        # (step 3 of :meth:`SandboxPhase2Loop._reconstruct_from_disk`
-        # only counts rows whose ``tick`` is an int).
-        _append_loop_boot_row(
-            decisions_path=writer.decisions_path,
-            loop_name=LOOP_BOOT_MARKER_LOOP_NAME,
-        )
-        executor = SandboxExecutor(
-            state_writer=writer,
-            # Pseudo-bet wiring (sprint_13 follow-up): when the cassette-
-            # backed market table is injected, the resolver returns real
-            # MarketInfo so the mock executor places + settles bets against
-            # real Polymarket markets. Falls back to a None-resolver (idle
-            # scaffold) when no cassettes are available so the loop still
-            # boots end-to-end.
-            market_resolver=market_resolver or _null_market_resolver,
-            clock=wall_clock,
-        )
-        base = Phase2LaunchOrchestrator(
-            memory_bank=MemoryBank(root=state_dir / "_mb"),
-            phase_reader=_NoopPhaseReader(),
-            decision_log=_NoopDecisionLog(),
-            engine_signals=None,
-        )
-        # V1.3 LIVE mode flips the settlement-realism flags (Codex Phase-3 HIGH):
-        #   * side_correct_pricing → a NO bet recorded at the YES mid settles at the
-        #     NO leg's effective odds (else a NO winner is priced at YES odds);
-        #   * require_cost_fields → a RESOLVED bet missing cost stamps RAISES
-        #     (fail-closed) instead of being booked cost-blind.
-        # Both stay OFF for replay/idle (byte-unchanged).
-        _sandbox_live = os.environ.get("SANDBOX_LIVE") == "1"
-        loop = SandboxPhase2Loop(
-            base=base,
+        # Phase 2 refactor — the loop construction moved to the module-level
+        # _build_one_incarnation_loop so the reincarnation supervisor can build
+        # N of them. This wrapper = incarnation 0 with a fresh advisor and
+        # shared_weight_updater=None, so the learning block (if
+        # GENESIS_REAL_LEARNING=1) builds a fresh updater exactly as before and
+        # the OFF path constructs nothing new — byte-identical to the pre-Phase-2
+        # factory.
+        return _build_one_incarnation_loop(
+            incarnation_idx=0,
             state_dir=state_dir,
-            weight_updater_phase=WeightUpdaterPhase.PHASE_2_EXTENDED,
-            executor=executor,
-            settlement_client=settlement_client or _NoopSettlementClient(),
-            weight_updater=_NoopWeightUpdater(),
             chain_adapter=chain_adapter,
-            tick_inputs=tick_input_source,
-            state_hook=_NoopStateHook(),
-            state_writer=writer,
-            clock=wall_clock,
-            sleeper=_real_sleep,
+            initial_weights=None,
+            shared_weight_updater=None,
+            shared_advisor=_make_prod_strategy_advisor(),
+            tick_input_source=tick_input_source,
+            settlement_client=settlement_client,
+            market_resolver=market_resolver,
+            wall_clock=wall_clock,
             decision_cadence=decision_cadence,
-            initial_phase=Phase.PHASE_2_APPRENTICE,
-            # PROMOTE pipeline: a promoted backtest config (consumed above)
-            # cold-starts the loop with operator-chosen weights; None →
-            # the loop's _phase2_default_weights default (unchanged path).
-            initial_weights=promoted_weights,
-            # Cold-start hints — overridden on the first tick by the chain
-            # adapter's read_breath per the reconstruction step 4 contract.
-            initial_breath=_SANDBOX_COLD_START_BREATH_USD,
-            initial_bankroll_usd=_SANDBOX_COLD_START_BREATH_USD,
-            # L3 advisor (Plan 2 / L2): default NoOp keeps the sprint_13
-            # smoke contract ("loop boots and ticks", not "L3 generates
-            # proposals") byte-unchanged. GENESIS_REAL_STRATEGY_ADVISOR=1
-            # un-stubs the real Gemini-backed StrategyAdvisorImpl; without
-            # GEMINI_API_KEY the advisor's review_window fail-soft collapses
-            # every trigger to [] (so the loop never crashes on a missing
-            # key). Prod-only — backtest replay keeps the NoOp.
-            strategy_advisor=_make_prod_strategy_advisor(),
-            # L2 reflection engine + L6 reflect→optimize closure (Phase B /
-            # B2, codex R7). Default OFF → None engine (reflection trigger is
-            # a no-op) AND populate_reflection_window=False (the B1 advisor-
-            # window fold is skipped), so the advisor input + frozen-config
-            # smoke stay byte-unchanged. Only the COMBINED L6 gate
-            # (GENESIS_REAL_REFLECTION=1 AND GENESIS_REAL_STRATEGY_ADVISOR=1)
-            # wires the real ReflectionEngine AND flips the population seam —
-            # so the reflections the engine produces are folded into the
-            # window the (now real, via _make_prod_strategy_advisor) advisor
-            # reviews, closing reflect→learn→optimize. We pass the seam value
-            # EXPLICITLY rather than letting the loop ctor read the env var,
-            # so REFLECTION-alone cannot flip the prod fold without its
-            # advisor half (which would emit no proposals). Proposals still
-            # flow through the existing L1 approval queue (runtime_agent
-            # below) — the advisor is NOT called from _fire_reflection.
-            reflection_engine=_make_prod_reflection_engine(state_dir=state_dir),
-            populate_reflection_window=_l6_reflection_optimize_enabled(),
-            # V1.3 LIVE settlement-realism flags (see _sandbox_live above).
-            side_correct_pricing=_sandbox_live,
-            require_cost_fields=_sandbox_live,
-            # T-B-031 queue wiring (Plan 2 / L1): thread the SHARED
-            # RuntimeAgentRunner so operator-approved weight deltas
-            # enqueued by the FastAPI approve route actually reach this
-            # loop's _drain_and_apply_weight_deltas consumer. None →
-            # the loop ctor falls back to a fresh queue (the pre-fix,
-            # default-OFF path — behaviour byte-unchanged).
             runtime_agent=runtime_agent,
         )
-        # Settlement-time self-learning (Plan 2 / L3): default OFF keeps the
-        # _NoopWeightUpdater above so settlements are inert and the
-        # frozen-config smoke contract is byte-unchanged. GENESIS_REAL_LEARNING=1
-        # swaps the real settlement-learning bridge onto the poller (Option-B:
-        # built AFTER the loop so it can hold the loop as its weights_holder and
-        # re-assign loop._weights from realized PnL). The WeightUpdater is
-        # constructed here so its EMA state is fresh for this loop instance.
-        if os.environ.get("GENESIS_REAL_LEARNING") == "1":
-            from agent.backtest.settlement_learner import (
-                _SettlementLearningWeightUpdater,
-            )
-            from agent.engines.weight_updater import WeightUpdater as _RealWeightUpdater
-
-            loop._poller.weight_updater = _SettlementLearningWeightUpdater(
-                inner=_RealWeightUpdater(),
-                weights_holder=loop,
-            )
-        return loop
 
     return _factory
 
@@ -2570,6 +2657,55 @@ def _build_default_app() -> FastAPI:
         tick_interval_seconds=prod_loop_config.tick_interval_seconds,
         runtime_agent=runtime_agent,
     )
+
+    # Living Stage Phase 2 — reincarnation. When ON, the AgentRunner's loop
+    # factory returns a LiveIncarnationSupervisor (a LoopHandle) instead of a
+    # bare loop; the supervisor respawns the single-life loop across deaths,
+    # carrying weights + a shared advisor/updater. Default OFF = single life.
+    if os.environ.get("SANDBOX_REINCARNATION") == "1":
+        from agent.runtime.incarnation_supervisor import LiveIncarnationSupervisor
+
+        decision_cadence = _resolve_decision_cadence(
+            tick_interval_seconds=prod_loop_config.tick_interval_seconds,
+            time_compression=prod_loop_config.time_compression,
+        )
+
+        def _supervisor_factory() -> LiveIncarnationSupervisor:
+            # Round-1 MED-2/3: a FRESH supervisor per AgentRunner.start (the
+            # LoopFactoryProto per-call contract), and the shared updater +
+            # advisor constructed HERE so they are shared across the lives of
+            # THIS run only (not across independent /start cycles). The updater
+            # is gated on GENESIS_REAL_LEARNING (lazy) so the OFF path builds none.
+            shared_weight_updater: Any | None = None
+            if os.environ.get("GENESIS_REAL_LEARNING") == "1":
+                from agent.engines.weight_updater import (
+                    WeightUpdater as _RealWeightUpdater,
+                )
+
+                shared_weight_updater = _RealWeightUpdater()
+            shared_advisor = _make_prod_strategy_advisor()
+            return LiveIncarnationSupervisor(
+                build_incarnation=lambda *, incarnation_idx, chain_adapter, initial_weights, incarnation_number: _build_one_incarnation_loop(
+                    incarnation_idx=incarnation_idx,
+                    state_dir=state_dir,
+                    chain_adapter=chain_adapter,
+                    initial_weights=initial_weights,
+                    shared_weight_updater=shared_weight_updater,
+                    shared_advisor=shared_advisor,
+                    tick_input_source=tick_input_source,
+                    settlement_client=settlement_client,
+                    market_resolver=market_resolver,
+                    wall_clock=wall_clock,
+                    decision_cadence=decision_cadence,
+                    runtime_agent=runtime_agent,
+                ),
+                build_chain_adapter=lambda: _build_chain_adapter(
+                    kind=prod_loop_config.chain_adapter_kind
+                ),
+                state_dir=state_dir,
+            )
+
+        loop_factory = _supervisor_factory
 
     runner = AgentRunner(
         loop_factory=loop_factory,

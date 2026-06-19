@@ -8,6 +8,9 @@ Routes
 * ``POST /api/agent/stop``     — graceful halt (200 + final state path;
   idempotent)
 * ``GET  /api/agent/status``   — read-only state read from disk
+* ``GET  /api/sandbox/raw``    — raw sandbox state files in one envelope
+  (the off-box dashboard data path — Vercel ``/living`` folds these when
+  the backend's volume isn't mounted; see :func:`_read_sandbox_raw_files`)
 * ``POST /api/backtest/run``   — kick off a sweep (202 + run_id)
 * ``GET  /api/backtest/{id}``  — fetch ``results.json`` (404 if unknown
   AND no file on disk)
@@ -66,7 +69,9 @@ from agent.data.polymarket_sandbox_executor import (
 )
 from agent.data.polymarket_settlement import SettlementResult
 from agent.data.sandbox_state import (
+    DEATHS_FILENAME,
     DECISIONS_FILENAME,
+    GODS_TREASURY_FILENAME,
     OPEN_BETS_FILENAME,
     PROPOSALS_FILENAME,
     REFLECTIONS_FILENAME,
@@ -831,6 +836,56 @@ def _read_last_tick_ts(*, state_dir: Path) -> str | None:
     return value if isinstance(value, str) else None
 
 
+_SANDBOX_RAW_FILENAMES: Final[tuple[str, ...]] = (
+    SNAPSHOT_FILENAME,
+    DECISIONS_FILENAME,
+    SETTLED_BETS_FILENAME,
+    GODS_TREASURY_FILENAME,
+    DEATHS_FILENAME,
+)
+"""Files the off-box dashboard data path needs to fold a SandboxStateBundle.
+
+Kept in sync with ``dashboard/lib/load_sandbox_state.server.ts``'s fs reads:
+the dashboard's local-fs loader and this raw endpoint MUST surface the same
+set of files so the two data paths (local fs vs Vercel-over-backend) fold to
+byte-identical bundles via the single TypeScript fold."""
+
+
+def _read_sandbox_raw_files(*, state_dir: Path) -> dict[str, Any]:
+    """Read the sandbox state files as raw text for the off-box dashboard.
+
+    Why this exists: the dashboard's ``/living`` page renders from the live
+    sandbox state by reading ``state/sandbox/`` directly off the filesystem.
+    When the dashboard is deployed where that volume is NOT mounted (e.g.
+    Vercel, while the loop runs on Railway), there is no local file to read.
+    This route hands the raw bytes over the wire so the dashboard's
+    server-side route can fold them with the SAME TypeScript fold the
+    local-fs path uses — keeping the treasury / honesty semantics
+    single-sourced (no Python re-implementation of the fold to drift).
+
+    Contract:
+
+    * ``dir_exists`` — whether ``state_dir`` is present. Drives the
+      dashboard's ``cold_boot`` lag alert (writer not booted yet).
+    * ``files`` — one entry per :data:`_SANDBOX_RAW_FILENAMES`. Each value
+      is the file's raw UTF-8 text, or ``None`` when the file is absent
+      (``FileNotFoundError``) or unreadable (any other ``OSError``). The
+      fold treats ``None`` exactly like an empty stream, so a torn read
+      degrades gracefully instead of 500-ing the poll.
+    """
+    files: dict[str, str | None] = {}
+    for name in _SANDBOX_RAW_FILENAMES:
+        path = state_dir / name
+        try:
+            files[name] = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            files[name] = None
+        except OSError:
+            logger.debug("sandbox_raw: failed to read %s", path)
+            files[name] = None
+    return {"dir_exists": state_dir.exists(), "files": files}
+
+
 def _read_complete_lines(path: Path, offset: int) -> tuple[list[bytes], int]:
     """Read whole lines appended since ``offset``; return (lines, new_offset).
 
@@ -1103,6 +1158,30 @@ def create_app(
         return _read_status_from_disk(
             runner=state.agent_runner,
             llm_cost_usd_this_month=cost_fn(),
+        )
+
+    @app.get(
+        "/api/sandbox/raw",
+        status_code=status.HTTP_200_OK,
+        responses={
+            status.HTTP_401_UNAUTHORIZED: {"description": "unauthorized"},
+        },
+    )
+    async def get_sandbox_raw(_: AuthDep, state: StateDep) -> JSONResponse:
+        """Raw sandbox state files in one envelope — the off-box dashboard path.
+
+        The dashboard's local-fs loader reads ``state/sandbox/`` directly; a
+        dashboard deployed where that volume isn't mounted (Vercel, while the
+        loop runs on Railway) instead polls THIS route through its server-side
+        proxy and folds the raw strings with the same TypeScript fold. See
+        :func:`_read_sandbox_raw_files` for the envelope contract. ``no-store``
+        so each 2 s dashboard poll observes fresh bytes (mirrors /status).
+        """
+        payload = _read_sandbox_raw_files(state_dir=state.agent_runner.state_dir)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=payload,
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.post(

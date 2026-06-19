@@ -286,6 +286,121 @@ export function computeLagAlerts(
 }
 
 /* ------------------------------------------------------------------ */
+/* Raw-files fold — the SINGLE source of truth for bundle assembly      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The raw text of each sandbox state file plus whether the state dir
+ * exists. This is the input to {@link foldSandboxBundle} — the one place
+ * the bundle (incl. the divine-treasury cumulative + honesty rule) is
+ * assembled.
+ *
+ * Two producers fill this in:
+ *   - {@link import("./load_sandbox_state.server").loadSandboxBundle} —
+ *     reads the files off the local filesystem (local dev / co-located
+ *     deploy).
+ *   - {@link import("./load_sandbox_state.server").loadSandboxBundleFromBackend}
+ *     — fetches `GET /api/sandbox/raw` from the backend (Vercel `/living`,
+ *     where the backend volume isn't mounted).
+ *
+ * Each field is `null` when the file is absent / unreadable; the fold
+ * treats `null` exactly like an empty stream.
+ */
+export interface RawSandboxFiles {
+  readonly dirExists: boolean;
+  readonly snapshot: string | null;
+  readonly decisions: string | null;
+  readonly settled: string | null;
+  readonly treasury: string | null;
+  readonly deaths: string | null;
+}
+
+/** An all-empty {@link RawSandboxFiles} → folds to a cold_boot bundle. */
+export const EMPTY_RAW_SANDBOX_FILES: RawSandboxFiles = {
+  dirExists: false,
+  snapshot: null,
+  decisions: null,
+  settled: null,
+  treasury: null,
+  deaths: null,
+};
+
+/**
+ * Fold the raw file strings into a {@link SandboxStateBundle}.
+ *
+ * Pure — no fs, no fetch, no React. This is the SINGLE implementation of
+ * the bundle-assembly semantics (tail-N slicing, snapshot parse, and the
+ * cumulative-treasury fold with its honesty rule: successful tributes +
+ * cash tithes count; breath-paid tithes are NOT converted to USD). Both
+ * the local-fs loader and the over-the-backend loader call it, so the two
+ * data paths can never drift.
+ *
+ * @param raw         the file strings + dir-exists flag
+ * @param now         wall-clock ms (for served_ts + staleness)
+ * @param tailN       max JSONL rows to retain (default {@link DEFAULT_TAIL_N})
+ * @param extraAlerts producer-side alerts (e.g. an fs read error or a
+ *                    backend-fetch failure) appended after the computed
+ *                    cold_boot / missing_snapshot / stale alerts
+ */
+export function foldSandboxBundle(
+  raw: RawSandboxFiles,
+  now: number,
+  tailN: number = DEFAULT_TAIL_N,
+  extraAlerts: readonly LagAlert[] = [],
+): SandboxStateBundle {
+  let snapshot: AgentStateSnapshotData | null = null;
+  if (raw.snapshot != null) {
+    try {
+      snapshot = JSON.parse(raw.snapshot) as AgentStateSnapshotData;
+    } catch {
+      snapshot = null;
+    }
+  }
+
+  const decisions = raw.decisions
+    ? lastN(parseJsonl<DecisionRecordData>(raw.decisions), tailN)
+    : [];
+  const settled = raw.settled
+    ? lastN(parseJsonl<SettledBetRecordData>(raw.settled), tailN)
+    : [];
+  const treasury = raw.treasury
+    ? lastN(parseJsonl<GodsTreasuryRecordData>(raw.treasury), tailN)
+    : [];
+  const lineage = raw.deaths
+    ? parseJsonl<IncarnationLineageEntry>(raw.deaths)
+    : [];
+
+  // Cumulative gods revenue = successful tributes + cash tithes. Breath-paid
+  // tithes are NOT converted to USD (honesty constraint). The fold walks the
+  // FULL stream (not the tailed slice) so the cumulative total is exact.
+  let gods_revenue_cumulative_usd = 0;
+  if (raw.treasury) {
+    for (const r of parseJsonl<GodsTreasuryRecordData>(raw.treasury)) {
+      if (r.type === "tribute" && r.success) gods_revenue_cumulative_usd += r.amount_usd;
+      else if (r.type === "tithe") gods_revenue_cumulative_usd += r.paid_usd;
+    }
+  }
+
+  const lag_alerts = [
+    ...computeLagAlerts(snapshot, now, raw.dirExists),
+    ...extraAlerts,
+  ];
+
+  return {
+    snapshot,
+    recent_decisions: decisions,
+    recent_settled: settled,
+    lag_alerts,
+    served_ts: new Date(now).toISOString(),
+    is_mock: false,
+    recent_gods_treasury: treasury,
+    gods_revenue_cumulative_usd,
+    incarnation_number: snapshot?.incarnation_number ?? 0,
+    incarnation_lineage: lineage,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Death Watch + breath helpers — used by widgets + the hook            */
 /* ------------------------------------------------------------------ */
 

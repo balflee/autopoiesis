@@ -31,17 +31,12 @@ import path from "node:path";
 // `load_sandbox_state.ts` (a client module) would emit the runtime
 // error: "Attempted to call computeLagAlerts() from the server".
 import {
-  computeLagAlerts,
   DEFAULT_TAIL_N,
-  lastN,
-  parseJsonl,
-  type AgentStateSnapshotData,
-  type DecisionRecordData,
-  type GodsTreasuryRecordData,
-  type IncarnationLineageEntry,
+  EMPTY_RAW_SANDBOX_FILES,
+  foldSandboxBundle,
   type LagAlert,
+  type RawSandboxFiles,
   type SandboxStateBundle,
-  type SettledBetRecordData,
 } from "@/lib/sandbox_state_shared";
 
 const DECISIONS_FILENAME = "decisions.jsonl";
@@ -69,8 +64,11 @@ export interface ServerLoaderOptions {
  * Read the live sandbox state from disk and assemble a bundle.
  *
  * Defensive: every fs read is independently try/wrapped so a torn
- * write or a half-created directory does not take the route down.
- * The returned `lag_alerts` describes any degradation.
+ * write or a half-created directory does not take the route down. A
+ * non-ENOENT read failure becomes an `fs_error` lag alert; ENOENT is
+ * silent (the file just hasn't been written yet). The raw strings are
+ * then handed to the single {@link foldSandboxBundle} so this path and
+ * the over-the-backend path can never drift.
  */
 export async function loadSandboxBundle(
   opts: ServerLoaderOptions = {},
@@ -86,114 +84,163 @@ export async function loadSandboxBundle(
     dirExists = false;
   }
 
-  const snapshotPath = path.join(root, SNAPSHOT_FILENAME);
-  let snapshot: AgentStateSnapshotData | null = null;
   const errors: LagAlert[] = [];
-  try {
-    const raw = await fs.readFile(snapshotPath, "utf-8");
-    snapshot = JSON.parse(raw) as AgentStateSnapshotData;
-  } catch (err) {
-    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
-      errors.push({
-        kind: "fs_error",
-        detail: `agent_state.json read failed: ${err.message}`,
-        severity: "error",
-      });
+
+  /**
+   * Read one file's text. ENOENT → null (silent). Any other read error →
+   * null + an `fs_error` alert so the dashboard surfaces the degradation
+   * without crashing the poll.
+   */
+  const readFileOrNull = async (filename: string): Promise<string | null> => {
+    try {
+      return await fs.readFile(path.join(root, filename), "utf-8");
+    } catch (err) {
+      if (
+        dirExists &&
+        err instanceof Error &&
+        err.message &&
+        !/ENOENT/.test(err.message)
+      ) {
+        errors.push({
+          kind: "fs_error",
+          detail: `${filename} read failed: ${err.message}`,
+          severity: "error",
+        });
+      }
+      return null;
     }
-    snapshot = null;
-  }
-
-  const decisionsPath = path.join(root, DECISIONS_FILENAME);
-  let decisions: DecisionRecordData[] = [];
-  try {
-    const raw = await fs.readFile(decisionsPath, "utf-8");
-    decisions = lastN(parseJsonl<DecisionRecordData>(raw), tailN);
-  } catch (err) {
-    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
-      errors.push({
-        kind: "fs_error",
-        detail: `decisions.jsonl read failed: ${err.message}`,
-        severity: "error",
-      });
-    }
-    decisions = [];
-  }
-
-  const settledPath = path.join(root, SETTLED_BETS_FILENAME);
-  let settled: SettledBetRecordData[] = [];
-  try {
-    const raw = await fs.readFile(settledPath, "utf-8");
-    settled = lastN(parseJsonl<SettledBetRecordData>(raw), tailN);
-  } catch (err) {
-    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
-      errors.push({
-        kind: "fs_error",
-        detail: `settled_bets.jsonl read failed: ${err.message}`,
-        severity: "error",
-      });
-    }
-    settled = [];
-  }
-
-  // Living Stage P1 — the divine economy streams (ENOENT → [] like the others).
-  const treasuryPath = path.join(root, GODS_TREASURY_FILENAME);
-  let treasury: GodsTreasuryRecordData[] = [];
-  try {
-    const raw = await fs.readFile(treasuryPath, "utf-8");
-    treasury = lastN(parseJsonl<GodsTreasuryRecordData>(raw), tailN);
-  } catch (err) {
-    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
-      errors.push({
-        kind: "fs_error",
-        detail: `gods_treasury.jsonl read failed: ${err.message}`,
-        severity: "error",
-      });
-    }
-    treasury = [];
-  }
-
-  const deathsPath = path.join(root, DEATHS_FILENAME);
-  let lineage: IncarnationLineageEntry[] = [];
-  try {
-    const raw = await fs.readFile(deathsPath, "utf-8");
-    lineage = parseJsonl<IncarnationLineageEntry>(raw);
-  } catch (err) {
-    if (dirExists && err instanceof Error && err.message && !/ENOENT/.test(err.message)) {
-      errors.push({
-        kind: "fs_error",
-        detail: `deaths.jsonl read failed: ${err.message}`,
-        severity: "error",
-      });
-    }
-    lineage = [];
-  }
-
-  // Cumulative gods revenue = successful tributes + cash tithes. Breath-paid
-  // tithes are NOT converted to USD (honesty constraint). The fold walks the
-  // FULL stream (not the tailed slice) so the cumulative total is exact.
-  let gods_revenue_cumulative_usd = 0;
-  try {
-    const allRaw = await fs.readFile(treasuryPath, "utf-8");
-    for (const r of parseJsonl<GodsTreasuryRecordData>(allRaw)) {
-      if (r.type === "tribute" && r.success) gods_revenue_cumulative_usd += r.amount_usd;
-      else if (r.type === "tithe") gods_revenue_cumulative_usd += r.paid_usd;
-    }
-  } catch {
-    /* ENOENT → 0 */
-  }
-
-  const lag_alerts = [...computeLagAlerts(snapshot, now(), dirExists), ...errors];
-
-  return {
-    snapshot,
-    recent_decisions: decisions,
-    recent_settled: settled,
-    lag_alerts,
-    served_ts: new Date(now()).toISOString(),
-    is_mock: false,
-    recent_gods_treasury: treasury,
-    gods_revenue_cumulative_usd,
-    incarnation_number: snapshot?.incarnation_number ?? 0,
-    incarnation_lineage: lineage,
   };
+
+  const raw: RawSandboxFiles = {
+    dirExists,
+    snapshot: await readFileOrNull(SNAPSHOT_FILENAME),
+    decisions: await readFileOrNull(DECISIONS_FILENAME),
+    settled: await readFileOrNull(SETTLED_BETS_FILENAME),
+    // Living Stage P1 — the divine economy streams.
+    treasury: await readFileOrNull(GODS_TREASURY_FILENAME),
+    deaths: await readFileOrNull(DEATHS_FILENAME),
+  };
+
+  // Behaviour parity with the pre-fold loader: a PRESENT but unparseable
+  // `agent_state.json` (a torn mid-write) is an operator-visible error, so
+  // it surfaces an `fs_error` alert IN ADDITION to the `missing_snapshot`
+  // the fold emits when it can't parse the snapshot. (ENOENT — the file just
+  // isn't written yet — already returned null above without an alert.) The
+  // fold re-parses the same string; the duplicate parse of one small file is
+  // negligible and keeps the fold the single source of the assembled bundle.
+  if (raw.snapshot != null) {
+    try {
+      JSON.parse(raw.snapshot);
+    } catch (err) {
+      errors.push({
+        kind: "fs_error",
+        detail: `${SNAPSHOT_FILENAME} read failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        severity: "error",
+      });
+    }
+  }
+
+  return foldSandboxBundle(raw, now(), tailN, errors);
+}
+
+/* ------------------------------------------------------------------ */
+/* Off-box data path — fetch raw state from the backend, then fold     */
+/* ------------------------------------------------------------------ */
+
+/** The backend envelope shape returned by `GET /api/sandbox/raw`. */
+interface SandboxRawEnvelope {
+  readonly dir_exists: boolean;
+  readonly files: Readonly<Record<string, string | null>>;
+}
+
+/** Options for {@link loadSandboxBundleFromBackend} — tests inject these. */
+export interface BackendLoaderOptions {
+  readonly tailN?: number;
+  readonly now?: () => number;
+  /** Override `globalThis.fetch` — tests stub this. */
+  readonly fetchImpl?: typeof fetch;
+  /** Override `process.env.DASHBOARD_API_URL`. */
+  readonly apiBase?: string;
+  /** Override `process.env.DASHBOARD_API_TOKEN`. */
+  readonly apiToken?: string;
+}
+
+/**
+ * Fetch the raw sandbox state from the backend and fold it into a bundle.
+ *
+ * Used when the dashboard is deployed where the loop's state volume is
+ * NOT mounted (Vercel `/living`, while the loop runs on Railway). The
+ * server-side `/api/sandbox` route calls this instead of {@link
+ * loadSandboxBundle} when `DASHBOARD_API_URL` is set. The bearer token is
+ * read from `process.env` (server-only, never `NEXT_PUBLIC_*`) and stays
+ * on the Vercel server — exactly like `dashboard/app/api/proxy`.
+ *
+ * Never throws: a missing URL/token, a non-2xx response, or a network
+ * error all fold to a cold_boot bundle plus a descriptive `fs_error`
+ * alert, so the page keeps painting + shows the degradation.
+ */
+export async function loadSandboxBundleFromBackend(
+  opts: BackendLoaderOptions = {},
+): Promise<SandboxStateBundle> {
+  const tailN = opts.tailN ?? DEFAULT_TAIL_N;
+  const now = opts.now ?? Date.now;
+  const fetcher =
+    opts.fetchImpl ?? (typeof fetch !== "undefined" ? fetch : null);
+  const apiBase = opts.apiBase ?? process.env.DASHBOARD_API_URL;
+  const apiToken = opts.apiToken ?? process.env.DASHBOARD_API_TOKEN;
+
+  const degraded = (detail: string): SandboxStateBundle =>
+    foldSandboxBundle(EMPTY_RAW_SANDBOX_FILES, now(), tailN, [
+      { kind: "fs_error", detail, severity: "error" },
+    ]);
+
+  if (fetcher == null) return degraded("fetch is unavailable on the server");
+  if (!apiBase || apiBase.length === 0) {
+    return degraded("DASHBOARD_API_URL is not set on the server");
+  }
+  if (!apiToken || apiToken.length === 0) {
+    return degraded("DASHBOARD_API_TOKEN is not set on the server");
+  }
+
+  const target = `${apiBase.replace(/\/+$/, "")}/api/sandbox/raw`;
+  let res: Response;
+  try {
+    res = await fetcher(target, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+      cache: "no-store",
+    });
+  } catch (err) {
+    return degraded(
+      `backend /api/sandbox/raw fetch failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  if (!res.ok) {
+    return degraded(`backend /api/sandbox/raw → HTTP ${res.status}`);
+  }
+
+  let envelope: SandboxRawEnvelope;
+  try {
+    envelope = (await res.json()) as SandboxRawEnvelope;
+  } catch (err) {
+    return degraded(
+      `backend /api/sandbox/raw returned non-JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const files = envelope.files ?? {};
+  const raw: RawSandboxFiles = {
+    dirExists: envelope.dir_exists === true,
+    snapshot: files[SNAPSHOT_FILENAME] ?? null,
+    decisions: files[DECISIONS_FILENAME] ?? null,
+    settled: files[SETTLED_BETS_FILENAME] ?? null,
+    treasury: files[GODS_TREASURY_FILENAME] ?? null,
+    deaths: files[DEATHS_FILENAME] ?? null,
+  };
+  return foldSandboxBundle(raw, now(), tailN);
 }

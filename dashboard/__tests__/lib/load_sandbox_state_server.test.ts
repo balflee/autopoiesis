@@ -116,6 +116,22 @@ describe("loadSandboxBundle", () => {
     expect(bundle.lag_alerts).toEqual([]);
   });
 
+  it("emits fs_error (not just missing_snapshot) for a torn snapshot file", async () => {
+    // A present-but-unparseable agent_state.json (mid-write tear) must
+    // surface an `fs_error` — the pre-fold behaviour. Regression guard for
+    // the fold refactor, which could have downgraded it to a silent
+    // `missing_snapshot` (info) by routing the parse through the fold.
+    await fs.writeFile(
+      path.join(root, "agent_state.json"),
+      '{"breath": 8', // truncated JSON
+    );
+    const bundle = await loadSandboxBundle({ root, now: () => FROZEN_NOW });
+    const kinds = bundle.lag_alerts.map((a) => a.kind);
+    expect(kinds).toContain("fs_error");
+    expect(kinds).toContain("missing_snapshot");
+    expect(bundle.snapshot).toBeNull();
+  });
+
   it("emits snapshot_stale when snapshot_ts is older than SNAPSHOT_STALE_MS", async () => {
     const stale = {
       ...SNAPSHOT,

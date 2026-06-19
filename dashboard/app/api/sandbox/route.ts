@@ -24,10 +24,17 @@
 
 import { NextResponse } from "next/server";
 
-import { loadSandboxBundle } from "@/lib/load_sandbox_state.server";
+import {
+  loadSandboxBundle,
+  loadSandboxBundleFromBackend,
+} from "@/lib/load_sandbox_state.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+// Forwarding to the backend (raw state fetch) needs the Node fetch +
+// process.env reads; pin the route to the Node runtime so the
+// server-only token is never edge-bundled. Mirrors /api/proxy.
+export const runtime = "nodejs";
 
 /**
  * GET /api/sandbox — returns a {@link SandboxStateBundle}.
@@ -44,7 +51,18 @@ export async function GET(): Promise<NextResponse> {
       headers: { "Cache-Control": "no-store" },
     });
   }
-  const bundle = await loadSandboxBundle();
+  // Data path selection:
+  //   - DASHBOARD_API_URL set (Vercel `/living`, backend on Railway) →
+  //     fetch the raw state from the backend and fold it. The local fs
+  //     here is NOT the loop's volume, so reading it would show nothing.
+  //   - else (local dev / co-located deploy) → read `state/sandbox/`
+  //     directly off disk. Byte-identical to the pre-rewire behaviour.
+  // Both paths fold via the SAME `foldSandboxBundle`.
+  const apiBase = process.env.DASHBOARD_API_URL;
+  const bundle =
+    apiBase && apiBase.length > 0
+      ? await loadSandboxBundleFromBackend()
+      : await loadSandboxBundle();
   return NextResponse.json(bundle, {
     headers: { "Cache-Control": "no-store" },
   });

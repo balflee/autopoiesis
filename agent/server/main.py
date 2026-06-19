@@ -2206,6 +2206,15 @@ def _build_one_incarnation_loop(
     )
     _sandbox_live = os.environ.get("SANDBOX_LIVE") == "1"
     _divine_economy = os.environ.get("SANDBOX_DIVINE_ECONOMY") == "1"
+    # The periodic tithe (A10 rent) is a SUB-feature of the divine economy and
+    # is independently toggleable so it can be disabled WITHOUT losing the rest
+    # of the economy (tribute, treasury display, the /living odds/signal fields
+    # via record_living_stage_fields). Default "1" → byte-identical to coupling
+    # it to _divine_economy. SANDBOX_DIVINE_TITHE=0 turns OFF only the tithe
+    # (e.g. to stop the flat $20/20-markets rent from draining the bankroll into
+    # the $5 min-bet dead zone). Off ⇒ no metabolic rent pressure → a do-nothing
+    # agent no longer bleeds out, so this is a deliberate diagnostic lever.
+    _divine_tithe = _divine_economy and os.environ.get("SANDBOX_DIVINE_TITHE", "1") != "0"
     if _divine_economy:
         state_hook: Any = _SandboxStateHook(
             writer=writer, incarnation_number=incarnation_idx
@@ -2228,7 +2237,7 @@ def _build_one_incarnation_loop(
         state_hook=state_hook,
         tribute_policy=tribute_policy,
         tribute_rng=tribute_rng,
-        divine_tithe=_divine_economy,
+        divine_tithe=_divine_tithe,
         record_living_stage_fields=_divine_economy,
         incarnation_number=incarnation_idx,
         state_writer=writer,

@@ -31,26 +31,33 @@ dockerfilePath = "agent/server/Dockerfile"
 # Railway redeploy (which rebuilds the container's writable layer) does
 # NOT lose operator-approved state.
 #
-# The volume itself must be PROVISIONED in the Railway UI first — `railway`
-# CLI does not expose volume creation as of 2026-05. See
-# `docs/DEPLOYMENT.md` "Railway Volume Provisioning" for the operator
-# runbook. Once the volume exists with name `autopoiesis-state`, this
-# stanza tells Railway to attach it at /data on every deploy.
+# PROVISIONED 2026-06-19 via the Railway CLI (v4.30.5 DOES expose volume
+# creation — the 2026-05 "UI-only" note is stale): `railway volume add -m
+# /data` created volume `autopoiesis-api-volume` attached to autopoiesis-api
+# at /data (confirmed in `railway status --json` volumeInstances; note the
+# `railway volume list` subcommand is buggy and shows none — trust status).
+# NOTE: Railway binds the volume via the imperative attachment, NOT this
+# [[mounts]] stanza (deploys succeeded before any volume existed), so this
+# block is documentation; volumeName is kept matching reality regardless.
 # -----------------------------------------------------------------------------
 [[mounts]]
 mountPath = "/data"
-volumeName = "autopoiesis-state"
+volumeName = "autopoiesis-api-volume"
 
 [deploy]
 # uvicorn binds 0.0.0.0 — Railway's edge proxy reaches it via $PORT.
-# Wrap in `/bin/sh -c "exec uvicorn ..."` so the shell handles `exec`
-# (a shell builtin, not a standalone executable). Railway runs Dockerfile
-# startCommands in exec form — bare `exec uvicorn ...` would look up `exec`
-# as a binary and fail with "executable 'exec' could not be found" (see
-# Railway Diagnosis Config Error 2026-05-28). The inner `exec` still
-# ensures uvicorn becomes PID 1 inside the container so signals from
-# Railway (SIGTERM on rolling deploy / scale-to-zero) reach it directly.
-startCommand = "/bin/sh -c \"uvicorn agent.server.main:app --host 0.0.0.0 --port ${PORT}\""
+# Wrap in `/bin/sh -c "..."` so the shell handles `exec` (a builtin) +
+# the chown. Railway runs startCommands in exec form — bare `exec uvicorn`
+# would look up `exec` as a binary and fail (Railway Config Error 2026-05-28).
+#
+# `chown -R agent:agent /data` (runs as ROOT — the Dockerfile no longer
+# sets `USER agent`) makes the root-owned Railway volume writable by the
+# non-root agent uid; WITHOUT it uvicorn EACCES-crashes on the first state
+# write under /data and /healthz never comes up (deploy 89c99cd0,
+# 2026-06-19). Then `exec gosu agent uvicorn ...` drops privileges so the
+# server runs non-root AND becomes PID 1 (Railway's SIGTERM reaches it).
+# This MUST stay in lockstep with the Dockerfile CMD.
+startCommand = "/bin/sh -c \"chown -R agent:agent /data 2>/dev/null || true; exec gosu agent uvicorn agent.server.main:app --host 0.0.0.0 --port ${PORT}\""
 
 # Railway pings this path after the deploy boots; if the response is
 # !=200 within healthcheckTimeout, the deploy is marked failed and

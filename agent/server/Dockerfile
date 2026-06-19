@@ -96,11 +96,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BACKTEST_CACHE_DIR=/data/backtest/cache
 
 # curl is REQUIRED by the HEALTHCHECK directive below; ca-certificates
-# is needed for outbound HTTPS to AI Studio (Gemini).
+# is needed for outbound HTTPS to AI Studio (Gemini). gosu drops the
+# entrypoint from root → the non-root `agent` user AFTER it has chowned
+# the Railway volume (see the CMD note below).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Pull in the venv built upstairs. /opt/venv is self-contained.
@@ -126,7 +129,14 @@ COPY --chown=agent:agent agent /app/agent
 # Surfaced on Railway deploy 2026-05-28 b756da3f startup failure.
 COPY --chown=agent:agent data /app/data
 
-USER agent
+# NOTE: we deliberately do NOT `USER agent` here. A Railway persistent
+# volume mounts at /data owned by root:root at RUNTIME, OVERLAYING the
+# build-time `chown -R agent:agent /data` above — so a process running as
+# the non-root agent user gets EACCES on the first write under /data and
+# uvicorn crashes before /healthz comes up (observed: 2026-06-19 deploy
+# 89c99cd0 healthcheck failure). The container therefore starts as ROOT so
+# the CMD can `chown /data` to the agent uid, then drops to `agent` via
+# `gosu` for the actual server process. App code still runs non-root.
 
 EXPOSE 8000
 
@@ -143,4 +153,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # injected by Railway at deploy time (default 8000 for local docker run).
 # Single worker — the sandbox loop holds in-process state that doesn't
 # survive a worker fork.
-CMD ["sh", "-c", "exec uvicorn agent.server.main:app --host 0.0.0.0 --port ${PORT}"]
+#
+# Runs as ROOT (no `USER agent` above): first `chown -R agent:agent /data`
+# so the root-owned Railway volume becomes writable by the agent uid, then
+# `exec gosu agent uvicorn ...` drops to the non-root user for the server
+# (gosu execs in place, so uvicorn is PID 1 and Railway's SIGTERM reaches
+# it). NOTE: Railway overrides this CMD with railway.toml [deploy].startCommand
+# in production — the two MUST stay in lockstep (both chown+gosu).
+CMD ["sh", "-c", "chown -R agent:agent /data 2>/dev/null || true; exec gosu agent uvicorn agent.server.main:app --host 0.0.0.0 --port ${PORT}"]

@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { JSX } from "react";
 
 import { LiveMockBetBadge } from "@/components/LiveMockBetBadge";
-import { MOCK_ROUTE, readL5Complete } from "@/lib/l5_gate";
+import { readL5Complete } from "@/lib/l5_gate";
 
 /**
  * /roadmap — the landing.
@@ -45,10 +45,11 @@ interface Stage {
  * L5-complete flag.
  *
  * While L5 is still learning the stage is LOCKED with a NULL href — so the
- * card renders un-wrapped (no <Link>) and can never navigate to the
- * not-yet-built /mock route. Once {@link readL5Complete} flips true the
- * stage becomes ACTIVE, gains its {@link MOCK_ROUTE} href, and drops the
- * "unlocks when L5 completes" note.
+ * card renders un-wrapped (no <Link>) and can never navigate. Once
+ * {@link readL5Complete} flips true the stage becomes ACTIVE, links to the
+ * LIVE Living Stage (`/living` — the betting showpiece), and drops the
+ * "unlocks when L5 completes" note. (NB: this links to /living, NOT MOCK_ROUTE
+ * `/mock` — that constant still gates the standalone /mock page.)
  *
  * Derived at render time (not module load) so the build-time-inlined
  * NEXT_PUBLIC_L5_COMPLETE value is honoured and tests can flip it.
@@ -61,8 +62,8 @@ function buildStages(): readonly Stage[] {
         name: "MOCK BET",
         phase: "Adult",
         status: "ACTIVE",
-        stat: "paper-trades live odds with no capital at risk",
-        href: MOCK_ROUTE,
+        stat: "LIVE now — paper-trading Polymarket tennis on real odds, no capital at risk",
+        href: "/living",
       }
     : {
         name: "MOCK BET",

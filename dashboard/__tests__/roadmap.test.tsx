@@ -73,7 +73,7 @@ describe("RoadmapPage — MOCK BET L5 gate (F1)", () => {
     expect(screen.getByTestId("status-chip-LOCKED")).toBeInTheDocument();
   });
 
-  it("when NEXT_PUBLIC_L5_COMPLETE is set: MOCK BET becomes an ACTIVE link to /mock", () => {
+  it("when NEXT_PUBLIC_L5_COMPLETE is set: MOCK BET becomes an ACTIVE link to /living", () => {
     process.env.NEXT_PUBLIC_L5_COMPLETE = "true";
     render(<RoadmapPage />);
 
@@ -81,7 +81,9 @@ describe("RoadmapPage — MOCK BET L5 gate (F1)", () => {
       .getByText("MOCK BET")
       .closest("a") as HTMLAnchorElement | null;
     expect(mockLink).not.toBeNull();
-    expect(mockLink?.getAttribute("href")).toBe("/mock");
+    // Links to the LIVE Living Stage showpiece (NOT MOCK_ROUTE /mock — that
+    // constant still gates the standalone /mock page).
+    expect(mockLink?.getAttribute("href")).toBe("/living");
 
     // The unlock note ("unlocks when L5 completes") is gone once unlocked.
     expect(screen.queryByText(/unlocks when l5 completes/i)).toBeNull();

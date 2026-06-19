@@ -167,8 +167,18 @@ export const DEFAULT_INITIAL_BREATH = 100;
 /** Brief acceptance: tail N=50. */
 export const DEFAULT_TAIL_N = 50;
 
-/** Stale threshold for snapshot ts → triggers a lag alert. */
-export const SNAPSHOT_STALE_MS = 30_000;
+/**
+ * Stale threshold for snapshot ts → triggers a `snapshot_stale` lag alert.
+ *
+ * Calibrated to ~3× the LIVE loop's decision-tick interval. The loop writes
+ * a fresh `agent_state.json` once per tick; in production (SANDBOX_LIVE) the
+ * time-compressed cadence is ~60s/tick (decision_cadence = tick_interval /
+ * time_compression). A tighter threshold (the old 30s, tuned for a faster
+ * sim cadence) fired between every healthy tick — a false "stuck" banner on
+ * /living. 180s only trips when the loop genuinely misses ~3 ticks, so it
+ * stays a real stall-detector instead of a per-tick false positive.
+ */
+export const SNAPSHOT_STALE_MS = 180_000;
 
 /** "below threshold" → Death Watch full-screen takeover. */
 export const DEATH_WATCH_RATIO = 0.10;

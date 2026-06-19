@@ -2658,6 +2658,55 @@ def _build_default_app() -> FastAPI:
         runtime_agent=runtime_agent,
     )
 
+    # Living Stage Phase 2 — reincarnation. When ON, the AgentRunner's loop
+    # factory returns a LiveIncarnationSupervisor (a LoopHandle) instead of a
+    # bare loop; the supervisor respawns the single-life loop across deaths,
+    # carrying weights + a shared advisor/updater. Default OFF = single life.
+    if os.environ.get("SANDBOX_REINCARNATION") == "1":
+        from agent.runtime.incarnation_supervisor import LiveIncarnationSupervisor
+
+        decision_cadence = _resolve_decision_cadence(
+            tick_interval_seconds=prod_loop_config.tick_interval_seconds,
+            time_compression=prod_loop_config.time_compression,
+        )
+
+        def _supervisor_factory() -> LiveIncarnationSupervisor:
+            # Round-1 MED-2/3: a FRESH supervisor per AgentRunner.start (the
+            # LoopFactoryProto per-call contract), and the shared updater +
+            # advisor constructed HERE so they are shared across the lives of
+            # THIS run only (not across independent /start cycles). The updater
+            # is gated on GENESIS_REAL_LEARNING (lazy) so the OFF path builds none.
+            shared_weight_updater: Any | None = None
+            if os.environ.get("GENESIS_REAL_LEARNING") == "1":
+                from agent.engines.weight_updater import (
+                    WeightUpdater as _RealWeightUpdater,
+                )
+
+                shared_weight_updater = _RealWeightUpdater()
+            shared_advisor = _make_prod_strategy_advisor()
+            return LiveIncarnationSupervisor(
+                build_incarnation=lambda *, incarnation_idx, chain_adapter, initial_weights, incarnation_number: _build_one_incarnation_loop(
+                    incarnation_idx=incarnation_idx,
+                    state_dir=state_dir,
+                    chain_adapter=chain_adapter,
+                    initial_weights=initial_weights,
+                    shared_weight_updater=shared_weight_updater,
+                    shared_advisor=shared_advisor,
+                    tick_input_source=tick_input_source,
+                    settlement_client=settlement_client,
+                    market_resolver=market_resolver,
+                    wall_clock=wall_clock,
+                    decision_cadence=decision_cadence,
+                    runtime_agent=runtime_agent,
+                ),
+                build_chain_adapter=lambda: _build_chain_adapter(
+                    kind=prod_loop_config.chain_adapter_kind
+                ),
+                state_dir=state_dir,
+            )
+
+        loop_factory = _supervisor_factory
+
     runner = AgentRunner(
         loop_factory=loop_factory,
         state_dir=state_dir,

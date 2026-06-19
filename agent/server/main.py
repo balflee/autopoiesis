@@ -2215,6 +2215,22 @@ def _build_one_incarnation_loop(
     # the $5 min-bet dead zone). Off ⇒ no metabolic rent pressure → a do-nothing
     # agent no longer bleeds out, so this is a deliberate diagnostic lever.
     _divine_tithe = _divine_economy and os.environ.get("SANDBOX_DIVINE_TITHE", "1") != "0"
+    # Optional min-bet floor override. The DecisionEngine's default is $5
+    # (DEFAULT_MIN_BET_SIZE_USD); at a ~$100 bankroll the live Kelly stakes are
+    # ~$0.1-$2.7, so every BET is rejected by the $5 floor (size_below_min_bet).
+    # SANDBOX_MIN_BET_USD lets the floor be lowered (e.g. "2") so real bets can
+    # clear. Unset/blank ⇒ None ⇒ the loop builds DecisionEngine() at the $5
+    # default (byte-identical). A non-numeric value is ignored (warn + default).
+    _min_bet_raw = os.environ.get("SANDBOX_MIN_BET_USD")
+    _min_bet_size_usd: float | None = None
+    if _min_bet_raw:
+        try:
+            _min_bet_size_usd = float(_min_bet_raw)
+        except ValueError:
+            logger.warning(
+                "SANDBOX_MIN_BET_USD=%r is not a number; using the $5 default",
+                _min_bet_raw,
+            )
     if _divine_economy:
         state_hook: Any = _SandboxStateHook(
             writer=writer, incarnation_number=incarnation_idx
@@ -2240,6 +2256,7 @@ def _build_one_incarnation_loop(
         divine_tithe=_divine_tithe,
         record_living_stage_fields=_divine_economy,
         incarnation_number=incarnation_idx,
+        min_bet_size_usd=_min_bet_size_usd,
         state_writer=writer,
         clock=wall_clock,
         sleeper=_real_sleep,

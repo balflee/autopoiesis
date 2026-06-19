@@ -76,6 +76,34 @@ def test_tithe_can_be_disabled_independently_of_the_economy(tmp_path, monkeypatc
     assert getattr(loop._state_hook, "_incarnation_number", None) == 0
 
 
+def test_min_bet_floor_defaults_to_5_when_unset(tmp_path, monkeypatch):
+    """SANDBOX_MIN_BET_USD unset → the loop's DecisionEngine keeps the $5
+    DEFAULT_MIN_BET_SIZE_USD floor (byte-identical to before the override)."""
+    from agent.engines.decision import DEFAULT_MIN_BET_SIZE_USD
+
+    monkeypatch.delenv("SANDBOX_MIN_BET_USD", raising=False)
+    loop = _build_loop_with_env(tmp_path, monkeypatch, tithe_env=None)
+    assert loop._decision._min_bet_size_usd == DEFAULT_MIN_BET_SIZE_USD
+
+
+def test_min_bet_floor_override_lowers_the_floor(tmp_path, monkeypatch):
+    """SANDBOX_MIN_BET_USD=2 lowers the floor so the small live Kelly stakes
+    (~$0.1-$2.7 at a $100 bankroll) the $5 default rejected can clear."""
+    monkeypatch.setenv("SANDBOX_MIN_BET_USD", "2")
+    loop = _build_loop_with_env(tmp_path, monkeypatch, tithe_env=None)
+    assert loop._decision._min_bet_size_usd == 2.0
+
+
+def test_min_bet_floor_bad_value_falls_back_to_default(tmp_path, monkeypatch):
+    """A non-numeric SANDBOX_MIN_BET_USD must NOT crash boot — it warns and
+    keeps the $5 default."""
+    from agent.engines.decision import DEFAULT_MIN_BET_SIZE_USD
+
+    monkeypatch.setenv("SANDBOX_MIN_BET_USD", "not-a-number")
+    loop = _build_loop_with_env(tmp_path, monkeypatch, tithe_env=None)
+    assert loop._decision._min_bet_size_usd == DEFAULT_MIN_BET_SIZE_USD
+
+
 def test_zero_arg_factory_still_works(tmp_path):
     chain = M._build_chain_adapter(kind=PROD_LOOP_CHAIN_ADAPTER_KIND_SANDBOX)
     factory = M._build_production_loop_factory(

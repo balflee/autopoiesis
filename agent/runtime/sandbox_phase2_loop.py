@@ -930,6 +930,13 @@ class SandboxPhase2Loop:
         # single-life path (byte-identical: AgentStateSnapshot.incarnation_number
         # already defaults to 0).
         incarnation_number: int = 0,
+        # Minimum-bet floor override. None (default) ⇒ build a DecisionEngine()
+        # with its DEFAULT_MIN_BET_SIZE_USD ($5) — byte-identical. A float
+        # overrides the floor (the prod factory wires this from
+        # SANDBOX_MIN_BET_USD) so the live agent can place the small Kelly
+        # stakes the $5 floor was rejecting. Ignored when ``decision_engine``
+        # is injected directly.
+        min_bet_size_usd: float | None = None,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -944,9 +951,13 @@ class SandboxPhase2Loop:
         self._tick_inputs: TickInputSource = tick_inputs
         self._state_hook: StateHook = state_hook
 
-        self._decision: DecisionEngine = (
-            decision_engine if decision_engine is not None else DecisionEngine()
-        )
+        self._decision: DecisionEngine
+        if decision_engine is not None:
+            self._decision = decision_engine
+        elif min_bet_size_usd is not None:
+            self._decision = DecisionEngine(min_bet_size_usd=min_bet_size_usd)
+        else:
+            self._decision = DecisionEngine()
         self._value_betting: bool = value_betting
         self._effective_entry_price_floor: float | None = (
             effective_entry_price_floor

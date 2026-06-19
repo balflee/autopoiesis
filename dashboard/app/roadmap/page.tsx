@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { JSX } from "react";
 
+import { LiveMockBetBadge } from "@/components/LiveMockBetBadge";
 import { MOCK_ROUTE, readL5Complete } from "@/lib/l5_gate";
 
 /**
@@ -217,6 +218,10 @@ export default function RoadmapPage(): JSX.Element {
           >
             <BreathWaveform className="h-full w-full" />
           </div>
+
+          {/* Live proof — the mock-bet agent is RUNNING right now (client island
+              polling /api/sandbox); links through to the full /living stage. */}
+          <LiveMockBetBadge />
 
           {/* Hub explainer cross-link — the "how it works" deep-dive. */}
           <Link

@@ -1,22 +1,28 @@
 "use client";
 
-import { useWsStore, selectDecisionFeed } from "@/lib/wsStore";
+import { useWsStore, selectDecisionFeed, openBetsOf } from "@/lib/wsStore";
 import { widgetPalette } from "@/lib/colorTokens";
 
 /**
  * Living Stage — Zone Z3 · "The Act".
  *
- * Renders the NEWEST decisionFeed entry (selectDecisionFeed returns the feed
- * newest-first, so entry[0] is the latest). When that newest entry is a live
- * BET on a market it shows the Polymarket market id, the YES/NO odds, and the
- * paper bet. Otherwise (NO_BET, no entry, or a BET without a market_id) it
- * falls back to the idle "scanning" heartbeat card.
+ * Shows the most recent OPEN bet — a BET still HELD to resolution (not yet
+ * settled WIN/LOSS) — so the card stays lit on the live position instead of
+ * reverting to "scanning" on the very next NO_BET tick. The agent bets
+ * selectively (most ticks are NO_BET), so reading the newest decision alone
+ * left this card showing "scanning" almost always even with open positions.
+ * Falls back to the newest decision (→ idle "scanning" card) only when the
+ * agent is genuinely FLAT (no open bets).
  *
- * Live data comes ONLY from the wsStore selector — no props. Theme is the
- * abyss bioluminescent widget palette.
+ * Live data comes ONLY from the wsStore — no props. Theme is the abyss
+ * bioluminescent widget palette.
  */
 export function CurrentMarketCard(): JSX.Element {
-  const entry = useWsStore(selectDecisionFeed)[0];
+  const openBets = openBetsOf(useWsStore(selectDecisionFeed));
+  // Sticky: the latest OPEN position (held to resolution). When the agent is
+  // flat (no open bets) this is undefined → the idle "scanning" card. A SETTLED
+  // bet is intentionally NOT shown here (it's no longer "the act now").
+  const entry = openBets[0];
   const pal = widgetPalette("abyss");
 
   if (!entry || entry.action !== "BET" || !entry.market_id) {
@@ -76,6 +82,7 @@ export function CurrentMarketCard(): JSX.Element {
         </span>
         <div className="font-mono text-[8px]" style={{ color: pal.inkMuted }}>
           paper fill · holding to resolution
+          {openBets.length > 1 ? ` · ${openBets.length} open` : ""}
         </div>
       </div>
     </div>

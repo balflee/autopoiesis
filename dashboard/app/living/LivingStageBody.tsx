@@ -9,6 +9,7 @@ import { LivingOrganism } from "@/components/living/LivingOrganism";
 import { DivineEventStream } from "@/components/living/DivineEventStream";
 import { DivineTreasury } from "@/components/living/DivineTreasury";
 import { CurrentMarketCard } from "@/components/living/CurrentMarketCard";
+import { OpenPositions } from "@/components/living/OpenPositions";
 import { FusionSignalsRail } from "@/components/living/FusionSignalsRail";
 import { IncarnationLineage } from "@/components/living/IncarnationLineage";
 
@@ -46,6 +47,7 @@ export function LivingStageBody(): JSX.Element {
             <section className="flex flex-col items-center gap-4">
               <LivingOrganism />
               <CurrentMarketCard />
+              <OpenPositions />
             </section>
             <aside>
               <FusionSignalsRail />

@@ -455,6 +455,24 @@ export const selectPhase = (s: WsState): AgentPhase | null =>
   s.vitals?.phase ?? null;
 export const selectDecisionFeed = (s: WsState): readonly DecisionFeedEntry[] =>
   s.decisionFeed;
+
+/* --- Living Stage — betting surface helpers (open positions + history) ---
+ * PURE functions over the feed (NOT store selectors) so components keep
+ * subscribing to the stable `selectDecisionFeed` reference and don't churn on
+ * a new-array-every-render. The feed is newest-first, so `[0]` is the latest. */
+
+/** BET rows still HELD to resolution (not yet settled WIN/LOSS). Newest-first. */
+export const openBetsOf = (
+  feed: readonly DecisionFeedEntry[],
+): readonly DecisionFeedEntry[] =>
+  feed.filter(
+    (e) => e.action === "BET" && e.result !== "WIN" && e.result !== "LOSS",
+  );
+
+/** All BET rows (open + settled), newest-first — for the recent-bets feed. */
+export const betsOf = (
+  feed: readonly DecisionFeedEntry[],
+): readonly DecisionFeedEntry[] => feed.filter((e) => e.action === "BET");
 export const selectWeightsHistory = (
   s: WsState,
 ): readonly WeightsHistoryPoint[] => s.weightsHistory;

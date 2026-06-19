@@ -925,6 +925,11 @@ class SandboxPhase2Loop:
         # omitted on disk, keeping decisions.jsonl byte-identical (the prod
         # factory sets this = the SANDBOX_DIVINE_ECONOMY flag).
         record_living_stage_fields: bool = False,
+        # Phase 2 — which incarnation this loop instance is (stamped into every
+        # snapshot so the dashboard + manifest track the lineage). Default 0 =
+        # single-life path (byte-identical: AgentStateSnapshot.incarnation_number
+        # already defaults to 0).
+        incarnation_number: int = 0,
     ) -> None:
         # Composition — NOT inheritance.
         self.base: Phase2LaunchOrchestrator = base
@@ -973,6 +978,7 @@ class SandboxPhase2Loop:
         self._tithe_amount_usd: float = tithe_amount_usd
         self._tithe_breath_cost: float = tithe_breath_cost
         self._record_living_stage_fields: bool = record_living_stage_fields
+        self._incarnation_number: int = incarnation_number
         # Counts MARKETS seen (decision ticks with a real market), not raw
         # ticks — settle-only stops do not advance the rent clock. Fires on
         # each multiple of ``tithe_every``.
@@ -1933,6 +1939,7 @@ class SandboxPhase2Loop:
             weights=self._weights,
             desperate=self._desperate,
             pending_proposals=list(self._pending_proposals),
+            incarnation_number=self._incarnation_number,
         )
         self._writer.write_snapshot(snapshot)
 
@@ -2031,6 +2038,7 @@ class SandboxPhase2Loop:
                         weights=self._weights,
                         desperate=self._desperate,
                         pending_proposals=list(self._pending_proposals),
+                        incarnation_number=self._incarnation_number,
                     )
                     self._writer.write_snapshot(post_l3_snapshot)
 
@@ -2158,6 +2166,7 @@ class SandboxPhase2Loop:
                 weights=self._weights,
                 desperate=self._desperate,
                 pending_proposals=list(self._pending_proposals),
+                incarnation_number=self._incarnation_number,
             )
             self._writer.write_snapshot(post_tribute_snapshot)
         self._state_hook.emit(
@@ -2308,6 +2317,7 @@ class SandboxPhase2Loop:
                 weights=self._weights,
                 desperate=self._desperate,
                 pending_proposals=list(self._pending_proposals),
+                incarnation_number=self._incarnation_number,
             )
             self._writer.write_snapshot(snapshot)
         except Exception as exc:
